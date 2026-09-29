@@ -84,7 +84,11 @@ class ProtectedStorage(private val context: Context) {
     fun readBlob(id: String) = read(blob(id), Records.MAX_BYTES + 40)
     fun writeBlob(id: String, bytes: ByteArray) = write(blob(id), bytes)
     fun hasBlobs() = directory.listFiles()?.any { it.name.endsWith(".vault") || it.name.endsWith(".vault.bak") } ?: false
-    fun removeBlobs(except: String?) { directory.listFiles()?.filter { it.extension == "vault" && it.nameWithoutExtension != except }?.forEach { check(it.delete()) { "Could not remove old ciphertext." } } }
+    // Also removes AtomicFile leftovers (<id>.vault.new from an interrupted write, legacy <id>.vault.bak).
+    fun removeBlobs(except: String?) {
+        directory.listFiles()?.filter { f -> listOf(".vault", ".vault.new", ".vault.bak").any { f.name.endsWith(it) } && f.name.substringBefore('.') != except }
+            ?.forEach { check(it.delete() || !it.exists()) { "Could not remove old ciphertext." } }
+    }
     fun biometricCipher(encrypt: Boolean): Cipher {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         if (encrypt) {

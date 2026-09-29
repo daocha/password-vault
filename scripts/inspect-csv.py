@@ -27,8 +27,9 @@ for i, r in enumerate(rows):
     print(f"\n--- record {i}: name is {len(r.get('name') or '')} chars")
     for k, v in r.items():
         if k == "customFields": continue
-        if v: print(f"  {k}: " + (v if k in ("fav", "flags", "imageIndex", "dataVersion", "usernameLabel", "passwordLabel", "websiteLabel", "notesLabel") else f"<{len(v)} chars>"))
+        # Labels are user-editable, so they are masked like every other free-text value.
+        if v: print(f"  {k}: " + (v if k in ("fav", "flags", "imageIndex", "dataVersion") else f"<{len(v)} chars>"))
     if custom:
         try: print("  customFields (JSON):", json.dumps(mask(json.loads(custom)), indent=2))
-        except ValueError: print(f"  customFields (NOT JSON): {len(custom)} chars, starts with {custom[:1]!r}, separators: {sorted({c for c in custom if not c.isalnum()})[:12]}")
+        except ValueError: print(f"  customFields (NOT JSON): {len(custom)} chars")
 if not shown: print("No matching records with custom fields.")

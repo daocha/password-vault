@@ -43,8 +43,10 @@ public final class VaultEngine: @unchecked Sendable {
     }
     private func write(_ value: DeviceState) throws { try storage.writeState(JSONEncoder().encode(value)) }
     public func exists() throws -> Bool { try serialized { try state() != nil } }
+    /// True after erasure, and also when ciphertext exists without its protected state (e.g. the device passcode was removed,
+    /// which deletes the Keychain items): nothing can decrypt it, so it may be reset like an erased vault.
     public func isErased() throws -> Bool { try serialized {
-        guard let data = try storage.readState() else { return false }
+        guard let data = try storage.readState() else { return try storage.hasBlobs() }
         return try JSONDecoder().decode(DeviceState.self, from: data).erased
     } }
     public func resetErasedVault() throws { try serialized {
@@ -64,7 +66,8 @@ public final class VaultEngine: @unchecked Sendable {
         let blob = UUID().uuidString
         let value = DeviceState(salt: salt, secret: secret, wrappedKey: try VaultCrypto.seal(dataKey, key: wrapping, aad: Data("PassVault/key/v1".utf8)), blob: blob)
         try storage.writeBlob(VaultCrypto.seal(Records.encode([]), key: dataKey, aad: Data(blob.utf8)), id: blob)
-        try write(value)
+        // Without its state the new file would block every later attempt ("Protected state is missing"), e.g. when no passcode is set.
+        do { try write(value) } catch { try? storage.removeBlobs(except: nil); throw error }
         key = dataKey; records = []; return []
     } }
     private func authenticate(_ password: String) throws -> Data {

@@ -11,6 +11,18 @@ final class KeychainStorage: VaultStorage {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
         var url = directory, values = URLResourceValues(); values.isExcludedFromBackup = true
         try url.setResourceValues(values)
+        // Keychain items outlive an uninstall but the vault files do not. On the first launch of a fresh install (no marker and
+        // no ciphertext), drop stale items so a reinstalled app starts over instead of finding state that points at missing files.
+        // An existing install that predates the marker keeps its vault and just gets the marker.
+        let marker = directory.appendingPathComponent("installed")
+        if !FileManager.default.fileExists(atPath: marker.path) && !(try hasBlobs()) {
+            for account in ["state", "biometric"] {
+                let status = SecItemDelete(query(account) as CFDictionary)
+                guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError.invalid("Could not reset protected storage (\(status)).") }
+            }
+        }
+        // Empty and nonsecret, so it may be written during a prewarmed launch before the first unlock.
+        if !FileManager.default.fileExists(atPath: marker.path) { try Data().write(to: marker, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]) }
     }
     private func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
@@ -38,9 +50,15 @@ final class KeychainStorage: VaultStorage {
             guard let acl = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .biometryCurrentSet, &error) else { throw VaultError.invalid("Biometric protection is unavailable.") }
             attributes[kSecAttrAccessControl as String] = acl
         } else { attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly }
-        var status = SecItemUpdate(base as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
+        var status: OSStatus
+        if biometric {
+            // Replace, never update: an item invalidated by a biometric enrollment change cannot be updated in place.
+            status = SecItemDelete(base as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError.invalid("Could not replace biometric key (\(status)).") }
             status = SecItemAdd(base.merging(attributes) { _, new in new } as CFDictionary, nil)
+        } else {
+            status = SecItemUpdate(base as CFDictionary, attributes as CFDictionary)
+            if status == errSecItemNotFound { status = SecItemAdd(base.merging(attributes) { _, new in new } as CFDictionary, nil) }
         }
         guard status == errSecSuccess else { throw VaultError.invalid("Could not commit protected state. Set a device passcode first (\(status)).") }
     }
@@ -60,7 +78,7 @@ final class KeychainStorage: VaultStorage {
         return try Data(contentsOf: url)
     }
     func writeBlob(_ data: Data, id: String) throws { try data.write(to: path(id), options: [.atomic, .completeFileProtection]) }
-    func hasBlobs() throws -> Bool { try !FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).isEmpty }
+    func hasBlobs() throws -> Bool { try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).contains { $0.pathExtension == "vault" } }
     func removeBlobs(except id: String?) throws {
         for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where url.pathExtension == "vault" && url.deletingPathExtension().lastPathComponent != id {
             try FileManager.default.removeItem(at: url)

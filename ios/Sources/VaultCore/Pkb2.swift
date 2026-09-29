@@ -71,22 +71,27 @@ public enum Pkb2 {
         func str(_ key: String) -> String? { get(key) as? String }
     }
     private struct Reader {
-        let s: [Character]; var i = 0
+        let s: [Character]; var i = 0, depth = 0
         init(_ text: String) { s = Array(text) }
         mutating func ws() { while i < s.count, s[i].isWhitespace { i += 1 } }
+        /// Bounds-checked read: truncated input throws instead of trapping.
+        func peek() throws -> Character { guard i < s.count else { throw VaultError.invalid("Truncated Password Keeper records.") }; return s[i] }
         mutating func need(_ c: Character) throws { guard i < s.count, s[i] == c else { throw VaultError.invalid("Unrecognised Password Keeper data.") }; i += 1 }
         mutating func value() throws -> Any? {
             ws(); guard i < s.count else { throw VaultError.invalid("Truncated Password Keeper records.") }
+            // Bounded nesting: deep recursion would overflow the stack and crash.
+            depth += 1; defer { depth -= 1 }
+            guard depth <= 64 else { throw VaultError.invalid("Password Keeper records are nested too deeply.") }
             switch s[i] {
             case "{":
                 i += 1; var list: [(String, Any?)] = []; ws()
-                if s[i] == "}" { i += 1; return Obj(list) }
-                while true { ws(); let k = try string(); ws(); try need(":"); list.append((k, try value())); ws(); if s[i] == "," { i += 1 } else { try need("}"); break } }
+                if try peek() == "}" { i += 1; return Obj(list) }
+                while true { ws(); let k = try string(); ws(); try need(":"); list.append((k, try value())); ws(); if try peek() == "," { i += 1 } else { try need("}"); break } }
                 return Obj(list)
             case "[":
                 i += 1; var list: [Any?] = []; ws()
-                if s[i] == "]" { i += 1; return list }
-                while true { list.append(try value()); ws(); if s[i] == "," { i += 1 } else { try need("]"); break } }
+                if try peek() == "]" { i += 1; return list }
+                while true { list.append(try value()); ws(); if try peek() == "," { i += 1 } else { try need("]"); break } }
                 return list
             case "\"": return try string()
             default:

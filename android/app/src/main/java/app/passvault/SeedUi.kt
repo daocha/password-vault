@@ -118,7 +118,7 @@ fun SeedDetail(record: VaultRecord, onBack: () -> Unit, onEdit: () -> Unit, onDe
             item { Text(stringResource(R.string.seed_never_copied), Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center) }
         }
     }
-    if (deleting) AlertDialog(onDismissRequest = { deleting = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(stringResource(if (privateKey != null) R.string.seed_delete_key_title else R.string.seed_delete_phrase_title)) }, text = { Text(stringResource(if (privateKey != null) R.string.seed_delete_key_body else R.string.seed_delete_words_body, record.name)) },
+    if (deleting) AlertDialog(onDismissRequest = { deleting = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(stringResource(if (privateKey != null) R.string.seed_delete_key_title else R.string.seed_delete_phrase_title)) }, text = { HardenWindow(); Text(stringResource(if (privateKey != null) R.string.seed_delete_key_body else R.string.seed_delete_words_body, record.name)) },
         confirmButton = { TextButton(onClick = { deleting = false; onDelete() }) { Text(stringResource(R.string.seed_delete)) } }, dismissButton = { TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.seed_cancel)) } })
 }
 
@@ -142,7 +142,9 @@ fun SeedEditor(initial: VaultRecord, isNew: Boolean, onCancel: () -> Unit, onSav
     fun save() {
         val fields = listOf(if (keyOnly) VaultField(kind = FieldKind.password, label = PRIVATE_KEY_LABEL, value = privateKey.trim()) else VaultField(kind = FieldKind.password, label = SEED_LABEL, value = words.joinToString(" "))) +
             (if (passphrase.isNotEmpty() && !keyOnly) listOf(VaultField(kind = FieldKind.password, label = SEED_PASSPHRASE_LABEL, value = passphrase)) else emptyList()) +
-            (if (notes.isNotBlank()) listOf(VaultField(kind = FieldKind.note, label = "Notes", value = notes)) else emptyList())
+            (if (notes.isNotBlank()) listOf(VaultField(kind = FieldKind.note, label = "Notes", value = notes)) else emptyList()) +
+            // Keep any other fields (e.g. from a backup made elsewhere) instead of silently dropping them.
+            initial.fields.filter { it.label !in listOf(SEED_LABEL, PRIVATE_KEY_LABEL, SEED_PASSPHRASE_LABEL) && it !== initial.fields.firstOrNull { f -> f.kind == FieldKind.note } }
         onSave(initial.copy(name = name.trim(), favorite = favorite, type = RecordType.seed, fields = fields, updatedAt = Instant.now().toString()))
     }
     // Seed words must never reach the clipboard, even when copying is allowed elsewhere.

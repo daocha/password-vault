@@ -31,6 +31,7 @@ def cbc_encrypt(key, iv, data):
     e = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor(); return e.update(data) + e.finalize()
 mac = lambda k, m: hmac.new(k, m, hashlib.sha256).digest()
 
+if len(sys.argv) != 2: sys.exit(__doc__)
 salt, iv = os.urandom(32), os.urandom(16)
 dk = Scrypt(salt=salt, length=64, n=65536, r=8, p=1).derive(PASSWORD.encode())
 rk, rmk, riv = os.urandom(32), os.urandom(32), os.urandom(16)

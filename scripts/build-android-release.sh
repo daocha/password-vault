@@ -16,25 +16,29 @@ for arg in "$@"; do case "$arg" in --skip-tests) run_tests=0 ;; -h|--help) sed -
 
 find_toolchain
 ensure_keystore
+# A lineage backup without a lineage means a rotation was lost: shipping without it would break in-place updates.
+if [ ! -f "$lineage" ] && ls "$lineage".bak-* >/dev/null 2>&1; then die "Found $lineage.bak-* but no $lineage. Restore it or re-run scripts/rotate-signing-key.sh."; fi
 
 # --- Build ---------------------------------------------------------------------------------------
-# Passed to Gradle through the environment only; --no-daemon so no long-lived process keeps it.
-export QV_KEYSTORE_FILE="$keystore" QV_KEYSTORE_PASSWORD="$PASSVAULT_KEYSTORE_PASSWORD" QV_KEY_PASSWORD="$PASSVAULT_KEYSTORE_PASSWORD" QV_KEY_ALIAS="$alias_name"
 cd "$root/android"
-tasks=(:app:assembleRelease :app:bundleRelease)
-[ "$run_tests" = 1 ] && tasks=(:app:testDebugUnitTest "${tasks[@]}")
-# GRADLE_EXTRA_ARGS (e.g. --offline) is optional.
-./gradlew --no-daemon ${GRADLE_EXTRA_ARGS:-} clean "${tasks[@]}"
+# GRADLE_EXTRA_ARGS (e.g. --offline) is optional. Tests run first, in a separate Gradle run that never sees the key password.
+gradle_args=(--no-daemon -Pkotlin.compiler.execution.strategy=in-process ${GRADLE_EXTRA_ARGS:-})
+./gradlew "${gradle_args[@]}" clean
+[ "$run_tests" = 1 ] && ./gradlew "${gradle_args[@]}" :app:testDebugUnitTest
+# Passed to Gradle through the environment only, with no Gradle or Kotlin daemon left holding it afterwards.
+QV_KEYSTORE_FILE="$keystore" QV_KEYSTORE_PASSWORD="$PASSVAULT_KEYSTORE_PASSWORD" QV_KEY_PASSWORD="$PASSVAULT_KEYSTORE_PASSWORD" QV_KEY_ALIAS="$alias_name" \
+  ./gradlew "${gradle_args[@]}" :app:assembleRelease :app:bundleRelease
 
 # --- Collect and verify --------------------------------------------------------------------------
 version="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -1)"
 code="$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)"
+min_sdk="$(sed -n 's/.*minSdk = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)"
+[ -n "$version" ] && [ -n "$code" ] && [ -n "$min_sdk" ] || die "Could not read versionName/versionCode/minSdk from app/build.gradle.kts."
 out="$root/dist"; mkdir -p "$out"
 apk="$out/PassVault-$version-$code.apk"; aab="$out/PassVault-$version-$code.aab"
 cp app/build/outputs/apk/release/app-release.apk "$apk"
 if [ -f "$lineage" ]; then
   # Re-sign with the lineage (APK Signature Scheme v3 only; every supported Android version verifies it).
-  min_sdk="$(sed -n 's/.*minSdk = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)"
   mv "$apk" "$apk.unrotated"
   "$apksigner" sign --ks "$keystore" --ks-key-alias "$alias_name" --ks-pass env:PASSVAULT_KEYSTORE_PASSWORD --lineage "$lineage" \
     --min-sdk-version "$min_sdk" --rotation-min-sdk-version "$min_sdk" --v1-signing-enabled false --v2-signing-enabled false --v3-signing-enabled true \
@@ -44,8 +48,14 @@ if [ -f "$lineage" ]; then
 fi
 cp app/build/outputs/bundle/release/app-release.aab "$aab"
 
-"$apksigner" verify --print-certs -v --min-sdk-version "${min_sdk:-30}" "$apk" | sed -n '1,8p'
-"$JAVA_HOME/bin/jarsigner" -verify "$aab" >/dev/null || die "AAB signature verification failed."
+"$apksigner" verify --print-certs -v --min-sdk-version "$min_sdk" "$apk" | sed -n '1,8p'
+# jarsigner -verify exits 0 even for an unsigned jar, so check its verdict and that the signer is our upload key.
+verdict="$("$JAVA_HOME/bin/jarsigner" -verify "$aab" 2>&1 || true)"
+case "$verdict" in *"jar verified."*) ;; *) die "AAB signature verification failed: $verdict" ;; esac
+fingerprint() { sed -n 's/^[[:space:]]*SHA256: //p' | head -1; }
+aab_cert="$("$JAVA_HOME/bin/keytool" -printcert -jarfile "$aab" | fingerprint)"
+key_cert="$("$JAVA_HOME/bin/keytool" -list -v -keystore "$keystore" -alias "$alias_name" -storepass:env PASSVAULT_KEYSTORE_PASSWORD | fingerprint)"
+[ -n "$aab_cert" ] && [ "$aab_cert" = "$key_cert" ] || die "The AAB is not signed with $alias_name from $keystore."
 (cd "$out" && shasum -a 256 "$(basename "$apk")" "$(basename "$aab")" | tee "PassVault-$version-$code.SHA256SUMS")
 cat <<MSG
 

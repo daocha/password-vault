@@ -50,3 +50,16 @@ fun PassVaultTheme(mode: ThemeMode, content: @Composable () -> Unit) {
     }
     MaterialTheme(colorScheme = if (dark) DarkColors else LightColors, content = content)
 }
+
+/** Dialogs, sheets and popups get their own window: give it the activity's autofill, content-capture and tapjacking protection. */
+@androidx.compose.runtime.Composable
+fun HardenWindow() {
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(view) {
+        val root = view.rootView
+        root.importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        root.importantForContentCapture = android.view.View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
+        root.filterTouchesWhenObscured = true
+        onDispose {}
+    }
+}

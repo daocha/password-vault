@@ -12,8 +12,11 @@
 *.cer
 *.mobileprovision
 *.certSigningRequest
-lineage*.bin
+lineage*
 *.lineage
+*.pepk
+encrypted_private_key*.zip
+*.bks
 .passvault-signing/
 signing.properties
 keystore.properties
@@ -36,6 +39,9 @@ local.properties
 *.csv
 *.pkb2
 *.pvault
+*.vault
+*.vault.bak
+state.bak
 passvault_*.csv
 passvault_*.pkb2
 pk_backup_*
@@ -55,6 +61,8 @@ DerivedData/
 xcuserdata/
 *.apk
 *.aab
+*.ipa
+*.xcarchive/
 *.ap_
 *.dex
 *.hprof

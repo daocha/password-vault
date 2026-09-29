@@ -28,12 +28,15 @@ export OLD_KEYSTORE_PASSWORD
 ensure_keystore
 [ "$old_ks" != "$keystore" ] || die "The old and new keystore are the same file."
 
-mkdir -p "$(dirname "$lineage")"
-[ -f "$lineage" ] && mv "$lineage" "$lineage.bak-$(date +%Y%m%d-%H%M%S)"
-"$apksigner" rotate --out "$lineage" \
+[ -d "$(dirname "$lineage")" ] || (umask 077; mkdir -p "$(dirname "$lineage")")
+# Rotate into a temporary file so a failed rotation (wrong password or alias) never leaves the build without a lineage.
+tmp="$lineage.tmp"; rm -f "$tmp"
+(umask 077; "$apksigner" rotate --out "$tmp" \
   --old-signer --ks "$old_ks" --ks-key-alias "$old_alias" --ks-pass env:OLD_KEYSTORE_PASSWORD \
-  --new-signer --ks "$keystore" --ks-key-alias "$alias_name" --ks-pass env:PASSVAULT_KEYSTORE_PASSWORD
-chmod 600 "$lineage"
+  --new-signer --ks "$keystore" --ks-key-alias "$alias_name" --ks-pass env:PASSVAULT_KEYSTORE_PASSWORD) \
+  || { rm -f "$tmp"; die "Rotation failed; the existing lineage (if any) is unchanged."; }
+[ -f "$lineage" ] && cp -p "$lineage" "$lineage.bak-$(date +%Y%m%d-%H%M%S)"
+chmod 600 "$tmp"; mv "$tmp" "$lineage"
 cat <<MSG
 
 Lineage created: $lineage

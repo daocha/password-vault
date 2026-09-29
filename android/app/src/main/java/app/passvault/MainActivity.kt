@@ -126,7 +126,9 @@ class MainActivity : FragmentActivity() {
     private var biometricAutoPrompted = false
     private var enablingBiometric = false
     private var importPreview by mutableStateOf<List<VaultRecord>?>(null)
-    private val screenOff = object : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { if (unlocked) lockVault() } }
+    private val screenOff = object : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { if (unlocked) lockVault() else discardPendingUnlock() } }
+    /** An unlock still deriving its key when the app leaves the foreground must not complete unattended: its result is dropped and the engine re-locked. */
+    private fun discardPendingUnlock() { if (busy && !unlocked) generation++ }
     private var generation by mutableIntStateOf(0)
     private var settings by mutableStateOf(false)
     private var seedTab by mutableStateOf(false)
@@ -157,6 +159,7 @@ class MainActivity : FragmentActivity() {
     private val importPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         systemPickerOpen = false
         if (uri != null && unlocked) lifecycleScope.launch {
+            val epoch = generation
             try {
                 val bytes = withContext(Dispatchers.IO) {
                     contentResolver.openInputStream(uri)?.use { input ->
@@ -165,6 +168,7 @@ class MainActivity : FragmentActivity() {
                         out.toByteArray()
                     } ?: error(getString(R.string.main_cannot_open_file))
                 }
+                if (epoch != generation || !unlocked) { bytes.fill(0); return@launch } // Locked while the file was read.
                 importBytes?.fill(0); importBytes = null
                 if (VaultCrypto.isBackup(bytes) || Pkb2.isPkb2(bytes)) importBytes = bytes // Password dialog decrypts it.
                 else readImport({ try { VaultCSV.importRecords(bytes.toString(Charsets.UTF_8)) } finally { bytes.fill(0) } })
@@ -220,7 +224,7 @@ class MainActivity : FragmentActivity() {
         try { engine = VaultEngine(ProtectedStorage(this)); exists = engine.exists(); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric(); ready = true }
         catch (e: Exception) { message = e.message ?: getString(R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
         setContent {
-            PassVaultTheme(themeMode) { BlockTextCopy(!allowCopy) {
+            PassVaultTheme(themeMode) { BlockTextCopy(!allowCopy, ::copySecret) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                         key(generation) {
@@ -263,7 +267,8 @@ class MainActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         backgroundSince = 0; lockTimeout = null
-        if (!unlocked || isChangingConfigurations) return
+        if (isChangingConfigurations) return
+        if (!unlocked) { discardPendingUnlock(); return }
         backgroundSince = SystemClock.elapsedRealtime()
         // The app's own system pickers get a bounded grace period instead of suspending auto-lock, so leaving from inside a picker still locks.
         val timeout = if (systemPickerOpen) PICKER_GRACE_MILLIS else autoLock.millis ?: return // deviceLock: the screen-off receiver locks.
@@ -291,7 +296,13 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             try {
                 val result = withContext(vaultQueue) { action() }
-                if (epoch != generation) { withContext(vaultQueue) { engine.lock() }; return@launch }
+                if (epoch != generation) {
+                    withContext(vaultQueue) { engine.lock() }
+                    // The action itself completed (e.g. a vault was created or reset), so refresh what the unlock screen shows.
+                    exists = runCatching { engine.exists() }.getOrDefault(exists); erased = runCatching { engine.isErased() }.getOrDefault(erased)
+                    remaining = runCatching { engine.remainingAttempts() }.getOrDefault(remaining)
+                    return@launch
+                }
                 if (result != null) { records = result; unlocked = true; exists = true }
                 remaining = engine.remainingAttempts(); done()
             } catch (e: Exception) {
@@ -347,7 +358,7 @@ class MainActivity : FragmentActivity() {
             if (exists && biometricEnabled) OutlinedButton(onClick = { biometrics() }, enabled = ready, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Default.Fingerprint, null); Text("  " + stringResource(R.string.main_unlock_with_biometrics)) }
             if (exists) Text(stringResource(R.string.main_attempts_remaining, remaining), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (reset) AlertDialog(onDismissRequest = { reset = false }, title = { Text(stringResource(R.string.main_new_empty_vault_title)) }, text = { Text(stringResource(R.string.main_erased_cannot_recover)) }, confirmButton = { TextButton(onClick = { reset = false; work({ engine.resetErasedVault(); null }) { erased = false; exists = false; remaining = 10; message = getString(R.string.main_create_then_import) } }) { Text(stringResource(R.string.main_create_new_vault)) } }, dismissButton = { TextButton(onClick = { reset = false }) { Text(stringResource(R.string.main_cancel)) } })
+        if (reset) AlertDialog(onDismissRequest = { reset = false }, title = { Text(stringResource(R.string.main_new_empty_vault_title)) }, text = { HardenWindow(); Text(stringResource(R.string.main_erased_cannot_recover)) }, confirmButton = { TextButton(onClick = { reset = false; work({ engine.resetErasedVault(); null }) { erased = false; exists = false; remaining = 10; message = getString(R.string.main_create_then_import) } }) { Text(stringResource(R.string.main_create_new_vault)) } }, dismissButton = { TextButton(onClick = { reset = false }) { Text(stringResource(R.string.main_cancel)) } })
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -357,11 +368,16 @@ class MainActivity : FragmentActivity() {
         val type = if (seedTab) RecordType.seed else RecordType.login
         val ofType = records.filter { it.type == type }
         val groups = remember(records) { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
+        // A group filter whose last entry was moved or deleted has no chip left to clear it.
+        LaunchedEffect(groups) { if (group != null && group !in groups) group = null }
+        val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() }))
+        // Bulk actions apply only to entries the user can see: narrowing the filters drops hidden entries from the selection.
+        LaunchedEffect(visible) { val ids = visible.map { it.id }.toSet(); if (!ids.containsAll(selected)) selected = selected intersect ids }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
             topBar = {
                 if (selecting) TopAppBar(title = { Text(stringResource(R.string.main_selected_count, selected.size)) }, navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, stringResource(R.string.main_cancel_selection)) } },
                     actions = {
-                        IconButton(onClick = { val ids = records.filter { it.type == (if (seedTab) RecordType.seed else RecordType.login) }.map { it.id }.toSet(); selected = if (selected.containsAll(ids)) emptySet() else ids }) { Icon(Icons.Outlined.SelectAll, stringResource(R.string.main_select_all)) }
+                        IconButton(onClick = { val ids = visible.map { it.id }.toSet(); selected = if (selected.containsAll(ids)) emptySet() else ids }) { Icon(Icons.Outlined.SelectAll, stringResource(R.string.main_select_all)) }
                         if (!seedTab) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
@@ -380,7 +396,6 @@ class MainActivity : FragmentActivity() {
                     item { FilterChip(favorites, { favorites = !favorites }, label = { Text(stringResource(R.string.main_favorites)) }, leadingIcon = { Icon(if (favorites) Icons.Default.Star else Icons.Outlined.StarOutline, null, Modifier.size(18.dp)) }) }
                     if (!seedTab) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) }, leadingIcon = { Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp)) }) }
                 }
-                val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() }))
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconBadge(if (seedTab) Icons.Outlined.AccountBalanceWallet else Icons.Outlined.Key, 72.dp); Spacer(Modifier.height(16.dp))
                     Text(if (seedTab) stringResource(R.string.main_no_seed_phrases) else stringResource(R.string.main_peace_of_mind), style = MaterialTheme.typography.titleLarge)
@@ -417,7 +432,7 @@ class MainActivity : FragmentActivity() {
         if (confirmDelete) {
             val doomed = records.filter { it.id in selected }; val seeds = doomed.count { it.type == RecordType.seed }
             AlertDialog(onDismissRequest = { confirmDelete = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(if (doomed.size == 1) stringResource(R.string.main_delete_title_one, doomed.size) else stringResource(R.string.main_delete_title_many, doomed.size)) },
-                text = { Text(when { seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
+                text = { HardenWindow(); Text(when { seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
                 confirmButton = { TextButton(onClick = { confirmDelete = false; val ids = doomed.map { it.id }.toSet(); val updated = records.filter { it.id !in ids }; work({ engine.save(updated); updated }) { selected = emptySet(); message = if (ids.size == 1) getString(R.string.main_deleted_one, ids.size) else getString(R.string.main_deleted_many, ids.size) } }) { Text(stringResource(R.string.main_delete), color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.main_cancel)) } })
         }
@@ -440,6 +455,7 @@ class MainActivity : FragmentActivity() {
         val changed = targets.filter { pending[it.id] != it.group.trim() }
         AlertDialog(onDismissRequest = dismiss, icon = { Icon(Icons.Outlined.Folder, null) }, title = { Text(if (targets.size == 1) stringResource(R.string.main_group_title_one, targets.size) else stringResource(R.string.main_group_title_many, targets.size)) },
             text = {
+                HardenWindow()
                 Column {
                     LazyColumn(Modifier.heightIn(max = 280.dp)) {
                         items(names) { name ->
@@ -523,7 +539,7 @@ class MainActivity : FragmentActivity() {
             }
         }
         record.fields.firstOrNull { it.id == historyFor }?.let { field -> PasswordHistorySheet(field) { historyFor = null } }
-        if (deleting) AlertDialog(onDismissRequest = { deleting = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(stringResource(R.string.main_delete_this_entry)) }, text = { Text(stringResource(R.string.main_delete_this_entry_body, record.name)) },
+        if (deleting) AlertDialog(onDismissRequest = { deleting = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(stringResource(R.string.main_delete_this_entry)) }, text = { HardenWindow(); Text(stringResource(R.string.main_delete_this_entry_body, record.name)) },
             confirmButton = { TextButton(onClick = { deleting = false; val updated = records.filter { it.id != record.id }; work({ engine.save(updated); updated }) { viewing = null } }) { Text(stringResource(R.string.main_delete)) } },
             dismissButton = { TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.main_cancel)) } })
     }
@@ -534,6 +550,7 @@ class MainActivity : FragmentActivity() {
         val entries = remember(field.id, field.history) { field.historyNewestFirst }
         var shown by remember { mutableStateOf(emptySet<Int>()) }
         ModalBottomSheet(onDismissRequest = dismiss) {
+            HardenWindow()
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
                 Text(stringResource(R.string.main_password_history), style = MaterialTheme.typography.titleLarge)
                 Text(stringResource(R.string.main_history_subtitle, field.displayName), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
@@ -720,7 +737,7 @@ class MainActivity : FragmentActivity() {
                 }
                 SectionTitle(stringResource(R.string.main_backup_migration))
                 Group {
-                    Row(Icons.Outlined.FileOpen, stringResource(R.string.main_import_action), stringResource(R.string.main_import_row_summary)) { systemPickerOpen = true; importPicker.launch(arrayOf("*/*")) }
+                    Row(Icons.Outlined.FileOpen, stringResource(R.string.main_import_action), stringResource(R.string.main_import_row_summary)) { launchPicker { importPicker.launch(arrayOf("*/*")) } }
                     Row(Icons.Outlined.EnhancedEncryption, stringResource(R.string.main_export_encrypted), stringResource(R.string.main_export_encrypted_summary)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
                     Row(Icons.Outlined.Description, stringResource(R.string.main_export_csv), stringResource(R.string.main_export_csv_summary)) { dialog = SettingsDialog.Exporting(Export.csv) }
                 }
@@ -759,7 +776,7 @@ class MainActivity : FragmentActivity() {
                         CheckRow(consent, { consent = it }) { Text(stringResource(R.string.main_understand_risk), style = MaterialTheme.typography.bodyMedium) }
                     } }) { pass ->
                     exportIsCSV = csv
-                    work({ exportBytes?.fill(0); exportBytes = engine.export(pass, csv); null }) { systemPickerOpen = true; if (csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }
+                    work({ exportBytes?.fill(0); exportBytes = engine.export(pass, csv); null }) { if (!launchPicker { if (csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) { exportBytes?.fill(0); exportBytes = null } }
                 }
             }
         }
@@ -767,14 +784,14 @@ class MainActivity : FragmentActivity() {
     @Composable private fun PasswordDialog(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String, confirm: String, dismiss: () -> Unit, enabled: Boolean = true, extra: @Composable ColumnScope.() -> Unit = {}, submit: (String) -> Unit) {
         var password by remember { mutableStateOf("") }
         AlertDialog(onDismissRequest = dismiss, icon = { Icon(icon, null) }, title = { Text(title) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(body); SecretInput(stringResource(R.string.main_app_password), password, { password = it }); extra() } },
+            text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(body); SecretInput(stringResource(R.string.main_app_password), password, { password = it }); extra() } },
             confirmButton = { TextButton(onClick = { val value = password; password = ""; dismiss(); submit(value) }, enabled = enabled && password.isNotEmpty()) { Text(confirm) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun ChangePasswordDialog(dismiss: () -> Unit) {
         var current by remember { mutableStateOf("") }; var next by remember { mutableStateOf("") }; var repeat by remember { mutableStateOf("") }
         AlertDialog(onDismissRequest = dismiss, icon = { Icon(Icons.Outlined.Password, null) }, title = { Text(stringResource(R.string.main_change_app_password)) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            text = { HardenWindow(); Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecretInput(stringResource(R.string.main_current_password), current, { current = it }); SecretInput(stringResource(R.string.main_new_password), next, { next = it }); SecretInput(stringResource(R.string.main_repeat_new_password), repeat, { repeat = it })
                 PasswordHint(next)
                 if (repeat.isNotEmpty() && repeat != next) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -788,11 +805,16 @@ class MainActivity : FragmentActivity() {
             var backupPassword by remember { mutableStateOf("") }
             val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true
             AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(if (keeper) stringResource(R.string.main_keeper_backup_title) else stringResource(R.string.main_encrypted_backup_title)) },
-                text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(if (keeper) stringResource(R.string.main_keeper_backup_body) else stringResource(R.string.main_encrypted_backup_body)); SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it }) } },
+                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(if (keeper) stringResource(R.string.main_keeper_backup_body) else stringResource(R.string.main_encrypted_backup_body)); SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it }) } },
                 confirmButton = { TextButton(onClick = { val bytes = importBytes ?: return@TextButton; val pass = backupPassword; backupPassword = ""; readImport({ if (Pkb2.isPkb2(bytes)) Pkb2.import(bytes, pass) else VaultCrypto.importBackup(bytes, pass) }) { bytes.fill(0); if (importBytes === bytes) importBytes = null } }, enabled = backupPassword.isNotEmpty()) { Text(stringResource(R.string.main_decrypt)) } },
                 dismissButton = { TextButton(onClick = { importBytes?.fill(0); importBytes = null }) { Text(stringResource(R.string.main_cancel)) } })
         }
-        importPreview?.let { imported -> AlertDialog(onDismissRequest = { importPreview = null }, icon = { Icon(Icons.Outlined.FileOpen, null) }, title = { Text(stringResource(R.string.main_import_title, imported.size)) }, text = { val seeds = imported.count { it.type == RecordType.seed }; Text(when { seeds == 0 -> stringResource(R.string.main_import_body); seeds == 1 -> stringResource(R.string.main_import_body_seed_one, seeds); else -> stringResource(R.string.main_import_body_seed_many, seeds) }) }, confirmButton = { TextButton(onClick = { importPreview = null; work({ engine.merge(imported) }) { settings = false; message = getString(R.string.main_imported_count, imported.size) } }) { Text(stringResource(R.string.main_import_action)) } }, dismissButton = { TextButton(onClick = { importPreview = null }) { Text(stringResource(R.string.main_cancel)) } }) }
+        importPreview?.let { imported -> AlertDialog(onDismissRequest = { importPreview = null }, icon = { Icon(Icons.Outlined.FileOpen, null) }, title = { Text(stringResource(R.string.main_import_title, imported.size)) }, text = { HardenWindow(); val seeds = imported.count { it.type == RecordType.seed }; Text(when { seeds == 0 -> stringResource(R.string.main_import_body); seeds == 1 -> stringResource(R.string.main_import_body_seed_one, seeds); else -> stringResource(R.string.main_import_body_seed_many, seeds) }) }, confirmButton = { TextButton(onClick = { importPreview = null; work({ engine.merge(imported) }) { settings = false; message = getString(R.string.main_imported_count, imported.size) } }) { Text(stringResource(R.string.main_import_action)) } }, dismissButton = { TextButton(onClick = { importPreview = null }) { Text(stringResource(R.string.main_cancel)) } }) }
+    }
+    /** Opens one of the app's own system pickers under the picker auto-lock grace period; false (with a message) when none is available. */
+    private fun launchPicker(launch: () -> Unit): Boolean {
+        systemPickerOpen = true
+        return try { launch(); true } catch (e: android.content.ActivityNotFoundException) { systemPickerOpen = false; messageError = true; message = getString(R.string.main_cannot_open_file); false }
     }
     /** e.g. passvault_2026-09-29_10_31.pvault, in local time. */
     private fun exportFileName(extension: String) = "passvault_" + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HH_mm")) + "." + extension

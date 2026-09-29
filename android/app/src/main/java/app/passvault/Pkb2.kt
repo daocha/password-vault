@@ -61,7 +61,7 @@ object Scrypt {
 
 /** Minimal order-preserving JSON reader. PKB2 subfields can repeat a key ("t"), which org.json rejects or silently collapses. */
 private class Json(private val s: String) {
-    private var i = 0
+    private var i = 0; private var depth = 0
     class Obj(val entries: List<Pair<String, Any?>>) {
         fun all(key: String) = entries.filter { it.first == key }.map { it.second }
         fun get(key: String) = entries.firstOrNull { it.first == key }?.second
@@ -69,23 +69,26 @@ private class Json(private val s: String) {
     }
     fun parse(): Any? = value().also { ws(); require(i == s.length) { "Unexpected data after the records." } }
     private fun ws() { while (i < s.length && s[i].isWhitespace()) i++ }
+    // Bounded nesting (a StackOverflowError would crash the app) and bounds-checked reads (truncated input is rejected, not an index error).
+    private fun at(): Char { require(i < s.length) { "Truncated records." }; return s[i] }
     private fun value(): Any? {
         ws(); require(i < s.length) { "Truncated records." }
-        return when (s[i]) {
-            '{' -> { i++; val list = mutableListOf<Pair<String, Any?>>(); ws(); if (s[i] == '}') i++ else while (true) { ws(); val k = string(); ws(); require(s[i++] == ':'); list.add(k to value()); ws(); if (s[i] == ',') i++ else { require(s[i++] == '}'); break } }; Obj(list) }
-            '[' -> { i++; val list = mutableListOf<Any?>(); ws(); if (s[i] == ']') i++ else while (true) { list.add(value()); ws(); if (s[i] == ',') i++ else { require(s[i++] == ']'); break } }; list }
+        require(++depth <= 64) { "Records are nested too deeply." }
+        try { return when (s[i]) {
+            '{' -> { i++; val list = mutableListOf<Pair<String, Any?>>(); ws(); if (at() == '}') i++ else while (true) { ws(); val k = string(); ws(); require(at() == ':'); i++; list.add(k to value()); ws(); if (at() == ',') i++ else { require(at() == '}'); i++; break } }; Obj(list) }
+            '[' -> { i++; val list = mutableListOf<Any?>(); ws(); if (at() == ']') i++ else while (true) { list.add(value()); ws(); if (at() == ',') i++ else { require(at() == ']'); i++; break } }; list }
             '"' -> string()
             else -> { val start = i; while (i < s.length && s[i] !in ",]} \n\r\t") i++; when (val t = s.substring(start, i)) { "true" -> true; "false" -> false; "null" -> null; else -> t.toDoubleOrNull()?.let { if (it % 1.0 == 0.0 && Math.abs(it) < 9e15) it.toLong() else it } ?: error("Invalid JSON value.") } }
-        }
+        } } finally { depth-- }
     }
     private fun string(): String {
-        require(s[i++] == '"'); val sb = StringBuilder()
+        require(at() == '"'); i++; val sb = StringBuilder()
         while (true) {
             require(i < s.length) { "Unterminated string." }
             val c = s[i++]
             when (c) {
                 '"' -> return sb.toString()
-                '\\' -> when (val e = s[i++]) { 'n' -> sb.append('\n'); 't' -> sb.append('\t'); 'r' -> sb.append('\r'); 'b' -> sb.append('\b'); 'f' -> sb.append('\u000c'); 'u' -> { sb.append(s.substring(i, i + 4).toInt(16).toChar()); i += 4 }; else -> sb.append(e) }
+                '\\' -> when (val e = at().also { i++ }) { 'n' -> sb.append('\n'); 't' -> sb.append('\t'); 'r' -> sb.append('\r'); 'b' -> sb.append('\b'); 'f' -> sb.append('\u000c'); 'u' -> { require(i + 4 <= s.length) { "Truncated records." }; sb.append(s.substring(i, i + 4).toInt(16).toChar()); i += 4 }; else -> sb.append(e) }
                 else -> sb.append(c)
             }
         }
@@ -131,7 +134,7 @@ object Pkb2 {
         } finally { derived.fill(0) }
     }
     private fun pbkdf2(password: ByteArray, salt: ByteArray): ByteArray {
-        val mac = Mac.getInstance("HmacSHA256"); mac.init(SecretKeySpec(password, "HmacSHA256"))
+        val mac = Mac.getInstance("HmacSHA256"); mac.init(SecretKeySpec(if (password.isEmpty()) ByteArray(64) else password, "HmacSHA256")) // SecretKeySpec rejects an empty key
         val out = ByteArray(64)
         for (block in 1..2) {
             mac.update(salt); mac.update(byteArrayOf(0, 0, 0, block.toByte()))

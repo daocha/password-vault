@@ -115,6 +115,7 @@ fun GeneratorDialog(defaults: GeneratorOptions, onDismiss: () -> Unit, onUse: (S
     var candidate by remember { mutableStateOf(PasswordGenerator.generate(defaults)) }
     AlertDialog(onDismissRequest = onDismiss, icon = { Icon(Icons.Outlined.Password, null) }, title = { Text(stringResource(R.string.seed_gen_title)) },
         text = {
+            HardenWindow()
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -21,7 +21,8 @@ find_toolchain() {
   if [ -z "${ANDROID_HOME:-}" ]; then for d in "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do [ -d "$d" ] && ANDROID_HOME="$d" && break; done; fi
   [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME" ] || die "Android SDK not found. Install Android Studio or set ANDROID_HOME."
   export JAVA_HOME ANDROID_HOME
-  apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
+  # Skip preview build-tools (e.g. 36.0.0-rc1), which sort -V would rank above the matching stable release.
+  apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | grep -v -- '-rc' | sort -V | tail -1 || true)"
   [ -n "$apksigner" ] || die "Android build-tools (apksigner) not found in $ANDROID_HOME/build-tools."
 }
 
@@ -31,9 +32,11 @@ ensure_keystore() {
     echo "No signing keystore at $keystore."
     read -r -p "Create it now? [y/N] " yn
     [ "$yn" = "y" ] || [ "$yn" = "Y" ] || die "Aborted. Set PASSVAULT_KEYSTORE to an existing keystore."
-    mkdir -p "$(dirname "$keystore")"; chmod 700 "$(dirname "$keystore")"
+    # Only a directory created here is made private; an existing one (e.g. \$HOME) keeps its permissions.
+    [ -d "$(dirname "$keystore")" ] || (umask 077; mkdir -p "$(dirname "$keystore")")
     echo "keytool will ask for a password (choose a long one) and your name/organisation details."
-    "$JAVA_HOME/bin/keytool" -genkeypair -v -storetype PKCS12 -keystore "$keystore" -alias "$alias_name" -keyalg RSA -keysize 4096 -validity 10000
+    # umask 077: the keystore is never readable by other users, not even before the chmod.
+    (umask 077; "$JAVA_HOME/bin/keytool" -genkeypair -v -storetype PKCS12 -keystore "$keystore" -alias "$alias_name" -keyalg RSA -keysize 4096 -validity 10000)
     chmod 600 "$keystore"
     cat <<MSG
 

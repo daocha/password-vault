@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import VaultCore
 import UniformTypeIdentifiers
 
@@ -53,7 +54,31 @@ import UniformTypeIdentifiers
     }
 }
 
+/// Third-party keyboards could log revealed passwords and notes typed into ordinary text fields; only the system keyboard is allowed.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, shouldAllowExtensionPointIdentifier extensionPointIdentifier: UIApplication.ExtensionPointIdentifier) -> Bool {
+        extensionPointIdentifier != .keyboard
+    }
+}
+
+/// App-switcher privacy cover in its own window above everything, so it also hides sheets (which SwiftUI presents above any overlay).
+@MainActor enum PrivacyCover {
+    private static var windows = [UIWindow]()
+    static func show() {
+        guard windows.isEmpty else { return }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            let window = UIWindow(windowScene: scene)
+            window.windowLevel = .alert + 1
+            window.rootViewController = UIHostingController(rootView: Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) })
+            window.isHidden = false
+            windows.append(window)
+        }
+    }
+    static func hide() { windows.forEach { $0.isHidden = true }; windows.removeAll() }
+}
+
 @main struct PassVaultApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = VaultModel()
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
@@ -61,7 +86,10 @@ import UniformTypeIdentifiers
             VaultRoot().environmentObject(model)
                 .tint(Color(red: 0.12, green: 0.32, blue: 0.66))
                 .overlay { if phase != .active { Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) } } }
-                .onChange(of: phase) { _, phase in if phase == .background { model.lock() } }
+                .onChange(of: phase) { _, phase in
+                    if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
+                    if phase == .background { model.lock() }
+                }
                 .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in model.checkTimeout() }
         }
     }
@@ -338,7 +366,7 @@ struct TransferView: View {
             do {
                 let data = try await Task.detached { try engine.export(password: pass, backupPassword: backup, csv: isCSV) }.value
                 if model.unlocked { document = ExportDocument(data: data); exporting = true }
-            } catch { model.message = error.localizedDescription; model.lock() }
+            } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
         }
     }
