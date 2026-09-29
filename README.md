@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="assets/banner.png" alt="PassVault: your passwords, your control" width="100%" />
+<img src="assets/banner.png" alt="PassVault: your passwords, your control" width="720" />
 
-<img src="assets/app-icon.png" alt="PassVault icon" width="120" />
-
-# 🔐 PassVault
+<br>
 
 **Your passwords, on your phone, and nowhere else.**
 
