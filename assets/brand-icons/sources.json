@@ -1,0 +1,1553 @@
+{
+ "google": {
+  "app": "Google",
+  "seller": "Google LLC",
+  "appStoreId": 284815942,
+  "country": "us",
+  "searched": "Google"
+ },
+ "youtube": {
+  "app": "YouTube",
+  "seller": "Google LLC",
+  "appStoreId": 544007664,
+  "country": "us",
+  "searched": "YouTube"
+ },
+ "github": {
+  "app": "GitHub",
+  "seller": "GitHub",
+  "appStoreId": 1477376905,
+  "country": "us",
+  "searched": "GitHub"
+ },
+ "gitlab": null,
+ "bitbucket": null,
+ "apple": null,
+ "facebook": {
+  "app": "Facebook",
+  "seller": "Meta Platforms, Inc.",
+  "appStoreId": 284882215,
+  "country": "us",
+  "searched": "Facebook"
+ },
+ "instagram": {
+  "app": "Instagram",
+  "seller": "Instagram, Inc.",
+  "appStoreId": 389801252,
+  "country": "us",
+  "searched": "Instagram"
+ },
+ "x": null,
+ "threads": {
+  "app": "Threads",
+  "seller": "Instagram, Inc.",
+  "appStoreId": 6446901002,
+  "country": "us",
+  "searched": "Threads"
+ },
+ "reddit": {
+  "app": "Reddit",
+  "seller": "REDDIT, INC.",
+  "appStoreId": 1064216828,
+  "country": "us",
+  "searched": "Reddit"
+ },
+ "pinterest": {
+  "app": "Pinterest",
+  "seller": "Pinterest, Inc.",
+  "appStoreId": 429047995,
+  "country": "us",
+  "searched": "Pinterest"
+ },
+ "snapchat": {
+  "app": "Snapchat",
+  "seller": "Snap, Inc.",
+  "appStoreId": 447188370,
+  "country": "us",
+  "searched": "Snapchat"
+ },
+ "tiktok": {
+  "app": "TikTok - Videos, Shop & LIVE",
+  "seller": "TIKTOK PTE. LTD.",
+  "appStoreId": 835599320,
+  "country": "us",
+  "searched": "TikTok"
+ },
+ "tumblr": {
+  "app": "Tumblr: Social Media & Art",
+  "seller": "Tumblr, Inc.",
+  "appStoreId": 305343404,
+  "country": "us",
+  "searched": "Tumblr"
+ },
+ "whatsapp": {
+  "app": "WhatsApp Messenger",
+  "seller": "WhatsApp Inc.",
+  "appStoreId": 310633997,
+  "country": "us",
+  "searched": "WhatsApp"
+ },
+ "telegram": {
+  "app": "Telegram Messenger",
+  "seller": "Telegram FZ-LLC",
+  "appStoreId": 686449807,
+  "country": "us",
+  "searched": "Telegram"
+ },
+ "signal": {
+  "app": "Signal - Private Messenger",
+  "seller": "Signal Messenger, LLC",
+  "appStoreId": 874139669,
+  "country": "us",
+  "searched": "Signal"
+ },
+ "discord": {
+  "app": "Discord - Talk, Play, Hang Out",
+  "seller": "Discord Inc.",
+  "appStoreId": 985746746,
+  "country": "us",
+  "searched": "Discord"
+ },
+ "zoom": {
+  "app": "Zoom Workplace",
+  "seller": "Zoom Communications, Inc.",
+  "appStoreId": 546505307,
+  "country": "us",
+  "searched": "Zoom"
+ },
+ "wechat": {
+  "app": "微信",
+  "seller": "Tencent Technology (Shenzhen) Company Limited",
+  "appStoreId": 414478124,
+  "country": "cn",
+  "searched": "微信"
+ },
+ "line": {
+  "app": "LINE",
+  "seller": "LY Corporation",
+  "appStoreId": 443904275,
+  "country": "us",
+  "searched": "LINE"
+ },
+ "viber": {
+  "app": "Rakuten Viber Messenger",
+  "seller": "Viber Media SARL.",
+  "appStoreId": 382617920,
+  "country": "us",
+  "searched": "Viber"
+ },
+ "netflix": {
+  "app": "Netflix",
+  "seller": "Netflix, Inc.",
+  "appStoreId": 363590051,
+  "country": "us",
+  "searched": "Netflix"
+ },
+ "spotify": {
+  "app": "Spotify: Music and Podcasts",
+  "seller": "Spotify",
+  "appStoreId": 324684580,
+  "country": "us",
+  "searched": "Spotify"
+ },
+ "twitch": {
+  "app": "Twitch: Live Streaming",
+  "seller": "Twitch Interactive, Inc.",
+  "appStoreId": 460177396,
+  "country": "us",
+  "searched": "Twitch"
+ },
+ "soundcloud": {
+  "app": "SoundCloud: The Music You Love",
+  "seller": "SoundCloud Global Limited & Co KG",
+  "appStoreId": 336353151,
+  "country": "us",
+  "searched": "SoundCloud"
+ },
+ "hbo": {
+  "app": "HBO Max: Stream Movies & TV",
+  "seller": "WarnerMedia Global Digital Services, LLC",
+  "appStoreId": 1666653815,
+  "country": "us",
+  "searched": "HBO"
+ },
+ "crunchyroll": {
+  "app": "Crunchyroll",
+  "seller": "Crunchyroll, LLC",
+  "appStoreId": 329913454,
+  "country": "us",
+  "searched": "Crunchyroll"
+ },
+ "vimeo": {
+  "app": "Vimeo",
+  "seller": "Vimeo.com, Inc.",
+  "appStoreId": 425194759,
+  "country": "us",
+  "searched": "Vimeo"
+ },
+ "bilibili": {
+  "app": "哔哩哔哩-弹幕番剧直播高清视频",
+  "seller": "Shanghai Bilibili Animation Co.,Ltd",
+  "appStoreId": 736536022,
+  "country": "cn",
+  "searched": "Bilibili"
+ },
+ "notion": {
+  "app": "Notion: Notes, Tasks, AI",
+  "seller": "Notion Labs, Incorporated",
+  "appStoreId": 1232780281,
+  "country": "us",
+  "searched": "Notion"
+ },
+ "dropbox": {
+  "app": "Dropbox: Cloud Storage Backup",
+  "seller": "Dropbox, Inc.",
+  "appStoreId": 327630330,
+  "country": "us",
+  "searched": "Dropbox"
+ },
+ "evernote": {
+  "app": "Evernote: AI Notes & Notebook",
+  "seller": "Evernote Corporation",
+  "appStoreId": 281796108,
+  "country": "us",
+  "searched": "Evernote"
+ },
+ "trello": {
+  "app": "Trello: Daily Task Tracker",
+  "seller": "Trello, Inc.",
+  "appStoreId": 461504587,
+  "country": "us",
+  "searched": "Trello"
+ },
+ "atlassian": null,
+ "figma": {
+  "app": "Figma",
+  "seller": "Figma, Inc.",
+  "appStoreId": 1152747299,
+  "country": "us",
+  "searched": "Figma"
+ },
+ "asana": {
+  "app": "Asana: Work Management",
+  "seller": "Asana, Inc.",
+  "appStoreId": 489969512,
+  "country": "us",
+  "searched": "Asana"
+ },
+ "airtable": {
+  "app": "Airtable",
+  "seller": "Formagrid Inc.",
+  "appStoreId": 914172636,
+  "country": "us",
+  "searched": "Airtable"
+ },
+ "miro": {
+  "app": "Miro: your visual workspace",
+  "seller": "Realtimeboard Inc.",
+  "appStoreId": 1180074773,
+  "country": "us",
+  "searched": "Miro"
+ },
+ "box": {
+  "app": "Box: The power of Content + AI",
+  "seller": "Box, Inc.",
+  "appStoreId": 290853822,
+  "country": "us",
+  "searched": "Box"
+ },
+ "cloudflare": null,
+ "digitalocean": null,
+ "vercel": null,
+ "netlify": null,
+ "docker": null,
+ "npm": null,
+ "stackoverflow": null,
+ "godaddy": {
+  "app": "GoDaddy: Websites & Marketing",
+  "seller": "GoDaddy Mobile LLC",
+  "appStoreId": 535811906,
+  "country": "us",
+  "searched": "GoDaddy"
+ },
+ "namecheap": {
+  "app": "Namecheap",
+  "seller": "Namecheap, Inc",
+  "appStoreId": 482604032,
+  "country": "us",
+  "searched": "Namecheap"
+ },
+ "wordpress": {
+  "app": "WordPress – Website Builder",
+  "seller": "Automattic, Inc.",
+  "appStoreId": 335703880,
+  "country": "us",
+  "searched": "WordPress"
+ },
+ "medium": {
+  "app": "Medium: Read & Write Stories",
+  "seller": "A Medium Corporation",
+  "appStoreId": 828256236,
+  "country": "us",
+  "searched": "Medium"
+ },
+ "substack": {
+  "app": "Substack",
+  "seller": "Substack Inc.",
+  "appStoreId": 1581650857,
+  "country": "us",
+  "searched": "Substack"
+ },
+ "anthropic": {
+  "app": "Claude by Anthropic",
+  "seller": "Anthropic PBC",
+  "appStoreId": 6473753684,
+  "country": "us",
+  "searched": "Anthropic"
+ },
+ "huggingface": null,
+ "kaggle": null,
+ "leetcode": {
+  "app": "LeetCode",
+  "seller": "LeetCode LLC",
+  "appStoreId": 6755816119,
+  "country": "us",
+  "searched": "LeetCode"
+ },
+ "binance": null,
+ "coinbase": {
+  "app": "Coinbase: Buy Crypto & Stocks",
+  "seller": "Coinbase, Inc.",
+  "appStoreId": 886427730,
+  "country": "us",
+  "searched": "Coinbase"
+ },
+ "okx": {
+  "app": "OKX: Buy Bitcoin BTC & Crypto",
+  "seller": "OKX Inc.",
+  "appStoreId": 1327268470,
+  "country": "us",
+  "searched": "OKX"
+ },
+ "kucoin": null,
+ "bitcoin": null,
+ "ethereum": null,
+ "trezor": {
+  "app": "Trezor Suite",
+  "seller": "Trezor Company s.r.o.",
+  "appStoreId": 1631884497,
+  "country": "us",
+  "searched": "Trezor"
+ },
+ "tether": null,
+ "paypal": {
+  "app": "PayPal - Pay, Send, Save",
+  "seller": "PayPal, Inc.",
+  "appStoreId": 283646709,
+  "country": "us",
+  "searched": "PayPal"
+ },
+ "stripe": {
+  "app": "Stripe Dashboard",
+  "seller": "Stripe, LLC",
+  "appStoreId": 978516833,
+  "country": "us",
+  "searched": "Stripe"
+ },
+ "wise": {
+  "app": "Wise: Global Money Transfer",
+  "seller": "Wise Payments Ltd",
+  "appStoreId": 612261027,
+  "country": "us",
+  "searched": "Wise"
+ },
+ "revolut": {
+  "app": "Revolut: send, spend, and save",
+  "seller": "Revolut Ltd",
+  "appStoreId": 932493382,
+  "country": "us",
+  "searched": "Revolut"
+ },
+ "visa": null,
+ "mastercard": null,
+ "americanexpress": {
+  "app": "Amex",
+  "seller": "American Express",
+  "appStoreId": 362348516,
+  "country": "us",
+  "searched": "American Express"
+ },
+ "alipay": {
+  "app": "支付宝-你的AI生活伙伴",
+  "seller": "Alipay (Hangzhou) Technology Co., Ltd.",
+  "appStoreId": 333206289,
+  "country": "cn",
+  "searched": "Alipay"
+ },
+ "cashapp": {
+  "app": "Cash App",
+  "seller": "Block, Inc.",
+  "appStoreId": 711923939,
+  "country": "us",
+  "searched": "Cash App"
+ },
+ "venmo": {
+  "app": "Venmo",
+  "seller": "The Delancey Corporation, LLC",
+  "appStoreId": 351727428,
+  "country": "us",
+  "searched": "Venmo"
+ },
+ "bitwarden": {
+  "app": "Bitwarden Password Manager",
+  "seller": "Bitwarden Inc",
+  "appStoreId": 1137397744,
+  "country": "us",
+  "searched": "Bitwarden"
+ },
+ "1password": {
+  "app": "1Password: Password Manager",
+  "seller": "AgileBits Inc.",
+  "appStoreId": 1511601750,
+  "country": "us",
+  "searched": "1Password"
+ },
+ "lastpass": {
+  "app": "LastPass Password Manager",
+  "seller": "LastPass US LP",
+  "appStoreId": 324613447,
+  "country": "us",
+  "searched": "LastPass"
+ },
+ "dashlane": {
+  "app": "Dashlane Password Manager",
+  "seller": "Dashlane",
+  "appStoreId": 517914548,
+  "country": "us",
+  "searched": "Dashlane"
+ },
+ "proton": null,
+ "nordvpn": {
+  "app": "NordVPN: VPN Fast & Secure",
+  "seller": "Nordvpn S.A.",
+  "appStoreId": 905953485,
+  "country": "us",
+  "searched": "NordVPN"
+ },
+ "expressvpn": {
+  "app": "ExpressVPN · Secure & Fast VPN",
+  "seller": "Expressco Services, LLC",
+  "appStoreId": 886492891,
+  "country": "us",
+  "searched": "ExpressVPN"
+ },
+ "mega": {
+  "app": "MEGA: Encrypted Cloud Storage",
+  "seller": "Mega Networks LLC",
+  "appStoreId": 706857885,
+  "country": "us",
+  "searched": "MEGA"
+ },
+ "icloud": null,
+ "duckduckgo": {
+  "app": "DuckDuckGo, optional Duck.ai",
+  "seller": "Duck Duck Go, Inc.",
+  "appStoreId": 663592361,
+  "country": "us",
+  "searched": "DuckDuckGo"
+ },
+ "steam": {
+  "app": "Steam Mobile",
+  "seller": "Valve Corporation",
+  "appStoreId": 495369748,
+  "country": "us",
+  "searched": "Steam"
+ },
+ "epicgames": {
+  "app": "Epic Games",
+  "seller": "Epic Games Sweden AB",
+  "appStoreId": 6480077263,
+  "country": "us",
+  "searched": "Epic Games"
+ },
+ "playstation": {
+  "app": "PlayStation App",
+  "seller": "PlayStation Mobile Inc.",
+  "appStoreId": 410896080,
+  "country": "us",
+  "searched": "PlayStation"
+ },
+ "ea": null,
+ "ubisoft": null,
+ "riotgames": {
+  "app": "Riot Mobile",
+  "seller": "Riot Games",
+  "appStoreId": 1077150310,
+  "country": "us",
+  "searched": "Riot Games"
+ },
+ "battledotnet": {
+  "app": "Battle.net",
+  "seller": "Blizzard Entertainment, Inc.",
+  "appStoreId": 1241040030,
+  "country": "us",
+  "searched": "Battle.net"
+ },
+ "ebay": {
+  "app": "eBay online shopping & selling",
+  "seller": "eBay Inc.",
+  "appStoreId": 282614216,
+  "country": "us",
+  "searched": "eBay"
+ },
+ "aliexpress": {
+  "app": "AliExpress - Shopping App",
+  "seller": "Alibaba.com Singapore E-Commerce Private Limited",
+  "appStoreId": 436672029,
+  "country": "us",
+  "searched": "AliExpress"
+ },
+ "alibabadotcom": {
+  "app": "Alibaba.com B2B Trade App",
+  "seller": "ALIBABA.COM GLOBAL SUPPLIER SERVICES PTE. LTD.",
+  "appStoreId": 503451073,
+  "country": "us",
+  "searched": "Alibaba.com"
+ },
+ "taobao": {
+  "app": "淘宝-万能的淘宝！",
+  "seller": "Zhejiang Taobao Network Co.,Ltd",
+  "appStoreId": 387682726,
+  "country": "cn",
+  "searched": "Taobao"
+ },
+ "shopify": {
+  "app": "Shopify: Ecommerce business",
+  "seller": "Shopify Inc.",
+  "appStoreId": 371294472,
+  "country": "us",
+  "searched": "Shopify"
+ },
+ "etsy": {
+  "app": "Etsy: Shop from Real People",
+  "seller": "Etsy, Inc.",
+  "appStoreId": 477128284,
+  "country": "us",
+  "searched": "Etsy"
+ },
+ "target": {
+  "app": "Target: Shop. Style. Save.",
+  "seller": "Target",
+  "appStoreId": 297430070,
+  "country": "us",
+  "searched": "Target"
+ },
+ "ikea": {
+  "app": "IKEA",
+  "seller": "Inter IKEA Systems B.V.",
+  "appStoreId": 1452164827,
+  "country": "us",
+  "searched": "IKEA"
+ },
+ "nike": {
+  "app": "Nike: Engineered for Athletes",
+  "seller": "Nike, Inc",
+  "appStoreId": 1095459556,
+  "country": "us",
+  "searched": "Nike"
+ },
+ "adidas": {
+  "app": "adidas: Shop Shoes & Clothing",
+  "seller": "Adidas International Marketing B.V.",
+  "appStoreId": 1266591536,
+  "country": "us",
+  "searched": "Adidas"
+ },
+ "uber": {
+  "app": "Uber - Rides, Eats, Hotels",
+  "seller": "Uber Technologies, Inc.",
+  "appStoreId": 368677368,
+  "country": "us",
+  "searched": "Uber"
+ },
+ "lyft": {
+  "app": "Lyft",
+  "seller": "Lyft, Inc.",
+  "appStoreId": 529379082,
+  "country": "us",
+  "searched": "Lyft"
+ },
+ "airbnb": {
+  "app": "Airbnb",
+  "seller": "Airbnb, Inc.",
+  "appStoreId": 401626263,
+  "country": "us",
+  "searched": "Airbnb"
+ },
+ "bookingdotcom": {
+  "app": "Booking.com: Hotels & Travel",
+  "seller": "Booking.com B.V.",
+  "appStoreId": 367003839,
+  "country": "us",
+  "searched": "Booking.com"
+ },
+ "tripadvisor": {
+  "app": "Tripadvisor: Plan & Book Trips",
+  "seller": "Tripadvisor",
+  "appStoreId": 284876795,
+  "country": "us",
+  "searched": "Tripadvisor"
+ },
+ "expedia": {
+  "app": "Expedia: Hotels, Flights, Cars",
+  "seller": "Expedia, Inc.",
+  "appStoreId": 427916203,
+  "country": "us",
+  "searched": "Expedia"
+ },
+ "grab": {
+  "app": "Grab: Taxi Ride, Food Delivery",
+  "seller": "GRABTAXI HOLDINGS PTE. LTD.",
+  "appStoreId": 647268330,
+  "country": "us",
+  "searched": "Grab"
+ },
+ "doordash": {
+  "app": "DoorDash: Food, Grocery, More",
+  "seller": "DoorDash, Inc.",
+  "appStoreId": 719972451,
+  "country": "us",
+  "searched": "DoorDash"
+ },
+ "deliveroo": {
+  "app": "Deliveroo: Food & Shopping",
+  "seller": "ROOFOODS LTD",
+  "appStoreId": 1001501844,
+  "country": "us",
+  "searched": "Deliveroo"
+ },
+ "tesla": {
+  "app": "Tesla",
+  "seller": "Tesla, Inc.",
+  "appStoreId": 582007913,
+  "country": "us",
+  "searched": "Tesla"
+ },
+ "samsung": null,
+ "huawei": null,
+ "xiaomi": null,
+ "sony": null,
+ "nvidia": null,
+ "intel": null,
+ "amd": null,
+ "synology": null,
+ "chase": {
+  "app": "Chase Mobile®: Bank & Invest",
+  "seller": "JPMorgan Chase Bank, NA",
+  "appStoreId": 298867247,
+  "country": "us",
+  "searched": "Chase"
+ },
+ "bankofamerica": {
+  "app": "Bank of America Mobile Banking",
+  "seller": "Bank of America",
+  "appStoreId": 284847138,
+  "country": "us",
+  "searched": "Bank of America"
+ },
+ "wellsfargo": {
+  "app": "Wells Fargo Mobile®",
+  "seller": "Wells Fargo Bank",
+  "appStoreId": 311548709,
+  "country": "us",
+  "searched": "Wells Fargo"
+ },
+ "discover": {
+  "app": "Discover Mobile",
+  "seller": "Discover Financial Services",
+  "appStoreId": 338010821,
+  "country": "us",
+  "searched": "Discover"
+ },
+ "goldmansachs": null,
+ "hsbc": {
+  "app": "HSBC HK Mobile Banking",
+  "seller": "HSBC Global Services UK Limited",
+  "appStoreId": 1164066737,
+  "country": "hk",
+  "searched": "HSBC"
+ },
+ "barclays": {
+  "app": "Barclays",
+  "seller": "Barclays Services Limited",
+  "appStoreId": 536248734,
+  "country": "gb",
+  "searched": "Barclays"
+ },
+ "monzo": {
+  "app": "Monzo Bank - Mobile Banking",
+  "seller": "Monzo Bank Limited",
+  "appStoreId": 1052238659,
+  "country": "gb",
+  "searched": "Monzo"
+ },
+ "nubank": null,
+ "robinhood": {
+  "app": "Robinhood: Trading & Investing",
+  "seller": "Robinhood Markets Inc",
+  "appStoreId": 938003185,
+  "country": "us",
+  "searched": "Robinhood"
+ },
+ "uphold": {
+  "app": "Uphold: Trade crypto & stocks",
+  "seller": "Uphold HQ Inc.",
+  "appStoreId": 1101145849,
+  "country": "us",
+  "searched": "Uphold"
+ },
+ "blockchaindotcom": {
+  "app": "Blockchain.com: Trade Bitcoin",
+  "seller": "Blockchain-UK Limited",
+  "appStoreId": 493253309,
+  "country": "us",
+  "searched": "Blockchain.com"
+ },
+ "walletconnect": null,
+ "wasabi": null,
+ "opensea": {
+  "app": "OpenSea: Trade Crypto & NFTs",
+  "seller": "Ozone Networks, Inc.",
+  "appStoreId": 1582861796,
+  "country": "us",
+  "searched": "OpenSea"
+ },
+ "qq": null,
+ "baidu": {
+  "app": "百度-AI智能搜索",
+  "seller": "Beijing Baidu Netcom Science & Technology Co.,Ltd",
+  "appStoreId": 382201985,
+  "country": "cn",
+  "searched": "Baidu"
+ },
+ "sinaweibo": {
+  "app": "微博",
+  "seller": "SINA Corporation",
+  "appStoreId": 350962117,
+  "country": "cn",
+  "searched": "微博"
+ },
+ "zhihu": null,
+ "douban": null,
+ "bitget": {
+  "app": "Bitget- Trade bitcoin & crypto",
+  "seller": "BG LIMITED",
+  "appStoreId": 1442778704,
+  "country": "us",
+  "searched": "Bitget"
+ },
+ "gateio": null,
+ "htx": null,
+ "mexc": {
+  "app": "MEXC: Buy Bitcoin & Crypto",
+  "seller": "Onechain Technology Ltd",
+  "appStoreId": 1605393003,
+  "country": "us",
+  "searched": "MEXC"
+ },
+ "cryptocom": {
+  "app": "Crypto.com: Trade Every Market",
+  "seller": "CRYPTO Technology Holdings Limited",
+  "appStoreId": 1262148500,
+  "country": "us",
+  "searched": "Crypto.com"
+ },
+ "bitfinex": {
+  "app": "Bitfinex: Trade Digital Assets",
+  "seller": "iFinex, Inc.",
+  "appStoreId": 1436383182,
+  "country": "us",
+  "searched": "Bitfinex"
+ },
+ "bitstamp": {
+  "app": "Bitstamp by Robinhood: Buy BTC",
+  "seller": "Bitstamp LTD",
+  "appStoreId": 1406825640,
+  "country": "us",
+  "searched": "Bitstamp"
+ },
+ "gemini": null,
+ "upbit": {
+  "app": "업비트 - 국가대표 디지털 자산 거래소",
+  "seller": "Dunamu Inc.",
+  "appStoreId": 1256371195,
+  "country": "kr",
+  "searched": "업비트"
+ },
+ "bithumb": {
+  "app": "빗썸",
+  "seller": "Bithumb Co., Ltd.",
+  "appStoreId": 1299421592,
+  "country": "kr",
+  "searched": "Bithumb"
+ },
+ "coincheck": {
+  "app": "コインチェック-ビットコイン/仮想通貨（暗号資産）取引アプリ",
+  "seller": "Coincheck, Inc.",
+  "appStoreId": 957130004,
+  "country": "jp",
+  "searched": "Coincheck"
+ },
+ "bitflyer": {
+  "app": "ビットフライヤー／ビットコイン・暗号資産（仮想通貨）取引",
+  "seller": "bitFlyer, Inc.",
+  "appStoreId": 1164758997,
+  "country": "jp",
+  "searched": "Bitflyer"
+ },
+ "bitpanda": null,
+ "bingx": {
+  "app": "BingX: Buy Crypto & Stocks",
+  "seller": "BingX Group Limited",
+  "appStoreId": 1500217666,
+  "country": "us",
+  "searched": "BingX"
+ },
+ "bitmart": {
+  "app": "BitMart: Buy Crypto & Stocks",
+  "seller": "GBM Foundation Company Ltd",
+  "appStoreId": 1396382871,
+  "country": "us",
+  "searched": "Bitmart"
+ },
+ "lbank": {
+  "app": "LBank - Buy Bitcoin & Crypto",
+  "seller": "LBANK EXCHANGE UAB",
+  "appStoreId": 1437346368,
+  "country": "us",
+  "searched": "Lbank"
+ },
+ "phemex": {
+  "app": "Phemex: Buy Crypto & Stocks",
+  "seller": "Leading Magic Limited",
+  "appStoreId": 1499601684,
+  "country": "us",
+  "searched": "Phemex"
+ },
+ "poloniex": null,
+ "deribit": null,
+ "whitebit": null,
+ "bitvavo": null,
+ "coinex": null,
+ "okcoin": null,
+ "etoro": {
+  "app": "etoro: Trade & Invest",
+  "seller": "eToro Group Ltd.",
+  "appStoreId": 674984916,
+  "country": "us",
+  "searched": "eToro"
+ },
+ "maicoin": null,
+ "bitopro": null,
+ "osl": null,
+ "hashkey": {
+  "app": "HashKey Exchange - 港幣/美元交易虛擬資產",
+  "seller": "HashKey Digital Asset Group Limited",
+  "appStoreId": 6448627365,
+  "country": "hk",
+  "searched": "Hashkey"
+ },
+ "coinone": {
+  "app": "코인원 - 12년 보안 무사고, 안전한 가상자산 거래소",
+  "seller": "Coinone Inc.",
+  "appStoreId": 1326526995,
+  "country": "kr",
+  "searched": "Coinone"
+ },
+ "korbit": null,
+ "zaif": {
+  "app": "Zaif　ビットコイン・暗号資産（仮想通貨）取引アプリ",
+  "seller": "Zaif inc.",
+  "appStoreId": 6443809031,
+  "country": "jp",
+  "searched": "Zaif"
+ },
+ "btse": null,
+ "coinhako": {
+  "app": "Coinhako: Buy Bitcoin & Crypto",
+  "seller": "Coin Supermart Pte. Ltd.",
+  "appStoreId": 1137855704,
+  "country": "us",
+  "searched": "Coinhako"
+ },
+ "independentreserve": null,
+ "coinspot": null,
+ "swyftx": null,
+ "bitbank": null,
+ "trustwallet": null,
+ "phantom": {
+  "app": "Phantom: Trading Wallet",
+  "seller": "Phantom Technologies Incorporated",
+  "appStoreId": 1598432977,
+  "country": "us",
+  "searched": "Phantom"
+ },
+ "exodus": {
+  "app": "Exodus: Crypto & Payments",
+  "seller": "Exodus Movement Inc",
+  "appStoreId": 1414384820,
+  "country": "us",
+  "searched": "Exodus"
+ },
+ "rainbow": null,
+ "safepal": {
+  "app": "SafePal: Crypto Wallet BTC NFT",
+  "seller": "SAFEPAL LTD.",
+  "appStoreId": 1548297139,
+  "country": "us",
+  "searched": "Safepal"
+ },
+ "tokenpocket": {
+  "app": "TokenPocket: Crypto & Bitcoin",
+  "seller": "TP Global Ltd",
+  "appStoreId": 6444625622,
+  "country": "us",
+  "searched": "Token Pocket"
+ },
+ "imtoken": {
+  "app": "imToken: BTC & ETH Wallet",
+  "seller": "IMTOKEN PTE. LTD.",
+  "appStoreId": 1384798940,
+  "country": "us",
+  "searched": "Imtoken"
+ },
+ "argent": {
+  "app": "Ready: Crypto & Card",
+  "seller": "Argent labs limited",
+  "appStoreId": 1358741926,
+  "country": "us",
+  "searched": "Argent"
+ },
+ "zerion": {
+  "app": "Zerion: Crypto Wallet & DeFi",
+  "seller": "Zerion LLC",
+  "appStoreId": 1456732565,
+  "country": "us",
+  "searched": "Zerion"
+ },
+ "rabby": {
+  "app": "Rabby Wallet - Crypto & EVM",
+  "seller": "OPCODE LABS PTE. LTD.",
+  "appStoreId": 6474381673,
+  "country": "us",
+  "searched": "Rabby"
+ },
+ "keplr": {
+  "app": "Keplr - Crypto Wallet",
+  "seller": "Space Explorers Inc.",
+  "appStoreId": 1567851089,
+  "country": "us",
+  "searched": "Keplr"
+ },
+ "electrum": null,
+ "atomicwallet": {
+  "app": "Atomic Wallet",
+  "seller": "ATOMIC PROTOCOL SYSTEMS OU",
+  "appStoreId": 1478257827,
+  "country": "us",
+  "searched": "Atomic Wallet"
+ },
+ "bitgo": {
+  "app": "BitGo",
+  "seller": "BitGo, Inc.",
+  "appStoreId": 6739010408,
+  "country": "us",
+  "searched": "BitGo"
+ },
+ "fireblocks": {
+  "app": "Fireblocks",
+  "seller": "Fireblocks Ltd",
+  "appStoreId": 1439296596,
+  "country": "us",
+  "searched": "Fireblocks"
+ },
+ "solflare": {
+  "app": "Solflare: Solana Crypto Wallet",
+  "seller": "SOLRISE RESEARCH LTD",
+  "appStoreId": 1580902717,
+  "country": "us",
+  "searched": "Solflare"
+ },
+ "tronlink": {
+  "app": "TronLink: TRX & BTT Wallet",
+  "seller": "Helix Tech Company Limited",
+  "appStoreId": 1453530188,
+  "country": "us",
+  "searched": "Tronlink"
+ },
+ "unisat": null,
+ "sparrow": null,
+ "myetherwallet": {
+  "app": "MEW Wallet・Trade & Invest",
+  "seller": "MyEtherWallet, Inc.",
+  "appStoreId": 1464614025,
+  "country": "us",
+  "searched": "My Ether Wallet"
+ },
+ "uniswap": {
+  "app": "Uniswap: Crypto & NFT Wallet",
+  "seller": "Universal Navigation Inc.",
+  "appStoreId": 6443944476,
+  "country": "us",
+  "searched": "Uniswap"
+ },
+ "pancakeswap": null,
+ "bluewallet": {
+  "app": "BlueWallet - Bitcoin wallet",
+  "seller": "Bluewallet Services, S. R. L.",
+  "appStoreId": 1376878040,
+  "country": "us",
+  "searched": "Blue Wallet"
+ },
+ "muun": {
+  "app": "Muun Wallet",
+  "seller": "Muun Wallet, Inc.",
+  "appStoreId": 1482037683,
+  "country": "us",
+  "searched": "Muun"
+ },
+ "phoenixwallet": {
+  "app": "Phoenix Wallet",
+  "seller": "ACINQ",
+  "appStoreId": 1544097028,
+  "country": "us",
+  "searched": "Phoenix Wallet"
+ },
+ "walletofsatoshi": {
+  "app": "Wallet of Satoshi",
+  "seller": "Wallet of Satoshi Pty Ltd",
+  "appStoreId": 1438599608,
+  "country": "us",
+  "searched": "Wallet Of Satoshi"
+ },
+ "guarda": {
+  "app": "Guarda Crypto Wallet Bitcoin",
+  "seller": "Guardaco LDA",
+  "appStoreId": 1442083982,
+  "country": "us",
+  "searched": "Guarda"
+ },
+ "coinomi": {
+  "app": "Coinomi Wallet",
+  "seller": "Loksias SA",
+  "appStoreId": 1333588809,
+  "country": "us",
+  "searched": "Coinomi"
+ },
+ "edgewallet": null,
+ "ellipal": {
+  "app": "ELLIPAL - Crypto Wallet",
+  "seller": "Ellipal Limited",
+  "appStoreId": 1426179665,
+  "country": "us",
+  "searched": "Ellipal"
+ },
+ "keystone": null,
+ "tangem": {
+  "app": "Tangem - Crypto wallet",
+  "seller": "Tangem AG",
+  "appStoreId": 1354868448,
+  "country": "us",
+  "searched": "Tangem"
+ },
+ "mathwallet": {
+  "app": "MathWallet - Web3 Wallet",
+  "seller": "MATH GLOBAL FOUNDATION LTD.",
+  "appStoreId": 1582612388,
+  "country": "us",
+  "searched": "Math Wallet"
+ },
+ "zengo": {
+  "app": "Zengo: Crypto & Bitcoin Wallet",
+  "seller": "ZenGo Ltd.",
+  "appStoreId": 1440147115,
+  "country": "us",
+  "searched": "Zengo"
+ },
+ "ronin": null,
+ "tonkeeper": {
+  "app": "Tonkeeper Pro — Crypto Wallet",
+  "seller": "TON APPS UK LTD",
+  "appStoreId": 6474200809,
+  "country": "us",
+  "searched": "Tonkeeper"
+ },
+ "backpack": {
+  "app": "Backpack: Trade, Invest & Earn",
+  "seller": "Backpack Technologies Ltd.",
+  "appStoreId": 6445964121,
+  "country": "us",
+  "searched": "Backpack"
+ },
+ "coinbasewallet": {
+  "app": "Coinbase Wallet: Trade to Win",
+  "seller": "Coinbase Wallet",
+  "appStoreId": 1278383455,
+  "country": "us",
+  "searched": "Coinbase Wallet"
+ },
+ "okxwallet": {
+  "app": "OKX Wallet: Buy Crypto & RWA",
+  "seller": "OKX Technology Inc",
+  "appStoreId": 6743309484,
+  "country": "us",
+  "searched": "Okx Wallet"
+ },
+ "microsoft": null,
+ "amazon": null,
+ "aws": {
+  "app": "AWS Console",
+  "seller": "AMZN Mobile LLC",
+  "appStoreId": 580990573,
+  "country": "us",
+  "searched": "aws"
+ },
+ "linkedin": {
+  "app": "LinkedIn: Community & Network",
+  "seller": "LinkedIn Corporation",
+  "appStoreId": 288429040,
+  "country": "us",
+  "searched": "Linkedin"
+ },
+ "slack": {
+  "app": "Slack",
+  "seller": "SLACK TECHNOLOGIES L.L.C.",
+  "appStoreId": 618783545,
+  "country": "us",
+  "searched": "Slack"
+ },
+ "skype": null,
+ "disneyplus": null,
+ "hulu": {
+  "app": "Hulu: Stream TV shows & movies",
+  "seller": "Hulu, LLC",
+  "appStoreId": 376510438,
+  "country": "us",
+  "searched": "hulu"
+ },
+ "primevideo": {
+  "app": "Amazon Prime Video",
+  "seller": "AMZN Mobile LLC",
+  "appStoreId": 545519333,
+  "country": "us",
+  "searched": "Prime Video"
+ },
+ "canva": {
+  "app": "Canva AI Photo & Video Editor",
+  "seller": "Canva Pty Ltd",
+  "appStoreId": 897446215,
+  "country": "us",
+  "searched": "Canva"
+ },
+ "adobe": null,
+ "heroku": null,
+ "openai": {
+  "app": "ChatGPT",
+  "seller": "OpenAI OpCo, LLC",
+  "appStoreId": 6448311069,
+  "country": "us",
+  "searched": "OpenAI"
+ },
+ "kraken": {
+  "app": "Kraken: Buy Crypto & Stocks",
+  "seller": "Payward, Inc.",
+  "appStoreId": 1481947260,
+  "country": "us",
+  "searched": "Kraken"
+ },
+ "bybit": {
+  "app": "Bybit: New Financial Platform",
+  "seller": "Bybit Fintech Limited",
+  "appStoreId": 1488296980,
+  "country": "us",
+  "searched": "Bybit"
+ },
+ "metamask": {
+  "app": "MetaMask: Trade Crypto",
+  "seller": "ConsenSys AG",
+  "appStoreId": 1438144202,
+  "country": "us",
+  "searched": "Metamask"
+ },
+ "ledger": {
+  "app": "Ledger Wallet™ crypto app",
+  "seller": "Ledger SAS",
+  "appStoreId": 1361671700,
+  "country": "us",
+  "searched": "Ledger"
+ },
+ "wechatpay": null,
+ "yahoo": null,
+ "nintendo": {
+  "app": "Nintendo Switch App",
+  "seller": "Nintendo Co., Ltd.",
+  "appStoreId": 1234806557,
+  "country": "us",
+  "searched": "Nintendo"
+ },
+ "xbox": {
+  "app": "XBOX",
+  "seller": "Microsoft Corporation",
+  "appStoreId": 736179781,
+  "country": "us",
+  "searched": "Xbox"
+ },
+ "walmart": {
+  "app": "Walmart: Shopping & Savings",
+  "seller": "Walmart",
+  "appStoreId": 338137227,
+  "country": "us",
+  "searched": "Walmart"
+ },
+ "citi": {
+  "app": "Citibank HK",
+  "seller": "CITIBANK (HONG KONG) LIMITED",
+  "appStoreId": 373717372,
+  "country": "hk",
+  "searched": "citi"
+ },
+ "capitalone": {
+  "app": "Capital One Mobile",
+  "seller": "Capital One Services, LLC",
+  "appStoreId": 407558537,
+  "country": "us",
+  "searched": "Capital One"
+ },
+ "schwab": {
+  "app": "Schwab Mobile",
+  "seller": "The Charles Schwab Corporation",
+  "appStoreId": 407358186,
+  "country": "us",
+  "searched": "Schwab"
+ },
+ "fidelity": {
+  "app": "Fidelity Investments",
+  "seller": "Fidelity Investments",
+  "appStoreId": 348177453,
+  "country": "us",
+  "searched": "Fidelity"
+ },
+ "vanguard": {
+  "app": "Vanguard: Save, Invest, Retire",
+  "seller": "The Vanguard Group, Inc.",
+  "appStoreId": 335186209,
+  "country": "us",
+  "searched": "Vanguard"
+ },
+ "usbank": {
+  "app": "U.S. Bank Mobile Banking",
+  "seller": "U.S. Bancorp",
+  "appStoreId": 458734623,
+  "country": "us",
+  "searched": "Us Bank"
+ },
+ "pnc": {
+  "app": "PNC Mobile Banking",
+  "seller": "PNC Bank, N.A.",
+  "appStoreId": 303113127,
+  "country": "us",
+  "searched": "PNC"
+ },
+ "truist": {
+  "app": "Truist Mobile",
+  "seller": "Truist Financial Corporation",
+  "appStoreId": 1555389200,
+  "country": "us",
+  "searched": "Truist"
+ },
+ "tdbank": {
+  "app": "TD Bank (US)",
+  "seller": "TD Bank, N.A.",
+  "appStoreId": 382107453,
+  "country": "us",
+  "searched": "Td Bank"
+ },
+ "citizens": null,
+ "ally": {
+  "app": "Ally: Bank, Auto & Invest",
+  "seller": "Ally Financial Inc.",
+  "appStoreId": 514374715,
+  "country": "us",
+  "searched": "ally"
+ },
+ "sofi": {
+  "app": "SoFi: Bank, Invest & Crypto",
+  "seller": "Social Finance, LLC",
+  "appStoreId": 1191985736,
+  "country": "us",
+  "searched": "SoFi"
+ },
+ "navyfederal": {
+  "app": "Navy Federal Credit Union",
+  "seller": "Navy Federal Credit Union",
+  "appStoreId": 370811491,
+  "country": "us",
+  "searched": "Navyfederal"
+ },
+ "usaa": {
+  "app": "USAA Mobile",
+  "seller": "United Services Automobile Association",
+  "appStoreId": 312325565,
+  "country": "us",
+  "searched": "USAA"
+ },
+ "etrade": {
+  "app": "E*TRADE: Invest. Trade. Save.",
+  "seller": "ETRADE FINANCIAL",
+  "appStoreId": 313259740,
+  "country": "us",
+  "searched": "E*trade"
+ },
+ "morganstanley": {
+  "app": "Morgan Stanley Wealth Mgmt",
+  "seller": "Morgan Stanley",
+  "appStoreId": 811512122,
+  "country": "us",
+  "searched": "Morgan Stanley"
+ },
+ "interactivebrokers": {
+  "app": "IBKR Mobile - Invest Worldwide",
+  "seller": "Interactive Brokers LLC",
+  "appStoreId": 454558592,
+  "country": "us",
+  "searched": "Interactive Brokers"
+ },
+ "fifththird": {
+  "app": "Fifth Third: 53 Mobile Banking",
+  "seller": "FifthThird Bank",
+  "appStoreId": 468738585,
+  "country": "us",
+  "searched": "Fifth Third"
+ },
+ "regions": {
+  "app": "Regions Mobile",
+  "seller": "Regions Financial",
+  "appStoreId": 417970539,
+  "country": "us",
+  "searched": "Regions"
+ },
+ "keybank": {
+  "app": "KeyBank Mobile Banking",
+  "seller": "KeyBank National Association",
+  "appStoreId": 510717503,
+  "country": "us",
+  "searched": "Keybank"
+ },
+ "ctbc": {
+  "app": "CTBC Bank (USA)",
+  "seller": "CTBC Bank Corp. USA",
+  "appStoreId": 548297993,
+  "country": "us",
+  "searched": "CTBC"
+ },
+ "cathaybk": {
+  "app": "國泰世華網路銀行CUBE",
+  "seller": "Cathay United Bank",
+  "appStoreId": 373500505,
+  "country": "tw",
+  "searched": "國泰世華"
+ },
+ "esun": {
+  "app": "玉山行動銀行",
+  "seller": "E.SUN Commercial Bank, Ltd.",
+  "appStoreId": 405033836,
+  "country": "tw",
+  "searched": "E.SUN"
+ },
+ "taishin": {
+  "app": "台新銀行【行動銀行】",
+  "seller": "Taishin International Bank Co.,Ltd.",
+  "appStoreId": 388917170,
+  "country": "tw",
+  "searched": "Taishin"
+ },
+ "fubon": {
+  "app": "Fubon+ 台北富邦行動銀行",
+  "seller": "TAIPEI FUBON COMMERCIAL BANK CO., LTD.",
+  "appStoreId": 6479990131,
+  "country": "tw",
+  "searched": "Fubon"
+ },
+ "megabank": null,
+ "firstbank": null,
+ "huanan": {
+  "app": "華南銀行+",
+  "seller": "Hua Nan Commercial Bank, Ltd.",
+  "appStoreId": 1616828713,
+  "country": "tw",
+  "searched": "Huanan"
+ },
+ "changhwa": {
+  "app": "彰銀行動銀行ChaiBo (全新上線)",
+  "seller": "Chang Hwa Commerical Bank,Ltd",
+  "appStoreId": 6739481946,
+  "country": "us",
+  "searched": "Changhwa"
+ },
+ "bankoftaiwan": {
+  "app": "臺灣銀行 臺銀行動+",
+  "seller": "BANK OF TAIWAN",
+  "appStoreId": 1629581135,
+  "country": "tw",
+  "searched": "Bank Of Taiwan"
+ },
+ "tcb": null,
+ "sinopac": {
+  "app": "永豐銀行行動銀行",
+  "seller": "SinoPac Holdings.",
+  "appStoreId": 393497156,
+  "country": "us",
+  "searched": "SinoPac"
+ },
+ "chunghwapost": {
+  "app": "行動郵局",
+  "seller": "CHUNGHWA POST CO., LTD.",
+  "appStoreId": 1598092335,
+  "country": "tw",
+  "searched": "Chunghwa Post"
+ },
+ "landbank": null,
+ "linebank": {
+  "app": "LINE Bank Taiwan",
+  "seller": "LINE Bank Taiwan Limited",
+  "appStoreId": 1527512597,
+  "country": "tw",
+  "searched": "Line Bank"
+ },
+ "kgi": {
+  "app": "凱基隨身e策略",
+  "seller": "KGI Securities Co. Ltd.",
+  "appStoreId": 1473914290,
+  "country": "us",
+  "searched": "KGI"
+ },
+ "icbc": {
+  "app": "ICBC Mobile Banking",
+  "seller": "Industrial and Commercial Bank of China",
+  "appStoreId": 584398176,
+  "country": "cn",
+  "searched": "ICBC"
+ },
+ "ccb": null,
+ "abc": null,
+ "bankofchina": {
+  "app": "BOCHK 中銀香港",
+  "seller": "Bank of China (Hong Kong) Limited",
+  "appStoreId": 1534534188,
+  "country": "hk",
+  "searched": "Bank Of China"
+ },
+ "bankcomm": null,
+ "cmb": null,
+ "pingan": {
+  "app": "平安口袋银行-更懂您的智能银行",
+  "seller": "PingAn Bank",
+  "appStoreId": 1085016815,
+  "country": "cn",
+  "searched": "Ping An"
+ },
+ "citic": {
+  "app": "中信银行",
+  "seller": "CHINA CITIC BANK CORPORATION LIMITED",
+  "appStoreId": 422844108,
+  "country": "cn",
+  "searched": "CITIC"
+ },
+ "psbc": null,
+ "cib": null,
+ "spdb": null,
+ "cmbc": null,
+ "cebbank": null,
+ "hxb": null,
+ "unionpay": {
+  "app": "UnionPay APP",
+  "seller": "China Unionpay Co.,Ltd.",
+  "appStoreId": 600273928,
+  "country": "us",
+  "searched": "Union Pay"
+ },
+ "hangseng": {
+  "app": "恒生個人流動理財服務",
+  "seller": "Hang Seng Bank Limited",
+  "appStoreId": 1039256353,
+  "country": "hk",
+  "searched": "Hangseng"
+ },
+ "standardchartered": {
+  "app": "SC Mobile Hong Kong",
+  "seller": "Standard Chartered",
+  "appStoreId": 445795688,
+  "country": "hk",
+  "searched": "Standard Chartered"
+ },
+ "bea": {
+  "app": "BEA Mobile 東亞手機銀行",
+  "seller": "The Bank of East Asia, Limited",
+  "appStoreId": 381215704,
+  "country": "hk",
+  "searched": "BEA"
+ },
+ "dbs": {
+  "app": "DBS digibank HK",
+  "seller": "DBS Bank (Hong Kong) Limited",
+  "appStoreId": 1341250080,
+  "country": "hk",
+  "searched": "DBS"
+ },
+ "zabank": {
+  "app": "ZA Bank",
+  "seller": "ZA Bank Limited",
+  "appStoreId": 1477150600,
+  "country": "hk",
+  "searched": "Za Bank"
+ },
+ "mox": {
+  "app": "Mox Bank",
+  "seller": "Mox Bank Limited",
+  "appStoreId": 1505743481,
+  "country": "us",
+  "searched": "Mox"
+ },
+ "welab": {
+  "app": "WeLab Bank - HK Digital Bank",
+  "seller": "WeLab Bank Limited",
+  "appStoreId": 1493956050,
+  "country": "us",
+  "searched": "WeLab"
+ },
+ "livi": null,
+ "airstar": null,
+ "fusion": null,
+ "ocbc": {
+  "app": "OCBC Singapore",
+  "seller": "Oversea-Chinese Banking Corporation Limited",
+  "appStoreId": 292506828,
+  "country": "us",
+  "searched": "OCBC"
+ },
+ "uob": null,
+ "octopus": {
+  "app": "Octopus 八達通",
+  "seller": "OCTOPUS Cards Ltd.",
+  "appStoreId": 1114430602,
+  "country": "hk",
+  "searched": "Octopus"
+ },
+ "payme": {
+  "app": "PayMe by HSBC",
+  "seller": "The Hongkong and Shanghai Banking Corporation Ltd.",
+  "appStoreId": 1184264977,
+  "country": "hk",
+  "searched": "PayMe"
+ }
+}

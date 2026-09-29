@@ -1,0 +1,1 @@
+<resources><style name="AppTheme" parent="android:style/Theme.DeviceDefault.DayNight"><item name="android:windowActionBar">false</item><item name="android:windowNoTitle">true</item><item name="android:windowActionModeOverlay">true</item></style><color name="icon_background">#050D24</color></resources>
