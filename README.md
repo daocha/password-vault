@@ -2,7 +2,7 @@
 
 <img src="assets/banner.png" alt="PassVault: your passwords, your control" width="720" />
 
-<br>
+# 🔐 PassVault
 
 **Your passwords, on your phone, and nowhere else.**
 
