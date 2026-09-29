@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/app-icon.png" alt="PassVault icon" width="120" />
+<img src="assets/banner.png" alt="PassVault: your passwords, your control" width="720" />
 
 # 🔐 PassVault
 
