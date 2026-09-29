@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_autolock_immediately">Immediately</string>
+    <string name="app_autolock_1m">After 1 minute</string>
+    <string name="app_autolock_5m">After 5 minutes</string>
+    <string name="app_autolock_device">When the device locks</string>
+    <string name="app_pw_rule">At least 12 characters with uppercase and lowercase letters, a number and a symbol.</string>
+    <string name="app_pw_min_length">Use at least 12 characters.</string>
+    <string name="app_pw_max_bytes">Use at most 4096 UTF-8 bytes.</string>
+    <string name="app_pw_upper">Add an uppercase letter.</string>
+    <string name="app_pw_lower">Add a lowercase letter.</string>
+    <string name="app_pw_digit">Add a number.</string>
+    <string name="app_pw_symbol">Add a symbol.</string>
+    <string name="app_label_username">Username</string>
+    <string name="app_label_password">Password</string>
+    <string name="app_label_notes">Notes</string>
+    <string name="app_label_question">Security question</string>
+    <string name="app_label_seed">Seed phrase</string>
+    <string name="app_label_passphrase">BIP-39 passphrase</string>
+    <string name="app_label_private_key">Private key</string>
+    <string name="app_label_title">Title</string>
+    <string name="app_label_website">Website</string>
+    <string name="app_label_custom">Custom</string>
+    <string name="app_label_list">List</string>
+    <string name="app_label_list_item">List item</string>
+    <string name="app_label_imported_custom">Imported custom fields (original)</string>
+</resources>

@@ -1,0 +1,96 @@
+name: Test builds
+
+# Manual, unsigned test builds only. Release signing keys are deliberately NOT stored on GitHub:
+# release builds for Google Play are made locally with scripts/build-android-release.sh.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Unit tests and debug build
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: android-debug, path: android/app/build/outputs/apk/debug/app-debug.apk }
+
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Tools
+        run: brew install xcodegen
+
+      - name: Core security checks
+        run: swift run --package-path ios vault-security-checks
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      # A signed, installable IPA needs an Apple distribution certificate and provisioning profile.
+      # Without them the job still produces an unsigned IPA (must be re-signed before it installs).
+      - name: Build IPA
+        working-directory: ios
+        env:
+          CERT_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'ad-hoc' }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME//\//-}"
+          out="$RUNNER_TEMP/out"; mkdir -p "$out"
+          archive="$RUNNER_TEMP/PassVault.xcarchive"
+          if [ -n "${CERT_BASE64:-}" ] && [ -n "${PROFILE_BASE64:-}" ] && [ -n "${TEAM_ID:-}" ]; then
+            keychain="$RUNNER_TEMP/build.keychain-db"; kcpass="$(uuidgen)"
+            # Remove the signing material even when a later command fails.
+            trap 'security delete-keychain "$keychain" 2>/dev/null || true; rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/profile.mobileprovision"' EXIT
+            security create-keychain -p "$kcpass" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$kcpass" "$keychain"
+            echo "$CERT_BASE64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -T /usr/bin/codesign -t cert -f pkcs12 -k "$keychain"
+            security set-key-partition-list -S apple-tool:,apple: -k "$kcpass" "$keychain"
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+            echo "$PROFILE_BASE64" | base64 -d > "$RUNNER_TEMP/profile.mobileprovision"
+            uuid=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -)
+            profile_name=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract Name raw -)
+            cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            xcodebuild -project PassVault.xcodeproj -scheme PassVault -configuration Release -destination 'generic/platform=iOS' \
+              -archivePath "$archive" archive DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="$profile_name"
+            opts="$RUNNER_TEMP/ExportOptions.plist"
+            plutil -create xml1 "$opts"
+            plutil -insert method -string "$EXPORT_METHOD" "$opts"
+            plutil -insert teamID -string "$TEAM_ID" "$opts"
+            plutil -insert signingStyle -string manual "$opts"
+            plutil -insert provisioningProfiles -dictionary "$opts"
+            plutil -insert 'provisioningProfiles.app\.passvault\.mobile' -string "$profile_name" "$opts"
+            xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export"
+            cp "$RUNNER_TEMP"/export/*.ipa "$out/PassVault-$version.ipa"
+          else
+            echo "::warning::iOS signing secrets are not set; publishing an unsigned IPA."
+            xcodebuild -project PassVault.xcodeproj -scheme PassVault -configuration Release -destination 'generic/platform=iOS' \
+              -archivePath "$archive" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+            mkdir -p "$RUNNER_TEMP/ipa/Payload"
+            cp -R "$archive/Products/Applications/PassVault.app" "$RUNNER_TEMP/ipa/Payload/"
+            (cd "$RUNNER_TEMP/ipa" && zip -qry "$out/PassVault-$version-unsigned.ipa" Payload)
+          fi
+          (cd "$out" && shasum -a 256 *.ipa > ios-SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: ios, path: '${{ runner.temp }}/out/*' }

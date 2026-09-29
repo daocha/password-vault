@@ -1,0 +1,83 @@
+# --- Secrets and signing material: never commit ---------------------------------------------------
+# Keystores, certificates, private keys and rotation lineage files
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.p8
+*.pem
+*.key
+*.der
+*.crt
+*.cer
+*.mobileprovision
+*.certSigningRequest
+lineage*
+*.lineage
+*.pepk
+encrypted_private_key*.zip
+*.bks
+.passvault-signing/
+signing.properties
+keystore.properties
+key.properties
+google-services.json
+GoogleService-Info.plist
+service-account*.json
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*.secret
+*.secrets
+secrets.*
+credentials*.json
+# Gradle/Android local config (SDK path, signing passwords)
+local.properties
+
+# --- Real vault data and migration files (only the fake test fixtures are tracked) ---------------
+*.csv
+*.pkb2
+*.pvault
+*.vault
+*.vault.bak
+state.bak
+passvault_*.csv
+passvault_*.pkb2
+pk_backup_*
+!tests/fixtures/*.csv
+!android/app/src/test/resources/sample.pkb2
+
+# --- Build output and tooling --------------------------------------------------------------------
+dist/
+build/
+.build/
+.gradle/
+.kotlin/
+.swiftpm/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.apk
+*.aab
+*.ipa
+*.xcarchive/
+*.ap_
+*.dex
+*.hprof
+captures/
+.externalNativeBuild/
+.cxx/
+
+# --- Editors, OS, logs, temp ---------------------------------------------------------------------
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.orig
+*.rej
