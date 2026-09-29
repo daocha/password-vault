@@ -1,11 +1,13 @@
 package app.passvault
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.outlined.*
@@ -18,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -63,6 +66,14 @@ fun IconBadge(icon: ImageVector, size: Dp = 40.dp, container: Color = MaterialTh
     Box(Modifier.size(size).clip(CircleShape).background(container), contentAlignment = Alignment.Center) {
         Icon(icon, null, Modifier.size(size * 0.5f), tint = content)
     }
+}
+
+/** The brand's icon when the record is a well-known site or app, otherwise a letter avatar with a stable per-name color. */
+@Composable
+fun RecordAvatar(record: VaultRecord, size: Dp = 44.dp) {
+    val brand = remember(record.website, record.name) { if (record.type == RecordType.login) findBrand(record.website, record.name) else null }
+    if (brand != null) Image(painterResource(brand.drawable), null, Modifier.size(size).clip(RoundedCornerShape(size * 0.23f)))
+    else RecordAvatar(record.name, size)
 }
 
 /** Letter avatar with a stable per-name color. */

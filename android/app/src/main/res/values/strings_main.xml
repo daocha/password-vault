@@ -112,7 +112,7 @@
     <string name="main_edit_entry">Edit entry</string>
     <string name="main_discard_changes">Discard changes</string>
     <string name="main_name">Name</string>
-    <string name="main_website">Website</string>
+    <string name="main_website">Website/App name</string>
     <string name="main_fields">Fields</string>
     <string name="main_drag_to_reorder">"Drag  ⋮⋮  to reorder"</string>
     <string name="main_move_up">Move up</string>

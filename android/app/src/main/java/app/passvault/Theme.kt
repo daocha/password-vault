@@ -9,6 +9,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -62,4 +63,16 @@ fun HardenWindow() {
         root.filterTouchesWhenObscured = true
         onDispose {}
     }
+}
+
+/** "Pass" in the normal text color and "Vault" in the brand blue, a shade deeper on light backgrounds so it keeps its contrast. */
+@Composable
+fun WordMark(style: androidx.compose.ui.text.TextStyle) {
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    androidx.compose.material3.Text(
+        androidx.compose.ui.text.buildAnnotatedString {
+            append("Pass"); pushStyle(androidx.compose.ui.text.SpanStyle(color = if (dark) Color(0xFF4DB2FF) else Color(0xFF1E78CC))); append("Vault"); pop()
+        },
+        style = style, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+    )
 }

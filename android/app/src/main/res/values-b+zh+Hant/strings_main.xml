@@ -112,7 +112,7 @@
     <string name="main_edit_entry">編輯項目</string>
     <string name="main_discard_changes">捨棄變更</string>
     <string name="main_name">名稱</string>
-    <string name="main_website">網站</string>
+    <string name="main_website">網站/應用程式名稱</string>
     <string name="main_fields">欄位</string>
     <string name="main_drag_to_reorder">"拖曳  ⋮⋮  可重新排序"</string>
     <string name="main_move_up">上移</string>

@@ -76,6 +76,14 @@ do {
         try check(value.count == 24 && value.contains(where: { $0.isUppercase }) && value.contains(where: { $0.isLowercase }) && value.contains(where: { $0.isNumber }), "generator policy")
     }
     try rejects("invalid generator length") { _ = try VaultCrypto.generatePassword(length: 0) }
+    func brandId(_ website: String, _ name: String = "") -> String? { findBrand(website: website, name: name)?.id }
+    try check(brandId("Spotify") == "spotify" && brandId("spotify.com") == "spotify" && brandId("https://open.spotify.com/track/1?x=y") == "spotify" && brandId("", "SPOTIFY") == "spotify", "brand by name or domain")
+    try check(brandId("www.github.com") == "github" && brandId("mail.google.com") == "google" && brandId("Gmail") == "google" && brandId("twitter.com") == "x", "brand subdomains and aliases")
+    try check(brandId("github.com", "Spotify") == "github", "brand: website wins over name")
+    try check(brandId("Spotify family plan") == nil && brandId("notspotify.com") == nil && brandId("spotify.com.evil.example") == nil && brandId("Apple pie recipes") == nil && brandId("") == nil, "brand does not over-match")
+    try check(brandId("Synology") == "synology" && brandId("Charles Schwab") == "schwab" && brandId("client.schwab.com") == "schwab" && brandId("online.citibank.com.hk") == "citi" && brandId("中國信託") == "ctbc" && brandId("招商银行") == "cmb" && brandId("www.hsbc.com.hk") == "hsbc", "brand banks and Synology")
+    try check(brandId("ABC") == nil && brandId("Post") == nil && brandId("Key") == nil, "generic marks match by domain only")
+    try check(groupColorRGB("Work") == groupColorRGB(" work "), "group color ignores case and spaces")
     // Password Keeper .pkb2 import: sanitized fixture (fake data), same file the Android tests use.
     let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("android/app/src/test/resources/sample.pkb2")
     let pkb2 = try Data(contentsOf: fixture)

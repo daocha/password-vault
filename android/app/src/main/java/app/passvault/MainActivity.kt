@@ -346,7 +346,7 @@ class MainActivity : FragmentActivity() {
         var password by remember { mutableStateOf("") }; var confirm by remember { mutableStateOf("") }; var consent by remember { mutableStateOf(false) }; var reset by remember { mutableStateOf(false) }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Image(painterResource(R.drawable.vault_icon), stringResource(R.string.main_logo_description), Modifier.size(112.dp))
-            Spacer(Modifier.height(24.dp)); Text("PassVault", style = MaterialTheme.typography.headlineLarge)
+            Spacer(Modifier.height(24.dp)); WordMark(MaterialTheme.typography.headlineLarge)
             Text(stringResource(R.string.main_tagline), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (erased) { Text(stringResource(R.string.main_vault_erased), Modifier.padding(top = 16.dp)); TextButton(onClick = { reset = true }) { Text(stringResource(R.string.main_start_new_vault)) } }
             Spacer(Modifier.height(32.dp)); SecretInput(if (exists) stringResource(R.string.main_app_password) else stringResource(R.string.main_new_app_password), password, { password = it })
@@ -383,7 +383,7 @@ class MainActivity : FragmentActivity() {
                         if (!seedTab) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { Text("PassVault") }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
             floatingActionButton = { if (!selecting) ExtendedFloatingActionButton(onClick = { viewing = if (seedTab) VaultRecord(type = RecordType.seed, fields = emptyList()) else VaultRecord(); editing = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text(if (seedTab) stringResource(R.string.main_new_seed_phrase) else stringResource(R.string.main_new_entry)) }) }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
@@ -417,7 +417,7 @@ class MainActivity : FragmentActivity() {
                                     when {
                                         selecting -> Icon(if (isSelected) Icons.Default.CheckCircle else Icons.Outlined.Circle, if (isSelected) stringResource(R.string.main_selected) else stringResource(R.string.main_not_selected), Modifier.size(28.dp), tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                                         record.type == RecordType.seed -> IconBadge(Icons.Outlined.AccountBalanceWallet, 44.dp, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-                                        else -> RecordAvatar(record.name)
+                                        else -> RecordAvatar(record)
                                     }
                                 }
                                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
@@ -520,7 +520,7 @@ class MainActivity : FragmentActivity() {
             LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        RecordAvatar(record.name, 72.dp)
+                        RecordAvatar(record, 72.dp)
                         Text(record.name, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.headlineSmall)
                         if (record.website.isNotBlank()) Text(record.website, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                         if (record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 8.dp), large = true)

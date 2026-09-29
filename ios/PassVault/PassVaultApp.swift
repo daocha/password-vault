@@ -119,7 +119,7 @@ struct UnlockView: View {
                 Section {
                     VStack(spacing: 12) {
                         Image(systemName: "lock.shield.fill").font(.system(size: 56)).foregroundStyle(.tint)
-                        Text("PassVault").font(.largeTitle.bold())
+                        WordMark().font(.largeTitle.bold())
                         Text("Your passwords. Only on your device.").foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity).padding(.vertical, 24)
                 }.listRowBackground(Color.clear)
@@ -164,6 +164,28 @@ struct GroupTag: View {
     }
 }
 
+/// "Pass" in the normal text color and "Vault" in the brand blue, a shade deeper in light mode so it keeps its contrast.
+struct WordMark: View {
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        Text("Pass") + Text("Vault").foregroundColor(scheme == .dark ? Color(red: 0.30, green: 0.70, blue: 1.0) : Color(red: 0.12, green: 0.47, blue: 0.80))
+    }
+}
+
+/// The brand's icon when the record is a well-known site or app; otherwise the key (or star for favorites).
+struct RecordIcon: View {
+    let record: VaultRecord
+    var body: some View {
+        if record.isLogin, let brand = findBrand(website: record.website, name: record.name) {
+            Image(brand.assetName).resizable().scaledToFit().frame(width: 34, height: 34).clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
+                .frame(width: 38)
+        } else {
+            Image(systemName: record.favorite ? "star.fill" : "key.fill").foregroundStyle(.tint).frame(width: 30)
+        }
+    }
+}
+
 struct RecordList: View {
     @EnvironmentObject var model: VaultModel
     @State private var query = ""
@@ -179,7 +201,7 @@ struct RecordList: View {
                     ForEach(filtered) { record in
                         Button { editing = record } label: {
                             HStack(spacing: 14) {
-                                Image(systemName: record.favorite ? "star.fill" : "key.fill").foregroundStyle(.tint).frame(width: 30)
+                                RecordIcon(record: record)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(record.name.isEmpty ? "Untitled record" : record.name).font(.headline).foregroundStyle(.primary)
                                     if !record.website.isEmpty { Text(record.website).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
@@ -194,8 +216,9 @@ struct RecordList: View {
                 }
             }
             .overlay { if model.records.isEmpty { ContentUnavailableView("A little peace of mind", systemImage: "lock.shield", description: Text("Add your first password or import your Password Keeper CSV.")) } }
-            .navigationTitle("Your vault").searchable(text: $query, prompt: "Search names, usernames, notes")
+            .navigationTitle("PassVault").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Search names, usernames, notes")
             .toolbar {
+                ToolbarItem(placement: .principal) { WordMark().font(.headline) }
                 ToolbarItem(placement: .topBarLeading) { Button("Lock", systemImage: "lock") { model.lock() } }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("Import, export & security", systemImage: "gearshape") { transfer = true }
@@ -225,7 +248,7 @@ struct RecordEditor: View {
                 }
                 Section("Website or app") {
                     TextField("Name", text: $record.name)
-                    TextField("Website", text: $record.website).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Website/App name", text: $record.website).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("Group", text: $record.group)
                     Toggle("Favorite", isOn: $record.favorite)
                 }
