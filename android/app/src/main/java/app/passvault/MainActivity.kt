@@ -21,6 +21,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
@@ -46,6 +47,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -394,7 +396,9 @@ class MainActivity : FragmentActivity() {
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
                 LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { FilterChip(favorites, { favorites = !favorites }, label = { Text(stringResource(R.string.main_favorites)) }, leadingIcon = { Icon(if (favorites) Icons.Default.Star else Icons.Outlined.StarOutline, null, Modifier.size(18.dp)) }) }
-                    if (!seedTab) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) }, leadingIcon = { Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp)) }) }
+                    if (!seedTab) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(groupColorArgb(name)).copy(alpha = 0.28f), selectedLabelColor = MaterialTheme.colorScheme.onSurface),
+                        border = FilterChipDefaults.filterChipBorder(true, group == name, borderColor = Color(groupColorArgb(name)), selectedBorderColor = Color(groupColorArgb(name)), borderWidth = 1.dp, selectedBorderWidth = 2.dp)) }
                 }
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconBadge(if (seedTab) Icons.Outlined.AccountBalanceWallet else Icons.Outlined.Key, 72.dp); Spacer(Modifier.height(16.dp))
@@ -403,7 +407,7 @@ class MainActivity : FragmentActivity() {
                 } else Text(stringResource(if (seedTab) R.string.main_count_of_seeds else R.string.main_count_of_entries, visible.size, ofType.size), Modifier.padding(start = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(visible, key = { it.id }) { record ->
-                        val subtitle = if (record.type == RecordType.seed) (if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)) else record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website.ifBlank { record.group }
+                        val subtitle = if (record.type == RecordType.seed) (if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)) else record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
                         val isSelected = record.id in selected
                         fun toggle() { selected = if (isSelected) selected - record.id else selected + record.id }
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -419,6 +423,7 @@ class MainActivity : FragmentActivity() {
                                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                                     Text(record.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (record.type == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
                                 }
                                 if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -435,6 +440,15 @@ class MainActivity : FragmentActivity() {
                 text = { HardenWindow(); Text(when { seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
                 confirmButton = { TextButton(onClick = { confirmDelete = false; val ids = doomed.map { it.id }.toSet(); val updated = records.filter { it.id !in ids }; work({ engine.save(updated); updated }) { selected = emptySet(); message = if (ids.size == 1) getString(R.string.main_deleted_one, ids.size) else getString(R.string.main_deleted_many, ids.size) } }) { Text(stringResource(R.string.main_delete), color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.main_cancel)) } })
+        }
+    }
+
+    /** A group's name in its own color: colored border, a light tint of that color behind the text, and the normal text color so contrast holds in light and dark themes. */
+    @Composable private fun GroupTag(name: String, modifier: Modifier = Modifier, large: Boolean = false) {
+        val tint = Color(groupColorArgb(name))
+        Surface(modifier, shape = RoundedCornerShape(if (large) 8.dp else 6.dp), color = tint.copy(alpha = 0.18f), border = BorderStroke(1.dp, tint)) {
+            Text(name.trim(), Modifier.padding(horizontal = if (large) 10.dp else 6.dp, vertical = if (large) 4.dp else 1.dp), color = MaterialTheme.colorScheme.onSurface,
+                style = if (large) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 
@@ -462,6 +476,7 @@ class MainActivity : FragmentActivity() {
                             val state = groupMembership(pending.values, name)
                             Row(Modifier.fillMaxWidth().clickable { assign(if (state == true) "" else name) }, verticalAlignment = Alignment.CenterVertically) {
                                 TriStateCheckbox(when (state) { true -> androidx.compose.ui.state.ToggleableState.On; null -> androidx.compose.ui.state.ToggleableState.Indeterminate; false -> androidx.compose.ui.state.ToggleableState.Off }, onClick = null, modifier = Modifier.padding(12.dp))
+                                Box(Modifier.padding(end = 8.dp).size(12.dp).clip(CircleShape).background(Color(groupColorArgb(name))))
                                 Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
@@ -508,7 +523,7 @@ class MainActivity : FragmentActivity() {
                         RecordAvatar(record.name, 72.dp)
                         Text(record.name, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.headlineSmall)
                         if (record.website.isNotBlank()) Text(record.website, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                        if (record.group.isNotBlank()) AssistChip(onClick = {}, label = { Text(record.group) }, leadingIcon = { Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp)) }, modifier = Modifier.padding(top = 8.dp))
+                        if (record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 8.dp), large = true)
                     }
                 }
                 item {

@@ -51,6 +51,19 @@ fun groupMembership(groups: Collection<String>, name: String): Boolean? {
     val count = groups.count { it.trim().equals(name, ignoreCase = true) }
     return if (count == 0) false else if (count == groups.size) true else null
 }
+/**
+ * A stable color for a group as opaque ARGB, derived from its name (trimmed, ignoring case) so it never has to be stored and matches
+ * on iOS: FNV-1a hash of the UTF-8 bytes picks the hue, with fixed saturation and lightness that read on light and dark surfaces.
+ */
+fun groupColorArgb(name: String): Int {
+    var h = 0x811C9DC5L
+    for (b in name.trim().lowercase().toByteArray(Charsets.UTF_8)) h = ((h xor (b.toLong() and 0xFF)) * 16777619L) and 0xFFFFFFFFL
+    val hue = (h % 360).toDouble(); val s = 0.65; val l = 0.5
+    val c = (1 - Math.abs(2 * l - 1)) * s; val x = c * (1 - Math.abs((hue / 60) % 2 - 1)); val m = l - c / 2
+    val (r, g, b) = when ((hue / 60).toInt()) { 0 -> Triple(c, x, 0.0); 1 -> Triple(x, c, 0.0); 2 -> Triple(0.0, c, x); 3 -> Triple(0.0, x, c); 4 -> Triple(x, 0.0, c); else -> Triple(c, 0.0, x) }
+    fun ch(v: Double) = Math.round((v + m) * 255).toInt()
+    return (0xFF shl 24) or (ch(r) shl 16) or (ch(g) shl 8) or ch(b)
+}
 const val PASSWORD_HISTORY_LIMIT = 10
 /**
  * Adds the replaced value of every password / security-answer field that differs from [previous] to that field's own history,

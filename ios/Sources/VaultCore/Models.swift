@@ -55,6 +55,17 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
         return query.isEmpty || searchable.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }
+/// A stable color for a group as (red, green, blue) in 0...1, derived from its name (trimmed, ignoring case) so it never has to be stored and
+/// matches Android: FNV-1a hash of the UTF-8 bytes picks the hue, with fixed saturation and lightness that read on light and dark surfaces.
+public func groupColorRGB(_ name: String) -> (r: Double, g: Double, b: Double) {
+    var h: UInt64 = 0x811C9DC5
+    for byte in name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().utf8 { h = ((h ^ UInt64(byte)) &* 16777619) & 0xFFFFFFFF }
+    let hue = Double(h % 360), s = 0.65, l = 0.5
+    let c = (1 - abs(2 * l - 1)) * s, x = c * (1 - abs((hue / 60).truncatingRemainder(dividingBy: 2) - 1)), m = l - c / 2
+    let rgb: (Double, Double, Double)
+    switch Int(hue / 60) { case 0: rgb = (c, x, 0); case 1: rgb = (x, c, 0); case 2: rgb = (0, c, x); case 3: rgb = (0, x, c); case 4: rgb = (x, 0, c); default: rgb = (c, 0, x) }
+    return (rgb.0 + m, rgb.1 + m, rgb.2 + m)
+}
 public let passwordHistoryLimit = 10
 extension VaultRecord {
     /// Adds the replaced value of every password / security-answer field that differs from `previous` to that field's own history,

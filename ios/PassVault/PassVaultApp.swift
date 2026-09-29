@@ -150,6 +150,20 @@ struct UnlockView: View {
     }
 }
 
+func groupColor(_ name: String) -> Color { let c = groupColorRGB(name); return Color(red: c.r, green: c.g, blue: c.b) }
+
+/// A group's name in its own color: colored border, a light tint behind the text, and the normal text color so contrast holds in light and dark mode.
+struct GroupTag: View {
+    let name: String
+    var body: some View {
+        let tint = groupColor(name)
+        Text(name.trimmingCharacters(in: .whitespaces)).font(.caption2).foregroundStyle(.primary).lineLimit(1)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(tint, lineWidth: 1))
+    }
+}
+
 struct RecordList: View {
     @EnvironmentObject var model: VaultModel
     @State private var query = ""
@@ -168,7 +182,8 @@ struct RecordList: View {
                                 Image(systemName: record.favorite ? "star.fill" : "key.fill").foregroundStyle(.tint).frame(width: 30)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(record.name.isEmpty ? "Untitled record" : record.name).font(.headline).foregroundStyle(.primary)
-                                    Text(record.group.isEmpty ? record.website : record.group).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    if !record.website.isEmpty { Text(record.website).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                    if !record.group.trimmingCharacters(in: .whitespaces).isEmpty { GroupTag(name: record.group) }
                                 }
                             }.padding(.vertical, 5)
                         }

@@ -12,6 +12,18 @@ Built as a new home for people leaving **BlackBerry Password Keeper**: it import
 
 No account · No server · No analytics · No cloud sync
 
+[![Downloads](https://img.shields.io/github/downloads/daocha/password-vault/total?logo=github&label=downloads&color=2ea44f)](https://github.com/daocha/password-vault/releases)
+[![License: MIT](https://img.shields.io/github/license/daocha/password-vault?color=blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/daocha/password-vault?include_prereleases&label=release)](https://github.com/daocha/password-vault/releases/latest)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.2.21-7F52FF?logo=kotlin&logoColor=white)](android)
+[![Swift](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)](ios)
+[![Android](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](#-download-android)
+[![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=white)](#-build-for-ios)
+[![Offline](https://img.shields.io/badge/works-100%25%20offline-success)](docs/SECURITY.md)
+[![Repo size](https://img.shields.io/github/repo-size/daocha/password-vault)](https://github.com/daocha/password-vault)
+
+[![Get it on GitHub](https://img.shields.io/badge/GET%20IT%20ON-GITHUB-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/daocha/password-vault/releases/latest)
+
 </div>
 
 > [!IMPORTANT]
