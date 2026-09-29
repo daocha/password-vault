@@ -12,6 +12,7 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "2026.9.30"
+        manifestPlaceholders["appLabel"] = "PassVault"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -25,9 +26,11 @@ android {
     }
     buildTypes {
         all { buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "false") }
+        // Own package name and label so the debug build installs next to (not over) a release build signed with a different key.
+        debug { applicationIdSuffix = ".debug"; versionNameSuffix = "-debug"; manifestPlaceholders["appLabel"] = "PassVault Dev" }
         release { if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release"); isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
         // Emulator-only build: emulators lack hardware-backed keys. Never distribute this variant.
-        create("qa") { initWith(getByName("debug")); applicationIdSuffix = ".qa"; versionNameSuffix = "-qa"; buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "true") }
+        create("qa") { initWith(getByName("debug")); applicationIdSuffix = ".qa"; versionNameSuffix = "-qa"; manifestPlaceholders["appLabel"] = "PassVault QA"; buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "true") }
     }
 }
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
