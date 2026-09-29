@@ -72,7 +72,7 @@ fun IconBadge(icon: ImageVector, size: Dp = 40.dp, container: Color = MaterialTh
 @Composable
 fun RecordAvatar(record: VaultRecord, size: Dp = 44.dp) {
     val brand = remember(record.website, record.name) { if (record.type == RecordType.login) findBrand(record.website, record.name) else null }
-    if (brand != null) Image(painterResource(brand.drawable), null, Modifier.size(size).clip(RoundedCornerShape(size * 0.23f)))
+    if (brand != null) Image(painterResource(brand.drawable), brand.title, Modifier.size(size).clip(RoundedCornerShape(size * 0.23f)))
     else RecordAvatar(record.name, size)
 }
 

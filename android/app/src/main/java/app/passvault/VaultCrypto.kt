@@ -6,7 +6,7 @@ import com.sun.jna.NativeLong
 import java.security.SecureRandom
 
 object PasswordPolicy {
-    @StringRes const val RULE = R.string.app_pw_rule
+    @StringRes val RULE = R.string.app_pw_rule
     /** Resource id of the first unmet rule, or null when [password] is acceptable. */
     @StringRes fun problem(password: String): Int? = when {
         password.codePointCount(0, password.length) < 12 -> R.string.app_pw_min_length
