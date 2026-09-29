@@ -1,20 +1,83 @@
-# PassVault
+<div align="center">
 
-An offline password vault with **native SwiftUI for iOS** and **native Kotlin / Jetpack Compose for Android**. No backend, account, analytics, or cloud sync.
+<img src="assets/app-icon.png" alt="PassVault icon" width="120" />
 
-This is a development implementation, **not yet audited or ready to hold valuable credentials**. See [feature status](docs/FEATURES.md), [security model](docs/SECURITY.md), and the [encrypted file specification](docs/FORMAT.md).
+# 🔐 PassVault
 
-## Included
+**Your passwords, on your phone, and nowhere else.**
 
-- Password and biometric unlock; encrypted local records; 10-failure local erasure.
-- Search, favorites, groups, editable records, hidden secrets, adjustable strong password generation.
-- Ordered custom usernames, passwords, notes, and security question-answer pairs.
-- Password-authorized CSV/encrypted export, confirmed import, master-password change, and clipboard handling.
-- An [app icon](assets/app-icon.png) generated for both platforms. [Prompt and asset details](assets/README.md).
+A fully offline password vault with a native app for **iOS** (SwiftUI) and **Android** (Kotlin / Jetpack Compose).
 
-## iOS
+Built as a new home for people leaving **BlackBerry Password Keeper**: it imports Password Keeper's backups directly.
 
-Requires full Xcode, an iOS 17+ device, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). Command Line Tools alone cannot compile the iOS app or run XCTest.
+No account · No server · No analytics · No cloud sync
+
+</div>
+
+> [!WARNING]
+> PassVault is still in development. It has **not been security-audited**, so please don't trust it with valuable credentials yet.
+> Read the [feature status](docs/FEATURES.md), the [security model](docs/SECURITY.md) and the [encrypted file format](docs/FORMAT.md) to see exactly where things stand.
+
+---
+
+## 📑 Contents
+
+[✨ Features](#-features) · [📥 Download](#-download-android) · [🍎 Build for iOS](#-build-for-ios) · [🤖 Build for Android](#-build-for-android) · [🚚 Moving your passwords in](#-moving-your-passwords-in) · [🛡️ Security checks](#%EF%B8%8F-security-checks) · [✅ Project status](#-project-status)
+
+---
+
+## 🧭 How it works
+
+Everything happens on your phone. Your master password unlocks the vault, and nothing leaves the device unless you export a file yourself.
+
+```mermaid
+flowchart LR
+    U([You]) -->|master password<br/>or fingerprint / face| A[PassVault app]
+    A <-->|encrypt / decrypt| V[(Encrypted vault<br/>on this phone)]
+    A -.->|only when you choose Export| F[/Backup file<br/>CSV or encrypted/]
+    F -.->|Import| A
+    A -. never connects .- N[Internet, cloud, servers]
+```
+
+The dotted "never connects" line is deliberate: PassVault has no network features, so there is nothing to sign in to and nothing to sync.
+
+---
+
+## ✨ Features
+
+| | |
+|---|---|
+| 🔑 **Easy, safe unlocking** | Unlock with your master password or your fingerprint / face. After 10 wrong attempts, the vault on that device is erased. |
+| 🗄️ **Encrypted on your device** | Every record is encrypted and stored locally. Nothing is ever uploaded. |
+| 🔎 **Find things fast** | Search, star your favorites, and organize records into groups. |
+| 📝 **Flexible records** | Add several usernames, passwords and notes to one record, plus security question-and-answer pairs, in the order you want. Secrets stay hidden until you reveal them. |
+| 🎲 **Password generator** | Create strong passwords with adjustable length and character types. |
+| 📤 **Backup and restore** | Export as CSV or as an encrypted file, and import them back after confirming. Exporting asks for your password first. |
+| 🔄 **Change master password** | Update it any time from settings. |
+| 📋 **Careful clipboard** | Copied passwords are handled with care so they don't linger. |
+
+The app icon is shared by both platforms. See [`assets/README.md`](assets/README.md) for the prompt and asset details.
+
+---
+
+## 📥 Download (Android)
+
+The quickest way to try PassVault on Android is the ready-made APK:
+
+1. Open the **[Releases](../../releases)** page of this repository.
+2. Pick the latest version and download **`PassVault-<version>-<build>.apk`** from *Assets*.
+3. Open the file on your phone and allow *Install unknown apps* when Android asks.
+
+Requires **Android 11 or newer**.
+
+> [!NOTE]
+> Every release tag carries its own APK. For iOS, please build the app yourself (see below).
+
+---
+
+## 🍎 Build for iOS
+
+**You'll need:** full Xcode (Command Line Tools alone can't build the app or run XCTest), an iPhone or iPad on **iOS 17+**, and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
 cd ios
@@ -22,42 +85,124 @@ xcodegen generate
 open PassVault.xcodeproj
 ```
 
-Select your signing team in Xcode and build for a real device. Swift Package Manager resolves the pinned libsodium wrapper. Enable a device passcode before creating a vault; enroll Face ID/Touch ID before enabling biometric unlock in app settings.
+Then:
 
-## Android
+1. Choose your signing team in Xcode and build to a real device.
+2. Swift Package Manager fetches the pinned libsodium wrapper automatically.
+3. Set a device passcode before creating a vault. To use biometric unlock, first enroll Face ID or Touch ID, then turn it on in the app's settings.
 
-Requires JDK 17 and Android SDK 36. Open `android/` in Android Studio or use:
+---
+
+## 🤖 Build for Android
+
+**You'll need:** JDK 17 and Android SDK 36. Open the `android/` folder in Android Studio, or use the command line:
 
 ```sh
 cd android
 ./gradlew :app:assembleDebug :app:testDebugUnitTest
 ```
 
-Set `ANDROID_HOME` to your SDK, or create an untracked `android/local.properties` with `sdk.dir=...`. Minimum Android version is 11 (API 30). Test strong biometrics on a real device. Release signing is intentionally not configured with a shared development key. To make a signed Play Store bundle (AAB) and sideload APK locally, run `scripts/build-android-release.sh`; it creates your upload keystore on first use and keeps the key off GitHub. Output goes to `dist/`. To move existing installs to a new signing key without losing their data, run `scripts/rotate-signing-key.sh` once (it defaults to rotating from the Android debug key); after that `scripts/build-android-release.sh` attaches the rotation lineage to the sideload APK automatically. Back up both keystores and `~/.passvault-signing/lineage.bin`.
+Point `ANDROID_HOME` at your SDK, or create an untracked `android/local.properties` containing `sdk.dir=...`. Test biometrics on a real phone.
 
-## Native security checks
+<details>
+<summary><b>📦 Making a signed release (APK and Play Store bundle)</b></summary>
 
-The portable Swift core can be exercised without full Xcode:
+<br>
+
+No shared development key is included, and your signing key never goes on GitHub.
+
+- Run `scripts/build-android-release.sh` to make a signed **AAB** (for Google Play) and a signed **APK** (for sideloading and GitHub Releases). On first use it creates your upload keystore. Results land in `dist/`.
+- Already have installs signed with an older key? Run `scripts/rotate-signing-key.sh` once (it defaults to rotating from the Android debug key). Afterwards, the build script attaches the rotation lineage to the APK automatically, so existing users update in place without losing data.
+- **Back up** both keystores and `~/.passvault-signing/lineage.bin`. Losing them means you can't ship updates.
+- To publish, run `scripts/release-github.sh`. It builds the signed APK, then (after you confirm) tags `vX.Y.Z`, pushes the tag and creates the GitHub Release with the APK and its checksum file. Add `--draft` to review the release on GitHub before it goes public. You need the [GitHub CLI](https://cli.github.com) (`gh auth login` once).
+
+```mermaid
+flowchart LR
+    A[Raise version in<br/>build.gradle.kts] --> B[Commit]
+    B --> C[scripts/release-github.sh]
+    C --> D[Build, test and sign<br/>on your machine]
+    D --> E{Confirm?}
+    E -->|yes| F[Tag and push]
+    F --> G[GitHub Release<br/>APK + SHA256SUMS]
+```
+
+</details>
+
+---
+
+## 🚚 Moving your passwords in
+
+**Coming from BlackBerry Password Keeper?** PassVault imports its backup files directly, on both iOS and Android. Password Keeper offers two export types, and they are not equal:
+
+| Export | What survives |
+|---|---|
+| **`.pkb2`** (encrypted) ✅ recommended | Everything, including extra usernames, passwords and other fields |
+| **CSV** | Only the basics; extra fields are dropped |
+
+```mermaid
+flowchart TD
+    A[Password Keeper app] -->|Export| B{Which format?}
+    B -->|.pkb2 encrypted| C[Keeps every field<br/>recommended]
+    B -->|CSV| D[Basic fields only]
+    C --> E[Copy the file to your phone<br/>directly, e.g. USB or AirDrop]
+    D --> E
+    E --> F[PassVault: Settings, then Import]
+    F --> G[Enter the export password<br/>.pkb2 only]
+    G --> H[Check the record count, confirm]
+    H --> I[Check your records]
+    I --> J[Delete the plaintext file]
+```
+
+**How to import**
+
+1. Transfer the file to your phone locally.
+2. Unlock PassVault → **Settings** → **Import**, then pick the file.
+3. For `.pkb2`, enter the password you chose when exporting. CSV needs no password.
+4. Check the record count and confirm.
+5. Verify your records, *then* delete the plaintext migration file.
+
+> [!TIP]
+> Never commit real credentials. CSV and backup files are ignored by Git.
+
+**Good to know**
+
+- Your app password needs **at least 12 characters**, with upper- and lowercase letters, a number and a symbol. Length matters because encrypted backups can be attacked offline.
+- On Android, exporting asks for your app password once (this counts as an attempt) and encrypts the backup with it.
+- Encrypted backups can be imported on **either platform**.
+- There is **no password reset**. If you forget your master password, nobody can recover it for you.
+- Exported files are independent of local erasure: wiping the vault does not delete files you exported.
+- The system file picker may show cloud providers, but PassVault itself has no cloud integration.
+
+---
+
+## 🛡️ Security checks
+
+The portable Swift core can be tested without full Xcode:
 
 ```sh
 swift run --package-path ios vault-security-checks
 ```
 
-To validate a local migration file without copying credentials into the repo or printing them:
+To check a local migration file without copying credentials into the repo or printing them:
 
 ```sh
-PASSVAULT_TEST_CSV=/Volumes/MacExternalDisk/pk_backup_2026-09-29.csv \
+PASSVAULT_TEST_CSV=/path/to/your_backup.csv \
   swift run --package-path ios vault-security-checks
 ```
 
-On a full Xcode installation, also run `swift test --package-path ios`. Build tools need Internet access to fetch dependencies; the shipped app does not.
+With full Xcode you can also run `swift test --package-path ios`. Build tools need internet to fetch dependencies; the finished app never does.
 
-## Migration
+---
 
-Password Keeper's CSV export drops extra usernames, passwords and other fields; its encrypted `.pkb2` export keeps everything. Prefer `.pkb2`: transfer it locally to the phone, unlock PassVault, open settings, choose Import, pick the file and enter the password you set when exporting. CSV import works the same way without a password. Review the record count and confirm. Verify records before removing the plaintext migration file. Do not commit real credentials: CSV and backup files are ignored by Git.
+## ✅ Project status
 
-App passwords need at least 12 characters (encrypted backups can be attacked offline, so length matters) with uppercase and lowercase letters, a number and a symbol. On Android, export asks for the app password once (a counted attempt) and encrypts the backup with it. Encrypted backups and can be imported on either platform. There is no password reset service. Exported files remain independent of local erasure. The system file picker may offer third-party cloud providers, but the app itself implements no cloud integration.
+**Verified so far**
 
-## Validation in this workspace
+- ✔️ The Swift core compiles, and **95 standalone security and migration checks pass**, including the supplied CSV.
+- ✔️ The iOS UI source passes Swift syntax parsing.
 
-The Swift core compiled, and 95 standalone security/migration checks passed, including the supplied CSV. iOS UI source passed Swift syntax parsing. Android CSV/schema unit tests are included but have not run. Full mobile builds, native UI type checking and biometric behavior have not yet been verified: this Mac initially had no full Xcode, Android SDK or JDK. XCTest was unavailable in its command-line-tools installation. These are release blockers, not evidence that the mobile apps have passed.
+**Not yet verified** (release blockers, not proof that the apps pass)
+
+- ⏳ Android CSV/schema unit tests exist but haven't been run.
+- ⏳ Full mobile builds, native UI type checking and biometric behavior.
+- ⏳ XCTest, which was unavailable on the development Mac (no full Xcode, Android SDK or JDK at first).
