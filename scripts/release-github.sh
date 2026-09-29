@@ -2,7 +2,7 @@
 # Builds the signed release and publishes it as a GitHub Release: tag vX.Y.Z, the sideload APK and its SHA-256 file attached.
 # The signing key stays on your machine; only the finished APK and checksums are uploaded.
 #
-#   scripts/release-github.sh                build, then tag and publish after you confirm
+#   scripts/release-github.sh                ask for the version, build, then commit the bump, tag and publish after you confirm
 #   scripts/release-github.sh --draft        create the release as a draft to review on GitHub first
 #   scripts/release-github.sh --skip-build   reuse the APK already in dist/ for the current version
 #   scripts/release-github.sh --skip-tests   passed through to build-android-release.sh
@@ -26,8 +26,21 @@ gradle="android/app/build.gradle.kts"
 version="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' "$gradle" | head -1)"
 code="$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' "$gradle" | head -1)"
 [ -n "$version" ] && [ -n "$code" ] || die "Could not read versionName/versionCode from $gradle."
+
+# Ask for the version to release (Enter keeps the current one). A new name also raises versionCode by one; the edit is committed after you confirm below.
+bumped=0
+if [ "$build" = 1 ]; then
+  read -r -p "Version name to release [current: $version, code $code]: " new_version
+  new_version="${new_version#v}"
+  if [ -n "$new_version" ] && [ "$new_version" != "$version" ]; then
+    [[ "$new_version" =~ ^[0-9A-Za-z._-]+$ ]] || die "Invalid version name: $new_version"
+    version="$new_version"; code=$((code + 1)); bumped=1
+    sed -i.bak -e "s/versionName = \".*\"/versionName = \"$version\"/" -e "s/versionCode = [0-9]*/versionCode = $code/" "$gradle" && rm -f "$gradle.bak"
+    echo "Set versionName=$version, versionCode=$code in $gradle"
+  fi
+fi
 tag="v$version"
-git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "Tag $tag already exists. Raise versionName/versionCode in $gradle for a new release."
+git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "Tag $tag already exists. Pick a different version name."
 gh release view "$tag" >/dev/null 2>&1 && die "GitHub already has a release for $tag."
 
 [ "$build" = 1 ] && "$here/build-android-release.sh" ${build_args[@]+"${build_args[@]}"}
@@ -38,8 +51,9 @@ echo; echo "About to publish $tag${draft[*]:+ (draft)} from commit $(git rev-par
 read -r -p "Tag, push and upload now? [y/N] " yn
 [ "$yn" = "y" ] || [ "$yn" = "Y" ] || die "Aborted. Nothing was pushed."
 
+if [ "$bumped" = 1 ]; then git add "$gradle"; git commit -q -m "Release $version"; fi
 git tag -a "$tag" -m "PassVault $version"
-git push origin "$tag"
+git push origin HEAD "$tag"
 gh release create "$tag" "$apk" "$sums" --verify-tag --title "PassVault $version" ${draft[@]+"${draft[@]}"} --notes "Android sideload APK (Android 11+). Verify the download against the SHA256SUMS file.
 
 **Open source, not independently audited.** Everything stays on your device. Keep a separate backup of anything important."
