@@ -14,9 +14,12 @@ No account · No server · No analytics · No cloud sync
 
 </div>
 
-> [!WARNING]
-> PassVault is still in development. It has **not been security-audited**, so please don't trust it with valuable credentials yet.
-> Read the [feature status](docs/FEATURES.md), the [security model](docs/SECURITY.md) and the [encrypted file format](docs/FORMAT.md) to see exactly where things stand.
+> [!IMPORTANT]
+> **Open source, and not independently audited.**
+> PassVault uses established encryption (Argon2id and XChaCha20-Poly1305 via libsodium), keeps everything on your device, and has no network features. The code is public, so you can read it and judge for yourself.
+> No professional security review has been done yet. As with any password manager you haven't audited yourself, **keep a separate backup of anything important.**
+>
+> 📖 See the [security model](docs/SECURITY.md) for what it does and doesn't protect against, the [feature status](docs/FEATURES.md), and the [encrypted file format](docs/FORMAT.md).
 
 ---
 

@@ -42,5 +42,5 @@ git tag -a "$tag" -m "PassVault $version"
 git push origin "$tag"
 gh release create "$tag" "$apk" "$sums" --verify-tag --title "PassVault $version" ${draft[@]+"${draft[@]}"} --notes "Android sideload APK (Android 11+). Verify the download against the SHA256SUMS file.
 
-**Development build, not security-audited. Don't rely on it for valuable credentials yet.**"
+**Open source, not independently audited.** Everything stays on your device. Keep a separate backup of anything important."
 echo "Done: $(gh release view "$tag" --json url -q .url)"
