@@ -38,28 +38,41 @@ class VaultEngine(private val storage: ProtectedStorage) {
     }
     @Synchronized fun remainingAttempts() = 10 - (state()?.attempts ?: 0)
     @Synchronized fun lock() { key?.fill(0); key = null; records = emptyList() }
+    /** Wraps [dataKey] under [password] with a fresh salt and device secret. */
+    private class Wrapped(val salt: ByteArray, val secret: ByteArray, val wrapped: ByteArray)
+    private fun wrap(password: String, dataKey: ByteArray): Wrapped {
+        val salt = VaultCrypto.random(16); val secret = VaultCrypto.random(32)
+        val derived = VaultCrypto.passwordKey(password, salt); val wrapping = VaultCrypto.deviceKey(derived, secret); derived.fill(0)
+        try { return Wrapped(salt, secret, VaultCrypto.seal(dataKey, wrapping, wrapAAD)) } finally { wrapping.fill(0) }
+    }
     @Synchronized fun create(password: String): List<VaultRecord> {
         check(state() == null) { "A vault already exists." }; VaultCrypto.strongPassword(password)
         storage.initializeKey()
-        val salt = VaultCrypto.random(16); val secret = VaultCrypto.random(32); val dataKey = VaultCrypto.random(32)
-        val derived = VaultCrypto.passwordKey(password, salt); val wrapping = VaultCrypto.deviceKey(derived, secret); derived.fill(0)
+        val dataKey = VaultCrypto.random(32); val wrapped = wrap(password, dataKey)
         val blob = UUID.randomUUID().toString()
-        try {
-            val value = DeviceState(0, false, salt, secret, VaultCrypto.seal(dataKey, wrapping, wrapAAD), blob)
-            storage.writeBlob(blob, VaultCrypto.seal(Records.encode(emptyList()), dataKey, blob.toByteArray()))
-            storage.writeState(value.encode()); key = dataKey; records = emptyList(); return records
-        } finally { wrapping.fill(0) }
+        val value = DeviceState(0, false, wrapped.salt, wrapped.secret, wrapped.wrapped, blob)
+        storage.writeBlob(blob, VaultCrypto.seal(Records.encode(emptyList()), dataKey, blob.toByteArray()))
+        storage.writeState(value.encode()); key = dataKey; records = emptyList(); return records
     }
     private fun authenticate(password: String): ByteArray {
         val value = state() ?: error("Create a vault first.")
         value.attempts++; storage.writeState(value.encode())
-        val derived = VaultCrypto.passwordKey(password, value.salt); val wrapping = VaultCrypto.deviceKey(derived, value.secret); derived.fill(0)
-        val candidate: ByteArray
-        try { candidate = VaultCrypto.open(value.wrapped, wrapping, wrapAAD) }
-        catch (e: AuthenticationFailure) { if (value.attempts == 10) { erase(value); error("The local vault was erased after 10 failed attempts.") }; throw e }
-        finally { wrapping.fill(0) }
+        // Vaults made before passwords were normalized are keyed from the text exactly as typed. Accept that form once and re-wrap in the
+        // normalized form below. Both forms count as one attempt.
+        var candidate: ByteArray? = null; var legacy = false
+        for (raw in if (PasswordText.differs(password)) listOf(false, true) else listOf(false)) {
+            val derived = VaultCrypto.passwordKey(password, value.salt, legacyEncoding = raw); val wrapping = VaultCrypto.deviceKey(derived, value.secret); derived.fill(0)
+            try { candidate = VaultCrypto.open(value.wrapped, wrapping, wrapAAD); legacy = raw; break }
+            catch (_: AuthenticationFailure) { }
+            finally { wrapping.fill(0) }
+        }
+        if (candidate == null) { if (value.attempts == 10) { erase(value); error("The local vault was erased after 10 failed attempts.") }; throw AuthenticationFailure() }
         value.attempts = 0
-        try { storage.writeState(value.encode()) } catch (e: Exception) { candidate.fill(0); throw e }
+        try {
+            if (legacy) wrap(password, candidate).let { value.salt = it.salt; value.secret = it.secret; value.wrapped = it.wrapped }
+            // Clearing the counter never makes an old copy more useful to an attacker, so it does not need a new state key. A re-wrap does.
+            storage.writeState(value.encode(), ratchet = legacy)
+        } catch (e: Exception) { candidate.fill(0); throw e }
         return candidate
     }
     private fun load(candidate: ByteArray): List<VaultRecord> {
@@ -76,7 +89,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
     @Synchronized fun unlockBiometric(cipher: Cipher): List<VaultRecord> {
         val value = state() ?: error("Create a vault first.")
         val loaded = load(storage.readBiometric(cipher))
-        if (value.attempts != 0) { value.attempts = 0; storage.writeState(value.encode()) }
+        if (value.attempts != 0) { value.attempts = 0; storage.writeState(value.encode(), ratchet = false) }
         return loaded
     }
     @Synchronized fun hasBiometric() = state() != null && storage.hasBiometric()
@@ -98,20 +111,28 @@ class VaultEngine(private val storage: ProtectedStorage) {
         check(key != null) { "Vault is locked." }; authenticate(password).fill(0)
         return if (csv) VaultCSV.exportRecords(records).toByteArray() else VaultCrypto.exportBackup(records, password)
     }
+    /** Also replaces the data key and re-encrypts the vault, so nothing derived from the old password or old state can open future data. */
     @Synchronized fun changePassword(current: String, new: String) {
         check(key != null) { "Vault is locked." }; VaultCrypto.strongPassword(new)
-        val candidate = authenticate(current)
+        authenticate(current).fill(0) // proves the current password; the vault is unlocked, so the old data key is not needed again
+        val value = state() ?: error("Vault is locked.")
+        val previous = value.blob; val blob = UUID.randomUUID().toString()
+        val dataKey = VaultCrypto.random(32); val plain = Records.encode(records)
         try {
-            val value = state() ?: error("Vault is locked.")
-            val salt = VaultCrypto.random(16); val secret = VaultCrypto.random(32)
-            val derived = VaultCrypto.passwordKey(new, salt); val wrapping = VaultCrypto.deviceKey(derived, secret); derived.fill(0)
-            try { value.salt = salt; value.secret = secret; value.wrapped = VaultCrypto.seal(candidate, wrapping, wrapAAD); storage.writeState(value.encode()) }
-            finally { wrapping.fill(0) }
-        } finally { candidate.fill(0) }
+            storage.writeBlob(blob, VaultCrypto.seal(plain, dataKey, blob.toByteArray()))
+            val wrapped = wrap(new, dataKey)
+            // The biometric copy holds the old data key. Remove it before the commit so it cannot outlive the state that made it valid.
+            storage.deleteBiometric()
+            value.salt = wrapped.salt; value.secret = wrapped.secret; value.wrapped = wrapped.wrapped; value.blob = blob
+            storage.writeState(value.encode())
+        } catch (e: Exception) { dataKey.fill(0); runCatching { storage.removeBlobs(previous) }; throw e }
+        finally { plain.fill(0) }
+        key?.fill(0); key = dataKey
+        storage.removeBlobs(blob)
     }
     private fun erase(value: DeviceState) {
         lock(); value.erased = true; value.secret.fill(0); value.wrapped.fill(0); value.salt.fill(0)
         value.secret = byteArrayOf(); value.wrapped = byteArrayOf(); value.salt = byteArrayOf()
-        storage.writeState(value.encode()); storage.finishErasure()
+        storage.writeState(value.encode(), ratchet = false); storage.finishErasure()
     }
 }

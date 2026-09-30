@@ -18,6 +18,7 @@ final class MemoryStorage: VaultStorage {
     func deleteBiometricKey() throws { biometric = nil }
 }
 var checks = 0
+func XCTUnwrapData(_ data: Data?) throws -> Data { guard let data else { throw VaultError.invalid("FAILED: missing state") }; return data }
 func check(_ condition: @autoclosure () throws -> Bool, _ label: String) throws {
     guard try condition() else { throw VaultError.invalid("FAILED: \(label)") }; checks += 1
 }
@@ -61,6 +62,85 @@ do {
     try engine.save([record]); try engine.changePassword(current: password, new: "A different passphrase 2?"); engine.lock()
     try rejects("old master password") { _ = try engine.unlock(password: password) }
     try check(engine.unlock(password: "A different passphrase 2?") == [record], "changed master password preserves records")
+    // Backups: QVAULT02 carries its own authenticated Argon2id cost; QVAULT01 files still open.
+    try check(encrypted.prefix(8) == Data("QVAULT02".utf8) && encrypted[8..<12] == Data([0, 4, 0, 0]) && encrypted[12..<16] == Data([0, 0, 0, 4]), "new backups use QVAULT02 with 256 MiB and 4 passes")
+    var weaker = encrypted; weaker[9] = 0
+    try rejects("backup cost below the minimum") { _ = try VaultCrypto.importBackup(weaker, password: password) }
+    var costlier = encrypted; costlier[8] = 0xFF
+    try rejects("backup cost above the maximum") { _ = try VaultCrypto.importBackup(costlier, password: password) }
+    var retuned = encrypted; retuned[15] = 5
+    try rejects("authenticated cost fields are bound to the ciphertext") { _ = try VaultCrypto.importBackup(retuned, password: password) }
+    try rejects("unknown backup version") { _ = try VaultCrypto.importBackup(Data("QVAULT03".utf8) + encrypted.dropFirst(8), password: password) }
+    func versionOne(_ pw: String, legacy: Bool) throws -> Data {
+        let salt = VaultCrypto.random(16), header = Data("QVAULT01".utf8) + salt
+        var key = try VaultCrypto.passwordKey(pw, salt: salt, legacyEncoding: legacy); defer { key.resetBytes(in: 0..<key.count) }
+        return try header + VaultCrypto.seal(Records.encode([record]), key: key, aad: header)
+    }
+    try check(VaultCrypto.importBackup(versionOne(password, legacy: false), password: password) == [record], "QVAULT01 backups still import")
+    // Passwords are NFKC-normalized. Built from scalars so the two spellings stay distinct in this source file.
+    let acute = String(Unicode.Scalar(UInt8(0xE9))), combining = String(Unicode.Scalar(UInt32(0x301))!)
+    let composed = "Caf" + acute + " pass phrase 1!", decomposed = "Cafe" + combining + " pass phrase 1!"
+    try check(Array(composed.utf8) != Array(decomposed.utf8) && PasswordText.differs(decomposed) && !PasswordText.differs(composed), "composed and decomposed spellings are different bytes")
+    try check(!PasswordText.differs(password), "ASCII passwords are unchanged, so existing vaults keep working")
+    let salt16 = VaultCrypto.random(16)
+    try check(VaultCrypto.passwordKey(composed, salt: salt16) == VaultCrypto.passwordKey(decomposed, salt: salt16), "both spellings derive the same key")
+    try check(VaultCrypto.passwordKey(decomposed, salt: salt16) != VaultCrypto.passwordKey(decomposed, salt: salt16, legacyEncoding: true), "legacy encoding keys from the text as typed")
+    try check(VaultCrypto.passwordProblem(composed) == VaultCrypto.passwordProblem(decomposed), "password policy judges the normalized text")
+    try check(VaultCrypto.importBackup(versionOne(decomposed, legacy: true), password: decomposed) == [record], "QVAULT01 keyed from raw typed text still imports")
+    try check(VaultCrypto.importBackup(versionOne(decomposed, legacy: false), password: composed) == [record], "QVAULT01 keyed from normalized text imports with either spelling")
+    let store3 = MemoryStorage(), engine3 = VaultEngine(storage: store3)
+    _ = try engine3.create(password: decomposed); engine3.lock()
+    try check(engine3.unlock(password: composed).isEmpty, "either spelling of the password opens the vault")
+    // A vault keyed the old way (raw typed text) opens once, costs one attempt, and is re-wrapped in normalized form.
+    let store4 = MemoryStorage(), engine4 = VaultEngine(storage: store4)
+    _ = try engine4.create(password: password); try engine4.save([record]); engine4.lock()
+    var json = try JSONSerialization.jsonObject(with: XCTUnwrapData(store4.state)) as! [String: Any]
+    let oldSalt = Data(base64Encoded: json["salt"] as! String)!, oldSecret = Data(base64Encoded: json["secret"] as! String)!, oldWrapped = Data(base64Encoded: json["wrappedKey"] as! String)!
+    let aadKey = Data("PassVault/key/v1".utf8)
+    let dataKey = try VaultCrypto.open(oldWrapped, key: VaultCrypto.deviceKey(VaultCrypto.passwordKey(password, salt: oldSalt), secret: oldSecret), aad: aadKey)
+    let legacyWrapping = try VaultCrypto.deviceKey(VaultCrypto.passwordKey(decomposed, salt: oldSalt, legacyEncoding: true), secret: oldSecret)
+    json["wrappedKey"] = try VaultCrypto.seal(dataKey, key: legacyWrapping, aad: aadKey).base64EncodedString()
+    store4.state = try JSONSerialization.data(withJSONObject: json)
+    try rejects("password that matches neither spelling") { _ = try engine4.unlock(password: "Cafe pass phrase 1!") }
+    try check(engine4.remainingAttempts() == 9, "a failed attempt is charged once even when two spellings are tried")
+    try check(engine4.unlock(password: decomposed) == [record] && engine4.remainingAttempts() == 10, "legacy-keyed vault opens and clears the counter")
+    let rewrapped = try JSONSerialization.jsonObject(with: XCTUnwrapData(store4.state)) as! [String: Any]
+    try check(rewrapped["salt"] as! String != json["salt"] as! String, "legacy-keyed vault is re-wrapped with a fresh salt")
+    engine4.lock(); try check(engine4.unlock(password: composed) == [record], "re-wrapped vault opens with the normalized spelling")
+    // Changing the password replaces the data key and the vault ciphertext, and drops the biometric copy of the old key.
+    let store5 = MemoryStorage(), engine5 = VaultEngine(storage: store5)
+    _ = try engine5.create(password: password); try engine5.save([record]); try engine5.enableBiometrics(password: password)
+    let oldBlobs = store5.blobs, oldBiometricKey = store5.biometric!
+    try engine5.changePassword(current: password, new: "A different passphrase 2?")
+    try check(store5.biometric == nil, "changing the password removes the biometric copy of the old data key")
+    try check(store5.blobs.count == 1 && oldBlobs.keys.first != store5.blobs.keys.first && oldBlobs.values.first != store5.blobs.values.first, "vault is re-encrypted into a new file")
+    let newBlobId = store5.blobs.keys.first!
+    try rejects("old data key cannot open the rotated vault") { _ = try VaultCrypto.open(store5.blobs[newBlobId]!, key: oldBiometricKey, aad: Data(newBlobId.utf8)) }
+    try rejects("biometric unlock after password change") { _ = try engine5.unlockBiometric() }
+    try rejects("wrong current password changes nothing") { try engine5.changePassword(current: "wrong", new: "Yet another passphrase 3!") }
+    engine5.lock(); try check(VaultEngine(storage: store5).unlock(password: "A different passphrase 2?") == [record], "records survive key rotation")
+    try rejects("old password after rotation") { _ = try VaultEngine(storage: store5).unlock(password: password) }
+    let store6 = MemoryStorage(), engine6 = VaultEngine(storage: store6)
+    _ = try engine6.create(password: password); try engine6.save([record]); let before6 = store6.blobs; store6.failWrite = true
+    try rejects("failed state write during password change") { try engine6.changePassword(current: password, new: "A different passphrase 2?") }
+    store6.failWrite = false
+    try check(store6.blobs == before6 || store6.blobs.count == 1, "failed password change leaves one vault file")
+    engine6.lock(); try check(VaultEngine(storage: store6).unlock(password: password) == [record], "failed password change keeps the old password working")
+    // Data from a newer PassVault gets an "update the app" error, not a generic or misleading one.
+    func isError(_ expected: VaultError, _ action: () throws -> Void) -> Bool {
+        do { try action(); return false } catch let error as VaultError { return String(describing: error) == String(describing: expected) } catch { return false }
+    }
+    try check(isError(.newerBackup) { _ = try VaultCrypto.importBackup(Data("QVAULT03".utf8) + Data(repeating: 0, count: 80), password: password) }, "newer backup version is reported as newer")
+    try check(isError(.newerBackup) { _ = try VaultCrypto.importBackup(Data("QVAULT10".utf8), password: password) }, "even a truncated newer backup is reported as newer")
+    try check(!isError(.newerBackup) { _ = try VaultCrypto.importBackup(Data("QVAULTxx".utf8) + Data(repeating: 0, count: 80), password: password) }, "unknown non-version marker is not called newer")
+    try check(!isError(.newerBackup) { _ = try VaultCrypto.importBackup(encrypted, password: "wrong") }, "wrong password is not called newer")
+    let store7 = MemoryStorage(), engine7 = VaultEngine(storage: store7)
+    _ = try engine7.create(password: password); engine7.lock()
+    var future = try JSONSerialization.jsonObject(with: XCTUnwrapData(store7.state)) as! [String: Any]
+    future["version"] = 2; future["somethingNew"] = "x"; future.removeValue(forKey: "wrappedKey")
+    store7.state = try JSONSerialization.data(withJSONObject: future)
+    try check(isError(.newerVault) { _ = try engine7.exists() } && isError(.newerVault) { _ = try engine7.unlock(password: password) }, "state from a newer version is reported as newer")
+    try check(isError(.newerVault) { _ = try engine7.isErased() }, "newer state is reported as newer when checking erasure")
     let store2 = MemoryStorage(), engine2 = VaultEngine(storage: store2)
     _ = try engine2.create(password: password); engine2.lock(); store2.failWrite = true
     try rejects("failed state commit") { _ = try engine2.unlock(password: password) }
@@ -91,7 +171,7 @@ do {
     let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("android/app/src/test/resources/sample.pkb2")
     let pkb2 = try Data(contentsOf: fixture)
     let keeper = try Pkb2.importRecords(pkb2, password: "correct horse")
-    try check(keeper.count == 3 && Pkb2.isPkb2(pkb2) && !Pkb2.isPkb2(VaultCrypto.magic), "pkb2 records")
+    try check(keeper.count == 3 && Pkb2.isPkb2(pkb2) && !Pkb2.isPkb2(Data("QVAULT01".utf8)), "pkb2 records")
     let login = keeper[0]
     try check(login.name == "Sample login" && login.website == "example.com" && login.favorite && login.legacy["uid"] == "11111111111111111111111111111111", "pkb2 record metadata")
     try check(login.fields.map(\.value) == ["alice", "Pw-one-1!", "first note", "alice2", "Pw-two-2!", "second note", "Rex", "Paris", "second.example.com", "bob", "Pw-three-3!", "typed-by-hand"], "pkb2 fields keep original order")

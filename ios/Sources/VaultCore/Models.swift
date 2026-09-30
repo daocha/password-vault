@@ -1,13 +1,15 @@
 import Foundation
 
 public enum VaultError: Error, LocalizedError {
-    case invalid(String), authentication, locked, erased
+    case invalid(String), authentication, locked, erased, newerBackup, newerVault
     public var errorDescription: String? {
         switch self {
         case .invalid(let message): return message
         case .authentication: return "Incorrect password or damaged encrypted data."
         case .locked: return "Your vault is locked."
         case .erased: return "The local vault was erased after 10 failed attempts. Restore an encrypted backup to a new vault."
+        case .newerBackup: return "This backup was made by a newer version of PassVault. Update the app and try again."
+        case .newerVault: return "Your vault was saved by a newer version of PassVault. Update the app to open it."
         }
     }
 }

@@ -167,6 +167,9 @@
     <string name="main_existing_backups_keep">現有備份仍使用匯出時的密碼。</string>
     <string name="main_change">變更</string>
     <string name="main_app_password_changed">主密碼已變更。</string>
+    <string name="main_app_password_changed_biometric_off">主密碼已變更。生物辨識解鎖已關閉，請在設定中重新啟用。</string>
+    <string name="main_newer_backup">此備份由較新版本的 PassVault 建立。請更新應用程式後再試。</string>
+    <string name="main_newer_vault">你的密碼庫由較新版本的 PassVault 儲存。請更新應用程式後再開啟。</string>
     <string name="main_keeper_backup_title">Password Keeper 備份</string>
     <string name="main_encrypted_backup_title">加密備份</string>
     <string name="main_keeper_backup_body">請輸入你從 Password Keeper 匯出此 .pkb2 檔案時設定的密碼。解密需要幾秒鐘。</string>

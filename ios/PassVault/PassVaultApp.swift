@@ -355,7 +355,7 @@ struct TransferView: View {
                         let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
                         model.run { try $0.changePassword(current: current, new: next); return nil }
                     }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || newPassword != confirmNew)
-                    Text("Existing exported backups keep their original password.").font(.footnote)
+                    Text("Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again above.").font(.footnote)
                 }
                 Section("Import & export") {
                     Toggle("Plaintext CSV", isOn: $csv)

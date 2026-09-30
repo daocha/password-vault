@@ -167,6 +167,9 @@
     <string name="main_existing_backups_keep">Existing backups keep the password they were exported with.</string>
     <string name="main_change">Change</string>
     <string name="main_app_password_changed">App password changed.</string>
+    <string name="main_app_password_changed_biometric_off">App password changed. Biometric unlock was turned off; enable it again in Settings.</string>
+    <string name="main_newer_backup">This backup was made by a newer version of PassVault. Update the app and try again.</string>
+    <string name="main_newer_vault">Your vault was saved by a newer version of PassVault. Update the app to open it.</string>
     <string name="main_keeper_backup_title">Password Keeper backup</string>
     <string name="main_encrypted_backup_title">Encrypted backup</string>
     <string name="main_keeper_backup_body">Enter the password you chose when exporting this .pkb2 file from Password Keeper. Decrypting takes a few seconds.</string>

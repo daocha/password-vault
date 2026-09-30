@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.KeyInfo
 import android.util.AtomicFile
 import java.io.File
+import java.nio.ByteBuffer
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -14,10 +15,28 @@ import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 
+/**
+ * Protected state file: `"PVS2" | u32be generation | iv 12 | AES-GCM ciphertext`, authenticated with the header.
+ * Each generation has its own Keystore key and older keys are deleted, so a copied older state file cannot be decrypted (rolled back).
+ */
+internal object StateFormat {
+    private val magic = "PVS2".toByteArray()
+    const val HEADER = 8; const val IV = 12; const val MIN_SIZE = HEADER + IV + 16
+    fun header(generation: Int): ByteArray = ByteBuffer.allocate(HEADER).put(magic).putInt(generation).array()
+    /** `PVS` followed by a digit above the layout this build reads: state saved by a newer PassVault. */
+    fun isNewer(bytes: ByteArray): Boolean = bytes.size >= 4 && bytes.copyOfRange(0, 3).contentEquals("PVS".toByteArray()) && bytes[3].toInt() > '2'.code && bytes[3].toInt() <= '9'.code
+    /** The stored generation, or 0 for a file in the earlier layout (`iv | ciphertext`, one fixed key) or anything else unrecognised. */
+    fun generation(bytes: ByteArray): Int =
+        if (bytes.size >= MIN_SIZE && bytes.copyOfRange(0, 4).contentEquals(magic)) ByteBuffer.wrap(bytes, 4, 4).int.coerceAtLeast(0) else 0
+    fun aad(header: ByteArray): ByteArray = "PassVault/state/v2".toByteArray() + header
+}
+
 class ProtectedStorage(private val context: Context) {
     private val directory = File(context.noBackupFilesDir, "passvault").apply { check(exists() || mkdirs()) }
     private val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    private val stateAlias = "passvault-state-v1"
+    private val legacyStateAlias = "passvault-state-v1"
+    private val stateAliasPrefix = "passvault-state-g"
+    private fun stateAlias(generation: Int) = "$stateAliasPrefix$generation"
     private val bioAlias = "passvault-biometric-v1"
     private fun generate(alias: String, biometric: Boolean): SecretKey {
         check(context.getSystemService(KeyguardManager::class.java).isDeviceSecure) { "Set a device screen lock first." }
@@ -33,10 +52,13 @@ class ProtectedStorage(private val context: Context) {
         if (!info.isInsideSecureHardware && !BuildConfig.ALLOW_SOFTWARE_KEYSTORE) { keystore.deleteEntry(alias); error("This device does not provide hardware-backed key storage.") }
         return key
     }
-    private fun stateKey(create: Boolean = false): SecretKey {
-        val existing = keystore.getKey(stateAlias, null) as? SecretKey
-        return existing ?: if (create && !File(directory, "state").exists() && !hasBlobs()) generate(stateAlias, false)
-        else error("Protected device key is missing. Access is refused.")
+    private fun missingKey(): Nothing = error("Protected device key is missing. Access is refused.")
+    private fun stateFileExists() = File(directory, "state").exists() || File(directory, "state.bak").exists()
+    private fun secretKey(alias: String) = keystore.getKey(alias, null) as? SecretKey
+    /** Deletes every state key (all generations and the pre-ratchet one) except [keep]. */
+    private fun deleteStateKeys(keep: Int? = null) {
+        val kept = keep?.let(::stateAlias)
+        java.util.Collections.list(keystore.aliases()).filter { (it == legacyStateAlias || it.startsWith(stateAliasPrefix)) && it != kept }.forEach { keystore.deleteEntry(it) }
     }
     private fun write(file: File, bytes: ByteArray) {
         val atomic = AtomicFile(file); val stream = atomic.startWrite()
@@ -58,25 +80,60 @@ class ProtectedStorage(private val context: Context) {
         val file = File(directory, "state")
         if (!file.exists() && !File(directory, "state.bak").exists()) { check(!hasBlobs()) { "Protected state is missing." }; return null }
         val bytes = read(file, 16384); require(bytes.size >= 28)
+        // An earlier-layout file that happens to start with these bytes still has its old key; a newer layout does not.
+        if (StateFormat.isNewer(bytes) && secretKey(legacyStateAlias) == null) throw NewerVersionException(backup = false)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, stateKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+        val generation = StateFormat.generation(bytes)
+        val key = if (generation > 0) secretKey(stateAlias(generation)) else null
+        if (key != null) {
+            val header = bytes.copyOfRange(0, StateFormat.HEADER)
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(StateFormat.HEADER, StateFormat.HEADER + StateFormat.IV)))
+            cipher.updateAAD(StateFormat.aad(header))
+            return cipher.doFinal(bytes.copyOfRange(StateFormat.HEADER + StateFormat.IV, bytes.size))
+        }
+        // A file from before generations. A newer file whose key is gone (a restored old copy) has no legacy key to fall back on and is refused.
+        cipher.init(Cipher.DECRYPT_MODE, secretKey(legacyStateAlias) ?: missingKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
         cipher.updateAAD("PassVault/state/v1".toByteArray())
         return cipher.doFinal(bytes.copyOfRange(12, bytes.size))
     }
-    fun writeState(bytes: ByteArray) {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, stateKey(create = true))
-        cipher.updateAAD("PassVault/state/v1".toByteArray())
-        write(File(directory, "state"), cipher.iv + cipher.doFinal(bytes))
+    /**
+     * With [ratchet] (the default) the state moves to a new Keystore key and every older key is deleted once the file is committed,
+     * so copies of earlier state (with fewer failed attempts recorded) can no longer be decrypted. Skip it only for writes that never
+     * make an old copy more useful to an attacker, such as clearing the counter after the password was proven.
+     */
+    fun writeState(bytes: ByteArray, ratchet: Boolean = true) {
+        val existing = if (stateFileExists()) read(File(directory, "state"), 16384) else null
+        if (existing != null && StateFormat.isNewer(existing) && secretKey(legacyStateAlias) == null) throw NewerVersionException(backup = false)
+        val held = existing?.let(StateFormat::generation)?.takeIf { it > 0 && keystore.containsAlias(stateAlias(it)) }
+        val generation: Int; val key: SecretKey
+        if (existing == null) { generation = 1; key = secretKey(stateAlias(1)) ?: missingKey() } // created by initializeKey() before the first blob
+        else if (held != null && !ratchet) { generation = held; key = secretKey(stateAlias(held)) ?: missingKey() }
+        else {
+            // Never mint a key over state that could not be read: the current key must still exist (this also migrates the earlier layout).
+            if (!keystore.containsAlias(held?.let(::stateAlias) ?: legacyStateAlias)) missingKey()
+            generation = (held ?: 0) + 1
+            if (keystore.containsAlias(stateAlias(generation))) keystore.deleteEntry(stateAlias(generation))
+            key = generate(stateAlias(generation), false)
+        }
+        val header = StateFormat.header(generation)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key)
+        cipher.updateAAD(StateFormat.aad(header))
+        check(cipher.iv.size == StateFormat.IV)
+        write(File(directory, "state"), header + cipher.iv + cipher.doFinal(bytes))
+        deleteStateKeys(keep = generation)
     }
     // Initialize the OS key before writing the first encrypted vault blob.
-    fun initializeKey() { stateKey(create = true) }
-    fun deleteState() { AtomicFile(File(directory, "state")).delete(); AtomicFile(File(directory, "erased")).delete() }
+    fun initializeKey() {
+        check(!stateFileExists() && !hasBlobs()) { "Protected device key is missing. Access is refused." }
+        deleteStateKeys(); generate(stateAlias(1), false)
+    }
+    fun deleteState() { AtomicFile(File(directory, "state")).delete(); AtomicFile(File(directory, "erased")).delete(); deleteStateKeys() }
     fun finishErasure() {
         // A nonsecret tombstone only denies access. It is never an authorization token.
         // Persist it before removing the Keystore key so interrupted cleanup resumes safely.
         write(File(directory, "erased"), byteArrayOf(1))
         deleteBiometric()
-        if (keystore.containsAlias(stateAlias)) keystore.deleteEntry(stateAlias)
+        deleteStateKeys()
         AtomicFile(File(directory, "state")).delete()
         removeBlobs(null)
     }

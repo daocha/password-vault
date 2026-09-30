@@ -83,6 +83,68 @@ final class VaultCoreTests: XCTestCase {
         XCTAssertThrowsError(try VaultEngine(storage: store).unlock(password: password))
         XCTAssertTrue(store.blobs.isEmpty)
     }
+    func testBackupUsesAuthenticatedStrongerCostAndOldFilesStillOpen() throws {
+        let records = [fixture()], encrypted = try VaultCrypto.exportBackup(records, password: password)
+        XCTAssertEqual(encrypted.prefix(8), Data("QVAULT02".utf8))
+        XCTAssertEqual(encrypted[8..<12], Data([0, 4, 0, 0])); XCTAssertEqual(encrypted[12..<16], Data([0, 0, 0, 4]))
+        var belowMinimum = encrypted; belowMinimum[9] = 0
+        XCTAssertThrowsError(try VaultCrypto.importBackup(belowMinimum, password: password))
+        var aboveMaximum = encrypted; aboveMaximum[8] = 0xFF
+        XCTAssertThrowsError(try VaultCrypto.importBackup(aboveMaximum, password: password))
+        var retuned = encrypted; retuned[15] = 5
+        XCTAssertThrowsError(try VaultCrypto.importBackup(retuned, password: password))
+        let salt = VaultCrypto.random(16), header = Data("QVAULT01".utf8) + salt, key = try VaultCrypto.passwordKey(password, salt: salt)
+        let old = try header + VaultCrypto.seal(Records.encode(records), key: key, aad: header)
+        XCTAssertEqual(try VaultCrypto.importBackup(old, password: password), records)
+    }
+    func testPasswordsAreNormalizedAndLegacySpellingIsAcceptedOnce() throws {
+        let composed = "Caf" + String(Unicode.Scalar(UInt8(0xE9))) + " pass phrase 1!"
+        let decomposed = "Cafe" + String(Unicode.Scalar(UInt32(0x301))!) + " pass phrase 1!"
+        XCTAssertNotEqual(Array(composed.utf8), Array(decomposed.utf8))
+        XCTAssertTrue(PasswordText.differs(decomposed)); XCTAssertFalse(PasswordText.differs(composed)); XCTAssertFalse(PasswordText.differs(password))
+        let salt = VaultCrypto.random(16)
+        XCTAssertEqual(try VaultCrypto.passwordKey(composed, salt: salt), try VaultCrypto.passwordKey(decomposed, salt: salt))
+        XCTAssertNotEqual(try VaultCrypto.passwordKey(decomposed, salt: salt), try VaultCrypto.passwordKey(decomposed, salt: salt, legacyEncoding: true))
+        // A vault keyed from the raw typed text opens once, costs one attempt, and is re-wrapped in normalized form.
+        let record = fixture(), store = MemoryStorage(), engine = VaultEngine(storage: store)
+        _ = try engine.create(password: password); try engine.save([record]); engine.lock()
+        var state = try JSONDecoder().decode(DeviceState.self, from: XCTUnwrap(store.state))
+        let aad = Data("PassVault/key/v1".utf8)
+        let dataKey = try VaultCrypto.open(state.wrappedKey, key: VaultCrypto.deviceKey(VaultCrypto.passwordKey(password, salt: state.salt), secret: state.secret), aad: aad)
+        state.wrappedKey = try VaultCrypto.seal(dataKey, key: VaultCrypto.deviceKey(VaultCrypto.passwordKey(decomposed, salt: state.salt, legacyEncoding: true), secret: state.secret), aad: aad)
+        store.state = try JSONEncoder().encode(state)
+        XCTAssertThrowsError(try engine.unlock(password: "Cafe pass phrase 1!"))
+        XCTAssertEqual(try engine.remainingAttempts(), 9)
+        XCTAssertEqual(try engine.unlock(password: decomposed), [record])
+        XCTAssertEqual(try engine.remainingAttempts(), 10)
+        let rewrapped = try JSONDecoder().decode(DeviceState.self, from: XCTUnwrap(store.state))
+        XCTAssertNotEqual(rewrapped.salt, state.salt)
+        engine.lock(); XCTAssertEqual(try engine.unlock(password: composed).count, 1)
+    }
+    func testChangingPasswordRotatesDataKeyAndDropsBiometricCopy() throws {
+        let record = fixture(), store = MemoryStorage(), engine = VaultEngine(storage: store), next = "A different passphrase 2?"
+        _ = try engine.create(password: password); try engine.save([record]); try engine.enableBiometrics(password: password)
+        let oldBlobs = store.blobs, oldKey = try XCTUnwrap(store.biometric)
+        try engine.changePassword(current: password, new: next)
+        XCTAssertNil(store.biometric)
+        XCTAssertEqual(store.blobs.count, 1); XCTAssertNotEqual(oldBlobs.keys.first, store.blobs.keys.first)
+        let id = try XCTUnwrap(store.blobs.keys.first)
+        XCTAssertThrowsError(try VaultCrypto.open(XCTUnwrap(store.blobs[id]), key: oldKey, aad: Data(id.utf8)))
+        XCTAssertThrowsError(try engine.unlockBiometric())
+        engine.lock()
+        XCTAssertThrowsError(try VaultEngine(storage: store).unlock(password: password))
+        XCTAssertEqual(try VaultEngine(storage: store).unlock(password: next), [record])
+    }
+    func testNewerVersionsAreReportedAsNewer() throws {
+        do { _ = try VaultCrypto.importBackup(Data("QVAULT03".utf8) + Data(repeating: 0, count: 80), password: password); XCTFail("accepted") }
+        catch VaultError.newerBackup {} catch { XCTFail("wrong error \(error)") }
+        let store = MemoryStorage(), engine = VaultEngine(storage: store)
+        _ = try engine.create(password: password); engine.lock()
+        var future = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(store.state)) as? [String: Any])
+        future["version"] = 2; future.removeValue(forKey: "wrappedKey")
+        store.state = try JSONSerialization.data(withJSONObject: future)
+        do { _ = try engine.exists(); XCTFail("accepted") } catch VaultError.newerVault {} catch { XCTFail("wrong error \(error)") }
+    }
     func testGeneratorPolicy() throws {
         for _ in 0..<50 {
             let value = try VaultCrypto.generatePassword()
