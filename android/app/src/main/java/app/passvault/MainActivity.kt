@@ -172,18 +172,22 @@ class MainActivity : FragmentActivity() {
                 }
                 if (epoch != generation || !unlocked) { bytes.fill(0); return@launch } // Locked while the file was read.
                 importBytes?.fill(0); importBytes = null
+                if (BackupFormat.isNewer(bytes)) { bytes.fill(0); throw NewerVersionException(backup = true) } // Not a CSV: say so before asking for a password.
                 if (VaultCrypto.isBackup(bytes) || Pkb2.isPkb2(bytes)) importBytes = bytes // Password dialog decrypts it.
                 else readImport({ try { VaultCSV.importRecords(bytes.toString(Charsets.UTF_8)) } finally { bytes.fill(0) } })
-            } catch (e: Exception) { messageError = true; message = e.message ?: getString(R.string.main_import_failed) }
+            } catch (e: Exception) { messageError = true; message = errorText(e, R.string.main_import_failed) }
         }
     }
+    /** Text for a failure: "update the app" for data from a newer version, otherwise the error's own message. */
+    private fun errorText(e: Exception, fallback: Int): String =
+        if (e is NewerVersionException) getString(if (e.backup) R.string.main_newer_backup else R.string.main_newer_vault) else e.message ?: getString(fallback)
     private fun readImport(parse: () -> List<VaultRecord>, parsed: () -> Unit = {}) {
         if (busy) return
         busy = true; message = ""; messageError = false; val epoch = generation
         lifecycleScope.launch {
             try { val result = withContext(Dispatchers.IO) { parse() }; parsed(); if (epoch == generation && unlocked) { if (result.isEmpty()) message = getString(R.string.main_file_no_records) else importPreview = result } }
             catch (e: AuthenticationFailure) { messageError = true; message = getString(R.string.main_bad_password_or_backup) }
-            catch (e: Exception) { messageError = true; message = e.message ?: getString(R.string.main_import_rejected) }
+            catch (e: Exception) { messageError = true; message = errorText(e, R.string.main_import_rejected) }
             finally { busy = false }
         }
     }
@@ -224,7 +228,7 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         try { engine = VaultEngine(ProtectedStorage(this)); exists = engine.exists(); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric(); ready = true }
-        catch (e: Exception) { message = e.message ?: getString(R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
+        catch (e: Exception) { message = errorText(e, R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
         setContent {
             PassVaultTheme(themeMode) { BlockTextCopy(!allowCopy, ::copySecret) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -312,7 +316,7 @@ class MainActivity : FragmentActivity() {
                 remaining = runCatching { engine.remainingAttempts() }.getOrDefault(0); erased = runCatching { engine.isErased() }.getOrDefault(false)
                 if (erased) biometricEnabled = false
                 messageError = true
-                message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else e.message ?: getString(R.string.main_operation_failed)
+                message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else errorText(e, R.string.main_operation_failed)
             }
             finally { busy = false }
         }
@@ -812,7 +816,7 @@ class MainActivity : FragmentActivity() {
                 if (repeat.isNotEmpty() && repeat != next) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 Text(stringResource(R.string.main_existing_backups_keep), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } },
-            confirmButton = { TextButton(onClick = { val c = current; val n = next; current = ""; next = ""; repeat = ""; dismiss(); work({ engine.changePassword(c, n); null }) { message = getString(R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && next == repeat) { Text(stringResource(R.string.main_change)) } },
+            confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; current = ""; next = ""; repeat = ""; dismiss(); work({ engine.changePassword(c, n); null }) { biometricEnabled = false; message = getString(if (hadBiometric) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && next == repeat) { Text(stringResource(R.string.main_change)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun ImportDialogs() {

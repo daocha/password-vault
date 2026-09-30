@@ -8,15 +8,15 @@ import java.security.SecureRandom
 object PasswordPolicy {
     @StringRes val RULE = R.string.app_pw_rule
     /** Resource id of the first unmet rule, or null when [password] is acceptable. */
-    @StringRes fun problem(password: String): Int? = when {
+    @StringRes fun problem(typed: String): Int? = PasswordText.normalize(typed).let { password -> when {
         password.codePointCount(0, password.length) < 12 -> R.string.app_pw_min_length
-        password.toByteArray().size > 4096 -> R.string.app_pw_max_bytes
+        password.toByteArray().size > PasswordText.MAX_BYTES -> R.string.app_pw_max_bytes
         password.none { it.isUpperCase() } -> R.string.app_pw_upper
         password.none { it.isLowerCase() } -> R.string.app_pw_lower
         password.none { it.isDigit() } -> R.string.app_pw_digit
         password.none { !it.isLetterOrDigit() && !it.isWhitespace() } -> R.string.app_pw_symbol
         else -> null
-    }
+    } }
 }
 data class GeneratorOptions(val length: Int = 10, val letters: Boolean = true, val numbers: Boolean = true, val symbols: Boolean = true) {
     val sets get() = (if (letters) listOf(UPPER, LOWER) else emptyList()) + (if (numbers) listOf(DIGITS) else emptyList()) + (if (symbols) listOf(SYMBOLS) else emptyList())
@@ -44,15 +44,16 @@ class AuthenticationFailure : Exception("Incorrect password or damaged encrypted
 object VaultCrypto {
     private val sodium = SodiumAndroid()
     private val rng = SecureRandom()
-    private val magic = "QVAULT01".toByteArray()
     fun random(size: Int) = ByteArray(size).also(rng::nextBytes)
-    fun passwordKey(password: String, salt: ByteArray): ByteArray {
-        val input = password.toByteArray(Charsets.UTF_8)
-        require(input.size <= 4096 && salt.size == 16)
-        val result = ByteArray(32)
-        try { check(sodium.crypto_pwhash(result, 32, input, input.size.toLong(), salt, 3, NativeLong(64L * 1024 * 1024), 2) == 0) { "Not enough memory to derive the vault key." } }
-        finally { input.fill(0) }
-        return result
+    /** [legacyEncoding] keys from the text exactly as typed, only to open data made before passwords were normalized. */
+    fun passwordKey(password: String, salt: ByteArray, profile: KdfProfile = KdfProfile.VAULT, legacyEncoding: Boolean = false): ByteArray {
+        val input = if (legacyEncoding) PasswordText.legacyBytes(password) else PasswordText.bytes(password)
+        try {
+            require(input.size <= PasswordText.MAX_BYTES && salt.size == 16)
+            val result = ByteArray(32)
+            check(sodium.crypto_pwhash(result, 32, input, input.size.toLong(), salt, profile.opsLimit, NativeLong(profile.memBytes), 2) == 0) { "Not enough memory to derive the vault key." }
+            return result
+        } finally { input.fill(0) }
     }
     fun deviceKey(passwordKey: ByteArray, secret: ByteArray): ByteArray {
         require(passwordKey.size == 32 && secret.size == 32)
@@ -74,17 +75,25 @@ object VaultCrypto {
     fun strongPassword(password: String) { if (PasswordPolicy.problem(password) != null) throw IllegalArgumentException("Password does not meet the strength rules.") }
     // The caller has already verified this is the app password; it met the policy in force when it was set.
     fun exportBackup(records: List<VaultRecord>, password: String): ByteArray {
-        require(password.isNotEmpty() && password.toByteArray().size <= 4096)
-        val salt = random(16); val header = magic + salt; val key = passwordKey(password, salt); val plain = Records.encode(records)
+        require(password.isNotEmpty() && PasswordText.bytes(password).size <= PasswordText.MAX_BYTES)
+        val profile = KdfProfile.BACKUP
+        val salt = random(16); val header = BackupFormat.header(profile, salt); val key = passwordKey(password, salt, profile); val plain = Records.encode(records)
         try { return header + seal(plain, key, header) } finally { key.fill(0); plain.fill(0) }
     }
-    fun isBackup(data: ByteArray) = data.size >= magic.size && data.copyOfRange(0, magic.size).contentEquals(magic)
+    fun isBackup(data: ByteArray) = BackupFormat.isBackup(data)
     fun importBackup(data: ByteArray, password: String): List<VaultRecord> {
-        require(data.size in 64..Records.MAX_BYTES + 64 && data.copyOfRange(0, 8).contentEquals(magic)) { "Unsupported or oversized encrypted backup." }
-        val header = data.copyOfRange(0, 24); val key = passwordKey(password, data.copyOfRange(8, 24))
-        try {
-            val plain = open(data.copyOfRange(24, data.size), key, header)
-            try { return Records.decode(plain) } finally { plain.fill(0) }
-        } finally { key.fill(0) }
+        val parsed = BackupFormat.parse(data)
+        require(data.size in parsed.size + 40..Records.MAX_BYTES + parsed.size + 40) { "Unsupported or oversized encrypted backup." }
+        val header = data.copyOfRange(0, parsed.size); val box = data.copyOfRange(parsed.size, data.size)
+        // QVAULT01 files were keyed from the password exactly as typed; try that too when normalization would change it.
+        var failure: AuthenticationFailure? = null
+        for (legacy in if (parsed.version == 1 && PasswordText.differs(password)) listOf(false, true) else listOf(false)) {
+            val key = passwordKey(password, parsed.salt, parsed.profile, legacy)
+            try {
+                val plain = open(box, key, header)
+                try { return Records.decode(plain) } finally { plain.fill(0) }
+            } catch (e: AuthenticationFailure) { failure = e } finally { key.fill(0) }
+        }
+        throw failure!!
     }
 }
