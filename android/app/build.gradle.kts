@@ -14,6 +14,9 @@ android {
         versionName = "2026.9.30"
         manifestPlaceholders["appLabel"] = "PassVault"
     }
+    // Instrumented tests run on an emulator, which has no hardware-backed keys, so they use the emulator-only "qa" variant.
+    testBuildType = "qa"
+    defaultConfig.testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     // Release signing comes only from the environment (CI secrets); no key is ever committed.
@@ -45,4 +48,7 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("org.json:json:20250517")
 }
