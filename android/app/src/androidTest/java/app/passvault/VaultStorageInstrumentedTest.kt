@@ -45,6 +45,16 @@ class VaultStorageInstrumentedTest {
     @Before fun setUp() { wipe(); fresh() }
     @After fun tearDown() { wipe() }
 
+    @Test fun importReplacesByIdAndFullReplacementDeletesTheRest() {
+        val a = record("a"); val b = record("b"); val c = record("c")
+        engine.create(password); engine.save(listOf(a, b, c))
+        val fewer = a.copy(name = "a2", fields = a.fields.drop(1)) // same id, one field deleted elsewhere
+        val merged = engine.merge(listOf(fewer, record("d")))
+        assertEquals(listOf("a2", "b", "c", "d"), merged.map { it.name }); assertEquals(a.id, merged[0].id); assertEquals(a.fields.size - 1, merged[0].fields.size)
+        val replaced = engine.replaceAll(listOf(fewer))
+        assertEquals(listOf(fewer), replaced)
+    }
+
     @Test fun createUnlockAndWrongPasswordCountsOneAttempt() {
         engine.create(password); engine.save(listOf(record("one"))); engine.lock()
         assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") }

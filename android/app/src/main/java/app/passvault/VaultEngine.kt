@@ -104,7 +104,14 @@ class VaultEngine(private val storage: ProtectedStorage) {
     }
     @Synchronized fun merge(imported: List<VaultRecord>): List<VaultRecord> {
         check(key != null) { "Vault is locked." }
-        val updated = records + imported.map { it.copy(id = UUID.randomUUID().toString()) }; save(updated); return updated
+        // Matched by record id only: a record already in the vault is replaced in place (whole, fields included), the rest are added with their ids.
+        val incoming = imported.associateBy { it.id }; val known = records.map { it.id }.toSet()
+        val updated = records.map { incoming[it.id] ?: it } + imported.filter { it.id !in known }; save(updated); return updated
+    }
+    /** Makes the imported records the whole vault: entries the file does not contain are deleted. */
+    @Synchronized fun replaceAll(imported: List<VaultRecord>): List<VaultRecord> {
+        check(key != null) { "Vault is locked." }
+        save(imported); return imported
     }
     /** Verifies the app password (a counted attempt) and encrypts the backup with that same password. */
     @Synchronized fun export(password: String, csv: Boolean): ByteArray {

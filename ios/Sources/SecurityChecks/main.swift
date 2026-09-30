@@ -44,6 +44,14 @@ do {
     try rejects("CSV trailing garbage") { _ = try VaultCSV.parse("\"a\"garbage") }
     try rejects("CSV wrong column count") { _ = try VaultCSV.importRecords("name,username,password\na,b") }
     let store = MemoryStorage(), engine = VaultEngine(storage: store)
+    do { // Import matches by record id; full replacement makes the file the whole vault.
+        let e = VaultEngine(storage: MemoryStorage()); _ = try e.create(password: password)
+        var a = VaultRecord(), b = VaultRecord(); a.name = "a"; b.name = "b"; try e.save([a, b])
+        var a2 = a; a2.name = "a2"; a2.fields.removeFirst(); var d = VaultRecord(); d.name = "d"
+        let merged = try e.merge([a2, d])
+        try check(merged.map(\.name) == ["a2", "b", "d"] && merged[0].id == a.id && merged[0].fields.count == a.fields.count - 1, "import replaces same-id records and keeps the rest")
+        try check(try e.replaceAll([a2]) == [a2], "full replacement deletes entries the file lacks")
+    }
     _ = try engine.create(password: password); try engine.save([record]); try engine.enableBiometrics(password: password); engine.lock()
     for attempt in 1...9 {
         try rejects("wrong app password") { _ = try engine.unlock(password: "wrong") }
