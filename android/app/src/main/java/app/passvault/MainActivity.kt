@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -828,11 +829,11 @@ class MainActivity : FragmentActivity() {
                 confirmButton = { TextButton(onClick = { val bytes = importBytes ?: return@TextButton; val pass = backupPassword; backupPassword = ""; readImport({ if (Pkb2.isPkb2(bytes)) Pkb2.import(bytes, pass) else VaultCrypto.importBackup(bytes, pass) }) { bytes.fill(0); if (importBytes === bytes) importBytes = null } }, enabled = backupPassword.isNotEmpty()) { Text(stringResource(R.string.main_decrypt)) } },
                 dismissButton = { TextButton(onClick = { importBytes?.fill(0); importBytes = null }) { Text(stringResource(R.string.main_cancel)) } })
         }
-        importPreview?.let { imported -> AlertDialog(onDismissRequest = { importPreview = null }, icon = { Icon(Icons.Outlined.FileOpen, null) }, title = { Text(stringResource(R.string.main_import_title, imported.size)) }, text = { HardenWindow(); val seeds = imported.count { it.type == RecordType.seed }; Text(when { seeds == 0 -> stringResource(R.string.main_import_body); seeds == 1 -> stringResource(R.string.main_import_body_seed_one, seeds); else -> stringResource(R.string.main_import_body_seed_many, seeds) }) }, confirmButton = { Column(horizontalAlignment = Alignment.End) {
+        importPreview?.let { imported -> AlertDialog(onDismissRequest = { importPreview = null }, icon = { Icon(Icons.Outlined.FileOpen, null) }, title = { Text(stringResource(R.string.main_import_title, imported.size)) }, text = { HardenWindow(); val seeds = imported.count { it.type == RecordType.seed }; Text(when { seeds == 0 -> stringResource(R.string.main_import_body); seeds == 1 -> stringResource(R.string.main_import_body_seed_one, seeds); else -> stringResource(R.string.main_import_body_seed_many, seeds) }) }, confirmButton = { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 fun start(replace: Boolean) { importPreview = null; work({ if (replace) engine.replaceAll(imported) else engine.merge(imported) }) { settings = false; message = getString(R.string.main_imported_count, imported.size) } }
-                TextButton(onClick = { start(false) }) { Text(stringResource(R.string.main_import_action)) }
-                TextButton(onClick = { start(true) }) { Text(stringResource(R.string.main_import_replace_all)) }
-                TextButton(onClick = { importPreview = null }) { Text(stringResource(R.string.main_cancel)) }
+                TextButton(onClick = { importPreview = null }, Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text(stringResource(R.string.main_cancel), textAlign = TextAlign.Center) }
+                TextButton(onClick = { start(true) }, Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.main_import_replace_all), textAlign = TextAlign.Center) }
+                TextButton(onClick = { start(false) }, Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)) { Text(stringResource(R.string.main_import_action), textAlign = TextAlign.Center) }
             } }) }
     }
     /** Opens one of the app's own system pickers under the picker auto-lock grace period; false (with a message) when none is available. */

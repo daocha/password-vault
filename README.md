@@ -117,6 +117,8 @@ cd android
 ./gradlew :app:assembleDebug :app:testDebugUnitTest
 ```
 
+Or run `scripts/build-android-debug.sh`. It runs the unit tests and builds the debug APK (`android/app/build/outputs/apk/debug/app-debug.apk`), and needs no signing key. Add `--skip-tests` to skip the tests, or `--install` to also install it on a connected device or emulator with `adb`.
+
 Point `ANDROID_HOME` at your SDK, or create an untracked `android/local.properties` containing `sdk.dir=...`. Test biometrics on a real phone.
 
 <details>
@@ -173,8 +175,14 @@ flowchart TD
 1. Transfer the file to your phone locally.
 2. Unlock PassVault → **Settings** → **Import**, then pick the file.
 3. For `.pkb2`, enter the password you chose when exporting. CSV needs no password.
-4. Check the record count and confirm.
+4. Check the record count and choose **Import** or **Full replacement** (or **Cancel**).
 5. Verify your records, *then* delete the plaintext migration file.
+
+**Import or Full replacement?** Entries are matched by their ID, which never changes when you edit an entry (only deleting and recreating it gives a new one).
+
+- **Import** adds entries that are new and replaces existing entries with the same ID, fields included. Entries missing from the file are kept.
+- **Full replacement** treats the file as the golden source: entries it does not contain are deleted.
+- Password Keeper and CSV files carry no PassVault IDs, so Import adds their entries as new ones.
 
 > [!TIP]
 > Never commit real credentials. CSV and backup files are ignored by Git.
