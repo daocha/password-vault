@@ -7,6 +7,7 @@
     <string name="main_done">完成</string>
     <string name="main_apply">套用</string>
     <string name="main_continue_action">繼續</string>
+    <string name="main_import_replace_all">完全取代</string>
     <string name="main_import_action">匯入</string>
     <string name="main_export_action">匯出</string>
     <string name="main_decrypt">解密</string>
@@ -176,9 +177,9 @@
     <string name="main_encrypted_backup_body">請輸入匯出此備份時所使用的主密碼。</string>
     <string name="main_backup_password">備份密碼</string>
     <string name="main_import_title">匯入 %1$d 個項目？</string>
-    <string name="main_import_body">現有項目將保留。匯入的項目會作為新項目加入。</string>
-    <string name="main_import_body_seed_one">包含 %1$d 組助記詞。現有項目將保留。匯入的項目會作為新項目加入。</string>
-    <string name="main_import_body_seed_many">包含 %1$d 組助記詞。現有項目將保留。匯入的項目會作為新項目加入。</string>
+    <string name="main_import_body">匯入：加入新項目，並取代 ID 相同的現有項目；檔案中沒有的項目會保留。\n\n完全取代：以檔案為準。檔案中沒有的項目會被刪除。</string>
+    <string name="main_import_body_seed_one">包含 %1$d 組助記詞。匯入：加入新項目，並取代 ID 相同的現有項目；檔案中沒有的項目會保留。\n\n完全取代：以檔案為準。檔案中沒有的項目會被刪除。</string>
+    <string name="main_import_body_seed_many">包含 %1$d 組助記詞。匯入：加入新項目，並取代 ID 相同的現有項目；檔案中沒有的項目會保留。\n\n完全取代：以檔案為準。檔案中沒有的項目會被刪除。</string>
     <string name="main_imported_count">已匯入 %1$d 個項目。</string>
     <string name="main_export_could_not_write">無法寫入匯出檔案。</string>
     <string name="main_export_cancelled">已取消匯出。</string>

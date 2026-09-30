@@ -7,6 +7,7 @@
     <string name="main_done">Done</string>
     <string name="main_apply">Apply</string>
     <string name="main_continue_action">Continue</string>
+    <string name="main_import_replace_all">Full replacement</string>
     <string name="main_import_action">Import</string>
     <string name="main_export_action">Export</string>
     <string name="main_decrypt">Decrypt</string>
@@ -176,9 +177,9 @@
     <string name="main_encrypted_backup_body">Enter the app password that was in use when this backup was exported.</string>
     <string name="main_backup_password">Backup password</string>
     <string name="main_import_title">Import %1$d entries?</string>
-    <string name="main_import_body">Existing entries are kept. Imported entries are added as new entries.</string>
-    <string name="main_import_body_seed_one">Includes %1$d seed phrase. Existing entries are kept. Imported entries are added as new entries.</string>
-    <string name="main_import_body_seed_many">Includes %1$d seed phrases. Existing entries are kept. Imported entries are added as new entries.</string>
+    <string name="main_import_body">Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.</string>
+    <string name="main_import_body_seed_one">Includes %1$d seed phrase. Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.</string>
+    <string name="main_import_body_seed_many">Includes %1$d seed phrases. Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.</string>
     <string name="main_imported_count">Imported %1$d entries.</string>
     <string name="main_export_could_not_write">Could not write export.</string>
     <string name="main_export_cancelled">Export cancelled.</string>
