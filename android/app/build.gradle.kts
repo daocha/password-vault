@@ -10,8 +10,8 @@ android {
         applicationId = "app.passvault.mobile"
         minSdk = 30
         targetSdk = 36
-        versionCode = 2
-        versionName = "2026.9.30"
+        versionCode = 3
+        versionName = "2026.10.1"
         manifestPlaceholders["appLabel"] = "PassVault"
     }
     // Instrumented tests run on an emulator, which has no hardware-backed keys, so they use the emulator-only "qa" variant.
