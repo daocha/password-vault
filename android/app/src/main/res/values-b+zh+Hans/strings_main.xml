@@ -7,6 +7,7 @@
     <string name="main_done">完成</string>
     <string name="main_apply">应用</string>
     <string name="main_continue_action">继续</string>
+    <string name="main_import_replace_all">完全替换</string>
     <string name="main_import_action">导入</string>
     <string name="main_export_action">导出</string>
     <string name="main_decrypt">解密</string>
@@ -176,9 +177,9 @@
     <string name="main_encrypted_backup_body">请输入导出此备份时所使用的主密码。</string>
     <string name="main_backup_password">备份密码</string>
     <string name="main_import_title">导入 %1$d 个条目？</string>
-    <string name="main_import_body">现有条目将保留。导入的条目会作为新条目添加。</string>
-    <string name="main_import_body_seed_one">包含 %1$d 条助记词。现有条目将保留。导入的条目会作为新条目添加。</string>
-    <string name="main_import_body_seed_many">包含 %1$d 条助记词。现有条目将保留。导入的条目会作为新条目添加。</string>
+    <string name="main_import_body">导入：添加新条目，并替换 ID 相同的现有条目；文件中没有的条目会保留。\n\n完全替换：以文件为准。文件中没有的条目会被删除。</string>
+    <string name="main_import_body_seed_one">包含 %1$d 条助记词。导入：添加新条目，并替换 ID 相同的现有条目；文件中没有的条目会保留。\n\n完全替换：以文件为准。文件中没有的条目会被删除。</string>
+    <string name="main_import_body_seed_many">包含 %1$d 条助记词。导入：添加新条目，并替换 ID 相同的现有条目；文件中没有的条目会保留。\n\n完全替换：以文件为准。文件中没有的条目会被删除。</string>
     <string name="main_imported_count">已导入 %1$d 个条目。</string>
     <string name="main_export_could_not_write">无法写入导出文件。</string>
     <string name="main_export_cancelled">已取消导出。</string>

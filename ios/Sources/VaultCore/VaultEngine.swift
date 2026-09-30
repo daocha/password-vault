@@ -159,9 +159,14 @@ public final class VaultEngine: @unchecked Sendable {
     } }
     public func merge(_ imported: [VaultRecord]) throws -> [VaultRecord] { try serialized {
         guard key != nil else { throw VaultError.locked }
-        // Append with new identifiers; importing never silently replaces an existing record.
-        let copies = imported.map { record -> VaultRecord in var copy = record; copy.id = UUID().uuidString; return copy }
-        let updated = records + copies; try save(updated); return updated
+        // Matched by record id only: a record already in the vault is replaced in place (whole, fields included), the rest are added with their ids.
+        let incoming = Dictionary(imported.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }), known = Set(records.map(\.id))
+        let updated = records.map { incoming[$0.id] ?? $0 } + imported.filter { !known.contains($0.id) }; try save(updated); return updated
+    } }
+    /// Makes the imported records the whole vault: entries the file does not contain are deleted.
+    public func replaceAll(_ imported: [VaultRecord]) throws -> [VaultRecord] { try serialized {
+        guard key != nil else { throw VaultError.locked }
+        try save(imported); return imported
     } }
     private func erase(_ original: DeviceState) throws {
         lock()

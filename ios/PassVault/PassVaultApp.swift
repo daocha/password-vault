@@ -387,8 +387,12 @@ struct TransferView: View {
                         }
                     } catch { model.message = error.localizedDescription }
                 }
-                .confirmationDialog("Import \(pendingImport?.count ?? 0) records? Existing records will be kept.", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } })) {
-                    Button("Import records") { if let records = pendingImport { model.run { try $0.merge(records) } }; pendingImport = nil }
+                .confirmationDialog("Import \(pendingImport?.count ?? 0) records?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
+                    Button("Import") { if let records = pendingImport { model.run { try $0.merge(records) } }; pendingImport = nil }
+                    Button("Full replacement", role: .destructive) { if let records = pendingImport { model.run { try $0.replaceAll(records) } }; pendingImport = nil }
+                    Button("Cancel", role: .cancel) { pendingImport = nil }
+                } message: {
+                    Text("Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.")
                 }
                 .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { result in
                     document = nil
