@@ -176,7 +176,7 @@ struct WordMark: View {
 struct RecordIcon: View {
     let record: VaultRecord
     var body: some View {
-        if record.isLogin, let brand = findBrand(website: record.website, name: record.name) {
+        if record.isLogin || record.isTotp, let brand = findBrand(website: record.website, name: record.name) {
             Image(brand.assetName).resizable().scaledToFit().accessibilityLabel(brand.title).frame(width: 34, height: 34).clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
                 .frame(width: 38)
@@ -191,14 +191,20 @@ struct RecordList: View {
     @State private var query = ""
     @State private var favorites = false
     @State private var editing: VaultRecord?
+    @State private var editingTotp: VaultRecord?
+    @State private var showTotp = false
     @State private var transfer = false
-    var filtered: [VaultRecord] { model.records.filter { $0.matches(query) && (!favorites || $0.favorite) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+    var filtered: [VaultRecord] { model.records.filter { $0.isTotp == showTotp && $0.matches(query) && (!favorites || $0.favorite) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
     var body: some View {
         NavigationStack {
             List {
-                Section { Toggle("Favorites only", isOn: $favorites) }
-                Section("\(filtered.count) records") {
+                Section {
+                    Picker("Show", selection: $showTotp) { Text("Passwords").tag(false); Text("2FA codes").tag(true) }.pickerStyle(.segmented)
+                    Toggle("Favorites only", isOn: $favorites)
+                }
+                Section(showTotp ? "\(filtered.count) codes" : "\(filtered.count) records") {
                     ForEach(filtered) { record in
+                        if record.isTotp { Button { editingTotp = record } label: { TotpRow(record: record) } } else {
                         Button { editing = record } label: {
                             HStack(spacing: 14) {
                                 RecordIcon(record: record)
@@ -209,23 +215,30 @@ struct RecordList: View {
                                 }
                             }.padding(.vertical, 5)
                         }
+                        }
                     }.onDelete { offsets in
                         let ids = Set(offsets.map { filtered[$0].id }), updated = model.records.filter { !ids.contains($0.id) }
                         model.run { try $0.save(updated); return updated }
                     }
                 }
             }
-            .overlay { if model.records.isEmpty { ContentUnavailableView("A little peace of mind", systemImage: "lock.shield", description: Text("Add your first password or import your Password Keeper CSV.")) } }
+            .overlay {
+                if showTotp && !model.records.contains(where: \.isTotp) { ContentUnavailableView("No 2FA codes", systemImage: "qrcode.viewfinder", description: Text("Tap + and scan the QR code a site shows when you turn on two-factor authentication, or enter its setup key. Codes are generated offline on this device. To move from Google Authenticator, export there and scan its QR code here.")) }
+                else if !showTotp && model.records.isEmpty { ContentUnavailableView("A little peace of mind", systemImage: "lock.shield", description: Text("Add your first password or import your Password Keeper CSV.")) }
+            }
             .navigationTitle("PassVault").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Search names, usernames, notes")
             .toolbar {
                 ToolbarItem(placement: .principal) { WordMark().font(.headline) }
                 ToolbarItem(placement: .topBarLeading) { Button("Lock", systemImage: "lock") { model.lock() } }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("Import, export & security", systemImage: "gearshape") { transfer = true }
-                    Button("Add record", systemImage: "plus") { editing = VaultRecord() }
+                    Button(showTotp ? "Add 2FA code" : "Add record", systemImage: "plus") {
+                        if showTotp { var record = VaultRecord(); record.type = "totp"; record.fields = []; editingTotp = record } else { editing = VaultRecord() }
+                    }
                 }
             }
             .sheet(item: $editing) { RecordEditor(record: $0) }
+            .sheet(item: $editingTotp) { TotpEditor(record: $0) }
             .sheet(isPresented: $transfer) { TransferView() }
         }
     }

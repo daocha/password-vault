@@ -150,7 +150,7 @@
     <string name="main_backup_migration">备份与迁移</string>
     <string name="main_import_row_summary">Password Keeper（.pkb2 或 CSV）或 PassVault 备份</string>
     <string name="main_export_encrypted">导出加密备份</string>
-    <string name="main_export_encrypted_summary">密码和助记词，使用你的主密码保护</string>
+    <string name="main_export_encrypted_summary">密码、助记词和两步验证密钥，使用你的主密码保护</string>
     <string name="main_export_csv">导出明文 CSV</string>
     <string name="main_export_csv_summary">仅包含密码，未加密 — 用于迁移</string>
     <string name="main_attempts_note">连续 10 次主密码错误将清除此设备上的保险库，包括在导出或更改密码时输错的次数。成功的生物识别解锁会重置计数。导出的备份可能遭到不限次数的离线破解，因此主密码越长越好。</string>
@@ -159,7 +159,7 @@
     <string name="main_enable_biometric_body">请输入你的主密码。此次输入会计入 10 次尝试上限。</string>
     <string name="main_export_csv_body">请输入你的主密码以授权导出。此次输入会计入 10 次尝试上限。</string>
     <string name="main_export_encrypted_body">请输入你的主密码。备份文件将使用同一密码加密。此次输入会计入 10 次尝试上限。</string>
-    <string name="main_csv_warning">CSV 文件会以明文暴露每一个密码，且不包含助记词。请勿用电子表格打开，迁移完成后请将其删除。</string>
+    <string name="main_csv_warning">CSV 文件会以明文暴露每一个密码，且不包含助记词和两步验证密钥。请勿用电子表格打开，迁移完成后请将其删除。</string>
     <string name="main_understand_risk">我了解风险</string>
     <string name="main_current_password">当前密码</string>
     <string name="main_new_password">新密码</string>
