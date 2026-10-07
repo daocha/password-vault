@@ -150,7 +150,7 @@
     <string name="main_backup_migration">Backup &amp; migration</string>
     <string name="main_import_row_summary">Password Keeper (.pkb2 or CSV) or PassVault backup</string>
     <string name="main_export_encrypted">Export encrypted backup</string>
-    <string name="main_export_encrypted_summary">Passwords and seed phrases, protected with your app password</string>
+    <string name="main_export_encrypted_summary">Passwords, seed phrases and 2FA keys, protected with your app password</string>
     <string name="main_export_csv">Export plaintext CSV</string>
     <string name="main_export_csv_summary">Passwords only, unencrypted — for migration</string>
     <string name="main_attempts_note">10 failed app-password attempts erase this device’s vault, including attempts made while exporting or changing the password. A successful biometric unlock resets the count. Exported backups can be attacked offline without an attempt limit, so a long app password matters.</string>
@@ -159,7 +159,7 @@
     <string name="main_enable_biometric_body">Enter your app password. It counts toward the 10-attempt limit.</string>
     <string name="main_export_csv_body">Enter your app password to authorize the export. It counts toward the 10-attempt limit.</string>
     <string name="main_export_encrypted_body">Enter your app password. The backup file is encrypted with this same password. It counts toward the 10-attempt limit.</string>
-    <string name="main_csv_warning">The CSV exposes every password in plain text. Seed phrases are never included. Don\'t open it in a spreadsheet, and delete it after migration.</string>
+    <string name="main_csv_warning">The CSV exposes every password in plain text. Seed phrases and 2FA keys are never included. Don\'t open it in a spreadsheet, and delete it after migration.</string>
     <string name="main_understand_risk">I understand the risk</string>
     <string name="main_current_password">Current password</string>
     <string name="main_new_password">New password</string>

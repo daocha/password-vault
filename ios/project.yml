@@ -20,6 +20,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: PassVault
         INFOPLIST_KEY_NSFaceIDUsageDescription: Unlock your vault with Face ID.
+        INFOPLIST_KEY_NSCameraUsageDescription: Scan the QR code a site shows when you turn on two-factor authentication. Images are read on this device only.
         INFOPLIST_KEY_UIFileSharingEnabled: NO
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: NO
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES

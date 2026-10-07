@@ -215,6 +215,44 @@ do {
     var chain = before
     for n in 1...12 { var next = chain; next.fields[1].value = "pw-\(n)"; chain = next.recordingPasswordChanges(previous: chain, at: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + n))) }
     try check(chain.fields[1].history?.count == passwordHistoryLimit && chain.fields[1].historyNewestFirst.first?.value == "pw-11" && chain.fields[1].historyNewestFirst.last?.value == "pw-2", "history keeps the newest \(passwordHistoryLimit) entries")
+    // Authenticator (TOTP): RFC 6238 vectors, otpauth URIs and Google Authenticator exports.
+    do {
+        let sha1 = try TotpAccount(secret: Data("12345678901234567890".utf8), digits: 8)
+        let sha256 = try TotpAccount(secret: Data("12345678901234567890123456789012".utf8), algorithm: "SHA256", digits: 8)
+        let sha512 = try TotpAccount(secret: Data((String(repeating: "1234567890", count: 6) + "1234").utf8), algorithm: "SHA512", digits: 8)
+        let vectors: [(Int64, [String])] = [(59, ["94287082", "46119246", "90693936"]), (1111111109, ["07081804", "68084774", "25091201"]), (1111111111, ["14050471", "67062674", "99943326"]),
+                                            (1234567890, ["89005924", "91819424", "93441116"]), (2000000000, ["69279037", "90698825", "38618901"]), (20000000000, ["65353130", "77737706", "47863826"])]
+        for (time, codes) in vectors { try check([sha1, sha256, sha512].map { Totp.code($0, at: time) } == codes, "RFC 6238 vector t=\(time)") }
+        let six = try TotpAccount(secret: Data("12345678901234567890".utf8))
+        try check(six.code(at: Date(timeIntervalSince1970: 59)) == "287082" && six.remaining(at: Date(timeIntervalSince1970: 59)) == 1 && six.remaining(at: Date(timeIntervalSince1970: 60)) == 30, "6-digit code and countdown")
+        try check(Totp.base32(Data("foobar".utf8)) == "MZXW6YTBOI" && String(decoding: try Totp.decodeBase32("mzxw 6ytb-oi======"), as: UTF8.self) == "foobar", "Base32")
+        try rejects("non-Base32 key") { _ = try Totp.decodeBase32("MZXW1") }
+        let parsed = try Totp.parseURI("otpauth://totp/ACME%20Co:john.doe+tag@email.com?secret=HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ&issuer=ACME%20Co&algorithm=SHA256&digits=8&period=60")
+        try check(parsed.issuer == "ACME Co" && parsed.account == "john.doe+tag@email.com" && parsed.algorithm == "SHA256" && parsed.digits == 8 && parsed.period == 60 && (try Totp.parseURI(parsed.uri)) == parsed, "otpauth URI parse and roundtrip")
+        let labelOnly = try Totp.parseURI("otpauth://totp/Binance:me@example.com?secret=JBSWY3DPEHPK3PXP")
+        try check(labelOnly.issuer == "Binance" && labelOnly.account == "me@example.com" && labelOnly.digits == 6 && labelOnly.period == 30 && labelOnly.algorithm == "SHA1", "otpauth defaults and label issuer")
+        // Byte-for-byte the URI Android writes, so backups made on either platform match.
+        try check(try TotpAccount(secret: Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer: "ACME Co", account: "john.doe+tag@email.com").uri == "otpauth://totp/ACME%20Co:john.doe%2Btag%40email.com?secret=JBSWY3DPEHPK3PXP&issuer=ACME%20Co&algorithm=SHA1&digits=6&period=30", "canonical URI matches Android")
+        for bad in ["otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1", "https://example.com", "otpauth://totp/x", "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&digits=4", "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&algorithm=MD5"] {
+            try rejects("unsupported otpauth \(bad)") { _ = try Totp.parseURI(bad) }
+        }
+        let stored = try TotpAccount(secret: Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer: "GitHub", account: "octocat").record()
+        let restored = try Records.decode(Records.encode([stored]))[0]
+        try check(restored.isTotp && restored.totp?.account == "octocat" && restored.matches("octo") && restored.name == "GitHub", "TOTP record survives encoding and is searchable by account")
+        try check(!(try VaultCSV.exportRecords([stored])).contains("otpauth"), "TOTP keys stay out of CSV")
+        func varint(_ v: UInt64) -> [UInt8] { var x = v, out = [UInt8](); while x >= 0x80 { out.append(UInt8(x & 0x7F) | 0x80); x >>= 7 }; out.append(UInt8(x)); return out }
+        func bytes(_ n: Int, _ b: [UInt8]) -> [UInt8] { varint(UInt64(n << 3 | 2)) + varint(UInt64(b.count)) + b }
+        func int(_ n: Int, _ v: UInt64) -> [UInt8] { varint(UInt64(n << 3)) + varint(v) }
+        let totpEntry = bytes(1, Array("12345678901234567890".utf8)) + bytes(2, Array("Binance: me@example.com".utf8)) + bytes(3, Array("Binance".utf8)) + int(4, 1) + int(5, 1) + int(6, 2)
+        let shaEntry = bytes(1, Array("abcdefghij".utf8)) + bytes(2, Array("alice".utf8)) + int(4, 2) + int(5, 2) + int(6, 2)
+        let hotpEntry = bytes(1, Array("zzzzzzzzzz".utf8)) + bytes(2, Array("counter".utf8)) + int(6, 1) + int(7, 5)
+        let payload = Data(bytes(1, totpEntry) + bytes(1, shaEntry) + bytes(1, hotpEntry) + int(2, 1) + int(3, 1) + int(4, 0) + int(5, 12345))
+        let encoded = payload.base64EncodedString().addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        let migration = try Totp.parseMigration("otpauth-migration://offline?data=\(encoded)")
+        try check(migration.accounts.count == 2 && migration.skipped == 1 && migration.accounts[0].issuer == "Binance" && migration.accounts[0].account == "me@example.com" && migration.accounts[0].code(at: Date(timeIntervalSince1970: 59)) == "287082"
+                  && migration.accounts[1].algorithm == "SHA256" && migration.accounts[1].digits == 8, "Google Authenticator export")
+        try rejects("truncated export") { _ = try Totp.parseMigration("otpauth-migration://offline?data=" + Data([10, 50, 1]).base64EncodedString()) }
+    }
     if let path = ProcessInfo.processInfo.environment["PASSVAULT_TEST_CSV"] {
         let migrated = try VaultCSV.importRecords(String(contentsOfFile: path, encoding: .utf8))
         try check(!migrated.isEmpty, "local migration fixture has records")
