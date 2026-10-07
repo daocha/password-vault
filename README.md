@@ -37,7 +37,7 @@ No account · No server · No analytics · No cloud sync
 
 ## 📑 Contents
 
-[✨ Features](#-features) · [📥 Download](#-download-android) · [🍎 Build for iOS](#-build-for-ios) · [🤖 Build for Android](#-build-for-android) · [🚚 Moving your passwords in](#-moving-your-passwords-in) · [🛡️ Security checks](#%EF%B8%8F-security-checks) · [✅ Project status](#-project-status)
+[✨ Features](#-features) · [📥 Download](#-download-android) · [🍎 Build for iOS](#-build-for-ios) · [🤖 Build for Android](#-build-for-android) · [🚚 Moving your passwords in](#-moving-your-passwords-in) · [🔢 Adding 2FA codes](#-adding-2fa-codes) · [🛡️ Security checks](#%EF%B8%8F-security-checks) · [✅ Project status](#-project-status)
 
 ---
 
@@ -66,8 +66,9 @@ The dotted "never connects" line is deliberate: PassVault has no network feature
 | 🗄️ **Encrypted on your device** | Every record is encrypted and stored locally. Nothing is ever uploaded. |
 | 🔎 **Find things fast** | Search, star your favorites, and organize records into groups. |
 | 📝 **Flexible records** | Add several usernames, passwords and notes to one record, plus security question-and-answer pairs, in the order you want. Secrets stay hidden until you reveal them. |
+| 🔢 **2FA authenticator** | Built-in time-based one-time codes (TOTP), like Google Authenticator. Add an account by scanning the site's QR code with the camera, reading it from a screenshot, or typing the setup key. Codes are generated offline on your phone. |
 | 🎲 **Password generator** | Create strong passwords with adjustable length and character types. |
-| 📤 **Backup and restore** | Export as CSV or as an encrypted file, and import them back after confirming. Exporting asks for your password first. |
+| 📤 **Backup and restore** | Export as CSV or as an encrypted file, and import them back after confirming. Exporting asks for your password first. 2FA setup keys (and seed phrases) are only ever included in the encrypted file, never in CSV. |
 | 🔄 **Change master password** | Update it any time from settings. |
 | 📋 **Careful clipboard** | Copied passwords are handled with care so they don't linger. |
 
@@ -198,6 +199,27 @@ flowchart TD
 
 ---
 
+## 🔢 Adding 2FA codes
+
+Open the **2FA** tab and tap **Add 2FA code**, then either:
+
+- **Scan QR code**: point the camera at the QR code the site shows when you turn on two-factor authentication.
+- **From image**: pick a screenshot of that QR code. Handy when the setup page is open on the same phone.
+- **Type the setup key**: the Base32 key sites show next to the QR code. Most sites use the defaults (SHA1, 6 digits, 30 seconds); change them under *Advanced* only if the site says so.
+
+Check that the code shown matches what the site expects, then save. Tap a code in the list to copy it.
+
+**Coming from Google Authenticator?** In Google Authenticator choose **Transfer accounts → Export accounts**, then scan its QR code in PassVault. All of its accounts are added at once; accounts already in your vault are skipped. If the export shows several QR codes, scan each one. Counter-based (HOTP) accounts aren't supported.
+
+**Good to know**
+
+- QR codes are read on the device. The camera is only used while you scan, and PassVault still has no internet access.
+- The setup key can be revealed to check it, but it can't be copied from the app.
+- Setup keys are part of the encrypted vault, so **encrypted backups** include them and restore them on either platform. CSV exports never do.
+- Keep an encrypted backup. If you lose your phone without one, you'll need each site's recovery codes to get back in.
+
+---
+
 ## 🛡️ Security checks
 
 The portable Swift core can be tested without full Xcode:
@@ -221,11 +243,11 @@ With full Xcode you can also run `swift test --package-path ios`. Build tools ne
 
 **Verified so far**
 
-- ✔️ The Swift core compiles, and **95 standalone security and migration checks pass**, including the supplied CSV.
-- ✔️ The iOS UI source passes Swift syntax parsing.
+- ✔️ The Swift core compiles, and **180 standalone security and migration checks pass**, including the supplied CSV and the 2FA code tests (RFC 6238 test vectors, QR link parsing, Google Authenticator exports).
+- ✔️ Android unit tests pass (CSV, backups, Password Keeper import, 2FA), and the debug and release builds succeed.
+- ✔️ The iOS UI source type-checks (via Mac Catalyst).
 
 **Not yet verified** (release blockers, not proof that the apps pass)
 
-- ⏳ Android CSV/schema unit tests exist but haven't been run.
-- ⏳ Full mobile builds, native UI type checking and biometric behavior.
+- ⏳ Full iOS build in Xcode, on-device UI testing (including camera QR scanning) and biometric behavior.
 - ⏳ XCTest, which was unavailable on the development Mac (no full Xcode, Android SDK or JDK at first).
