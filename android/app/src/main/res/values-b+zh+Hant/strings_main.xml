@@ -150,7 +150,7 @@
     <string name="main_backup_migration">備份與遷移</string>
     <string name="main_import_row_summary">Password Keeper（.pkb2 或 CSV）或 PassVault 備份</string>
     <string name="main_export_encrypted">匯出加密備份</string>
-    <string name="main_export_encrypted_summary">密碼和助記詞，以你的主密碼保護</string>
+    <string name="main_export_encrypted_summary">密碼、助記詞和兩步驟驗證金鑰，以你的主密碼保護</string>
     <string name="main_export_csv">匯出純文字 CSV</string>
     <string name="main_export_csv_summary">僅包含密碼，未加密 — 用於遷移</string>
     <string name="main_attempts_note">連續 10 次主密碼錯誤將清除此裝置上的保險庫，包括在匯出或變更密碼時輸錯的次數。成功的生物辨識解鎖會重設計數。匯出的備份可能遭到不限次數的離線破解，因此主密碼越長越好。</string>
@@ -159,7 +159,7 @@
     <string name="main_enable_biometric_body">請輸入你的主密碼。此次輸入會計入 10 次嘗試上限。</string>
     <string name="main_export_csv_body">請輸入你的主密碼以授權匯出。此次輸入會計入 10 次嘗試上限。</string>
     <string name="main_export_encrypted_body">請輸入你的主密碼。備份檔案將以同一密碼加密。此次輸入會計入 10 次嘗試上限。</string>
-    <string name="main_csv_warning">CSV 檔案會以純文字暴露每一組密碼，且不包含助記詞。請勿用試算表開啟，遷移完成後請將其刪除。</string>
+    <string name="main_csv_warning">CSV 檔案會以純文字暴露每一組密碼，且不包含助記詞和兩步驟驗證金鑰。請勿用試算表開啟，遷移完成後請將其刪除。</string>
     <string name="main_understand_risk">我了解風險</string>
     <string name="main_current_password">目前的密碼</string>
     <string name="main_new_password">新密碼</string>

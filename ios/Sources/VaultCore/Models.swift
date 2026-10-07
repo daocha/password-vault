@@ -48,12 +48,12 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
         .init(kind: .note, label: "Notes")
     ]
     public var legacy: [String: String] = [:]
-    /// nil or "login" for passwords; "seed" for BIP-39 seed phrases (created on Android), which never go into CSV.
+    /// nil or "login" for passwords; "seed" for BIP-39 seed phrases (created on Android) and "totp" for authenticator keys, which never go into CSV.
     public var type: String? = nil
     public var isLogin: Bool { type == nil || type == "login" }
     public init() {}
     public func matches(_ query: String) -> Bool {
-        let searchable = [name, website, group] + fields.filter { !$0.secret }.map(\.value)
+        let searchable = [name, website, group] + fields.filter { !$0.secret }.map(\.value) + [totp?.account].compactMap { $0 }
         return query.isEmpty || searchable.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }

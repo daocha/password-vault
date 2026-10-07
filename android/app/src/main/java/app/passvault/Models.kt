@@ -7,8 +7,8 @@ import java.time.Instant
 import java.util.UUID
 
 enum class FieldKind { username, password, note, question }
-/** `login` records are passwords; `seed` records hold a BIP-39 mnemonic and never leave the app in plaintext CSV. */
-enum class RecordType { login, seed }
+/** `login` records are passwords; `seed` records hold a BIP-39 mnemonic and `totp` records an authenticator key. Neither leaves the app in plaintext CSV. */
+enum class RecordType { login, seed, totp }
 const val SEED_LABEL = "Seed phrase"
 const val PRIVATE_KEY_LABEL = "Private key"
 const val SEED_PASSPHRASE_LABEL = "BIP-39 passphrase"
@@ -37,7 +37,7 @@ data class VaultRecord(
     val seedWords: List<String> get() = fields.firstOrNull { it.label == SEED_LABEL }?.value?.let(Bip39::split).orEmpty()
     /** A seed-type record that holds a bare private key instead of a mnemonic. */
     val privateKey: String? get() = fields.firstOrNull { it.label == PRIVATE_KEY_LABEL }?.value
-    fun matches(query: String) = (listOf(name, website, group) + fields.filter { !it.secret }.map { it.value }).any { it.contains(query, ignoreCase = true) }
+    fun matches(query: String) = (listOf(name, website, group) + fields.filter { !it.secret }.map { it.value } + listOfNotNull(totp?.account)).any { it.contains(query, ignoreCase = true) }
     fun json() = JSONObject().put("id", id).put("name", name).put("website", website).put("group", group).put("favorite", favorite).put("updatedAt", updatedAt).put("fields", JSONArray(fields.map { it.json() })).put("legacy", JSONObject(legacy)).apply { if (type != RecordType.login) put("type", type.name) }
     companion object {
         fun from(j: JSONObject): VaultRecord {

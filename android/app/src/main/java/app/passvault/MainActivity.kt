@@ -86,6 +86,8 @@ private sealed interface SettingsDialog {
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
+private class ScannedImport(val records: List<VaultRecord>, val hotp: Int, val duplicates: Int)
+
 private val LANGUAGES = listOf("", "en", "zh-Hans", "zh-Hant")
 private fun languageName(tag: String) = when (tag) { "en" -> R.string.main_language_english; "zh-Hans" -> R.string.main_language_zh_hans; "zh-Hant" -> R.string.main_language_zh_hant; else -> R.string.main_language_system }
 
@@ -134,7 +136,9 @@ class MainActivity : FragmentActivity() {
     private fun discardPendingUnlock() { if (busy && !unlocked) generation++ }
     private var generation by mutableIntStateOf(0)
     private var settings by mutableStateOf(false)
-    private var seedTab by mutableStateOf(false)
+    private var tab by mutableStateOf(RecordType.login)
+    /** Accounts read from a Google Authenticator export QR, waiting for the user to confirm adding them. */
+    private var scannedImport by mutableStateOf<ScannedImport?>(null)
     // List filters live here, not in VaultScreen, so they survive opening an entry and coming back.
     private var query by mutableStateOf("")
     private var favorites by mutableStateOf(false)
@@ -191,6 +195,34 @@ class MainActivity : FragmentActivity() {
             catch (e: Exception) { messageError = true; message = errorText(e, R.string.main_import_rejected) }
             finally { busy = false }
         }
+    }
+    private var cameraGranted: (() -> Unit)? = null
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        systemPickerOpen = false
+        val then = cameraGranted; cameraGranted = null
+        if (granted && unlocked) then?.invoke() else if (!granted) { messageError = true; message = getString(R.string.totp_camera_denied) }
+    }
+    /** Runs [then] once the camera may be used, asking for the permission first if needed. */
+    private fun withCamera(then: () -> Unit) {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) { then(); return }
+        cameraGranted = then; systemPickerOpen = true; cameraPermission.launch(android.Manifest.permission.CAMERA)
+    }
+    private var imageRead: ((String?) -> Unit)? = null
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        systemPickerOpen = false
+        val then = imageRead; imageRead = null
+        if (uri == null || then == null || !unlocked) return@registerForActivityResult
+        val epoch = generation
+        lifecycleScope.launch {
+            val text = runCatching { withContext(Dispatchers.IO) { QrDecoder.decode(this@MainActivity, uri) } }.getOrNull()
+            if (epoch == generation && unlocked) then(text)
+        }
+    }
+    /** Shows the confirmation for a Google Authenticator export, leaving out accounts whose key is already in the vault. */
+    private fun offerMigration(migration: Totp.Migration) {
+        val known = records.mapNotNull { it.totp?.secret }
+        val fresh = migration.accounts.filter { a -> known.none { it.contentEquals(a.secret) } }.distinctBy { it.secretBase32 }
+        scannedImport = ScannedImport(fresh.map { it.record() }, migration.skipped, migration.accounts.size - fresh.size)
     }
     private val encryptedExport = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { writeExport(it) }
     private val csvExport = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { writeExport(it) }
@@ -284,7 +316,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun lockVault(clearClipboard: Boolean = true) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; viewing = null; editing = false; settings = false
+        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; viewing = null; editing = false; settings = false; scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -372,7 +404,7 @@ class MainActivity : FragmentActivity() {
     @Composable private fun VaultScreen() {
         var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }
         val selecting = selected.isNotEmpty(); val haptics = LocalHapticFeedback.current
-        val type = if (seedTab) RecordType.seed else RecordType.login
+        val type = tab; val seedTab = tab == RecordType.seed; val totpTab = tab == RecordType.totp
         val ofType = records.filter { it.type == type }
         val groups = remember(records) { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
         // A group filter whose last entry was moved or deleted has no chip left to clear it.
@@ -385,34 +417,38 @@ class MainActivity : FragmentActivity() {
                 if (selecting) TopAppBar(title = { Text(stringResource(R.string.main_selected_count, selected.size)) }, navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, stringResource(R.string.main_cancel_selection)) } },
                     actions = {
                         IconButton(onClick = { val ids = visible.map { it.id }.toSet(); selected = if (selected.containsAll(ids)) emptySet() else ids }) { Icon(Icons.Outlined.SelectAll, stringResource(R.string.main_select_all)) }
-                        if (!seedTab) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
+                        if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
                 else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
-            floatingActionButton = { if (!selecting) ExtendedFloatingActionButton(onClick = { viewing = if (seedTab) VaultRecord(type = RecordType.seed, fields = emptyList()) else VaultRecord(); editing = true }, icon = { Icon(Icons.Default.Add, null) }, text = { Text(if (seedTab) stringResource(R.string.main_new_seed_phrase) else stringResource(R.string.main_new_entry)) }) }) { padding ->
+            floatingActionButton = { if (!selecting) ExtendedFloatingActionButton(onClick = { viewing = if (tab == RecordType.login) VaultRecord() else VaultRecord(type = tab, fields = emptyList()); editing = true }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) }) }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                    SegmentedButton(!seedTab, { seedTab = false; group = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(0, 2), icon = { Icon(Icons.Outlined.Key, null, Modifier.size(18.dp)) }) { Text(stringResource(R.string.main_passwords)) }
-                    SegmentedButton(seedTab, { seedTab = true; group = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(1, 2), icon = { Icon(Icons.Outlined.AccountBalanceWallet, null, Modifier.size(18.dp)) }) { Text(stringResource(R.string.main_seed_phrases)) }
+                    listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
+                        SegmentedButton(tab == t, { tab = t; group = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
                 }
                 TextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(stringResource(R.string.main_search)) }, leadingIcon = { Icon(Icons.Default.Search, null) },
                     trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, stringResource(R.string.main_clear_search)) } }, singleLine = true, shape = RoundedCornerShape(28.dp),
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
                 LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { FilterChip(favorites, { favorites = !favorites }, label = { Text(stringResource(R.string.main_favorites)) }, leadingIcon = { Icon(if (favorites) Icons.Default.Star else Icons.Outlined.StarOutline, null, Modifier.size(18.dp)) }) }
-                    if (!seedTab) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) },
+                    if (tab == RecordType.login) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) },
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(groupColorArgb(name)).copy(alpha = 0.28f), selectedLabelColor = MaterialTheme.colorScheme.onSurface),
                         border = FilterChipDefaults.filterChipBorder(true, group == name, borderColor = Color(groupColorArgb(name)), selectedBorderColor = Color(groupColorArgb(name)), borderWidth = 1.dp, selectedBorderWidth = 2.dp)) }
                 }
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconBadge(if (seedTab) Icons.Outlined.AccountBalanceWallet else Icons.Outlined.Key, 72.dp); Spacer(Modifier.height(16.dp))
-                    Text(if (seedTab) stringResource(R.string.main_no_seed_phrases) else stringResource(R.string.main_peace_of_mind), style = MaterialTheme.typography.titleLarge)
-                    Text(if (seedTab) stringResource(R.string.main_empty_seed_body) else stringResource(R.string.main_empty_login_body), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                } else Text(stringResource(if (seedTab) R.string.main_count_of_seeds else R.string.main_count_of_entries, visible.size, ofType.size), Modifier.padding(start = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    IconBadge(when (tab) { RecordType.seed -> Icons.Outlined.AccountBalanceWallet; RecordType.totp -> Icons.Outlined.Pin; else -> Icons.Outlined.Key }, 72.dp); Spacer(Modifier.height(16.dp))
+                    Text(stringResource(when (tab) { RecordType.seed -> R.string.main_no_seed_phrases; RecordType.totp -> R.string.totp_empty_title; else -> R.string.main_peace_of_mind }), style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(when (tab) { RecordType.seed -> R.string.main_empty_seed_body; RecordType.totp -> R.string.totp_empty_body; else -> R.string.main_empty_login_body }), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                } else Text(stringResource(when (tab) { RecordType.seed -> R.string.main_count_of_seeds; RecordType.totp -> R.string.totp_count; else -> R.string.main_count_of_entries }, visible.size, ofType.size), Modifier.padding(start = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // One clock for every visible code, so they all change together.
+                val now = if (totpTab) rememberNowMillis() else 0L
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(visible, key = { it.id }) { record ->
-                        val subtitle = if (record.type == RecordType.seed) (if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)) else record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
+                        val totp = if (record.type == RecordType.totp) remember(record) { record.totp } else null
+                        val subtitle = if (record.type == RecordType.totp) totp?.account.orEmpty() else if (record.type == RecordType.seed) (if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)) else record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
                         val isSelected = record.id in selected
                         fun toggle() { selected = if (isSelected) selected - record.id else selected + record.id }
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -431,7 +467,8 @@ class MainActivity : FragmentActivity() {
                                     if (record.type == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
                                 }
                                 if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                                if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (record.type == RecordType.totp) { if (!selecting) TotpRowCode(totp, now, if (allowCopy) ::copySecret else null) }
+                                else if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -440,9 +477,9 @@ class MainActivity : FragmentActivity() {
         }
         if (grouping) GroupDialog { grouping = false }
         if (confirmDelete) {
-            val doomed = records.filter { it.id in selected }; val seeds = doomed.count { it.type == RecordType.seed }
+            val doomed = records.filter { it.id in selected }; val seeds = doomed.count { it.type == RecordType.seed }; val totps = doomed.count { it.type == RecordType.totp }
             AlertDialog(onDismissRequest = { confirmDelete = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(if (doomed.size == 1) stringResource(R.string.main_delete_title_one, doomed.size) else stringResource(R.string.main_delete_title_many, doomed.size)) },
-                text = { HardenWindow(); Text(when { seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
+                text = { HardenWindow(); Text(when { totps > 0 -> stringResource(R.string.totp_delete_body_many, totps); seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
                 confirmButton = { TextButton(onClick = { confirmDelete = false; val ids = doomed.map { it.id }.toSet(); val updated = records.filter { it.id !in ids }; work({ engine.save(updated); updated }) { selected = emptySet(); message = if (ids.size == 1) getString(R.string.main_deleted_one, ids.size) else getString(R.string.main_deleted_many, ids.size) } }) { Text(stringResource(R.string.main_delete), color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.main_cancel)) } })
         }
@@ -502,7 +539,15 @@ class MainActivity : FragmentActivity() {
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun RecordScreen(record: VaultRecord, edit: Boolean) {
-        if (record.type == RecordType.seed) {
+        if (record.type == RecordType.totp) {
+            val isNew = records.none { it.id == record.id }
+            if (edit) TotpEditor(record, isNew, records, this, requestCamera = ::withCamera, pickImage = { then -> imageRead = then; if (!launchPicker { imagePicker.launch(arrayOf("image/*")) }) imageRead = null },
+                onMigration = { offerMigration(it); viewing = null; editing = false },
+                onCancel = { if (isNew) viewing = null else editing = false }, onSave = { saved -> saveRecord(saved) { viewing = saved; editing = false } })
+            else TotpDetail(record, if (allowCopy) ::copySecret else null, onBack = { viewing = null }, onEdit = { editing = true },
+                onDelete = { val updated = records.filter { it.id != record.id }; work({ engine.save(updated); updated }) { viewing = null } },
+                onToggleFavorite = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } })
+        } else if (record.type == RecordType.seed) {
             val isNew = records.none { it.id == record.id }
             if (edit) SeedEditor(record, isNew, onCancel = { if (isNew) viewing = null else editing = false }, onSave = { saved -> saveRecord(saved) { viewing = saved; editing = false } })
             else SeedDetail(record, onBack = { viewing = null }, onEdit = { editing = true },
@@ -821,6 +866,18 @@ class MainActivity : FragmentActivity() {
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun ImportDialogs() {
+        scannedImport?.let { scan ->
+            AlertDialog(onDismissRequest = { scannedImport = null }, icon = { Icon(Icons.Outlined.QrCodeScanner, null) },
+                title = { Text(if (scan.records.isEmpty()) stringResource(R.string.totp_import_nothing) else stringResource(R.string.totp_import_title, scan.records.size)) },
+                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (scan.records.isNotEmpty()) { Text(stringResource(R.string.totp_import_body)); Text(scan.records.joinToString(", ") { it.name }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (scan.duplicates > 0) Text(stringResource(R.string.totp_import_skipped_dupes, scan.duplicates), style = MaterialTheme.typography.bodySmall)
+                    if (scan.hotp > 0) Text(stringResource(R.string.totp_import_skipped_hotp, scan.hotp), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.totp_import_batch), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } },
+                confirmButton = { if (scan.records.isNotEmpty()) TextButton(onClick = { scannedImport = null; work({ engine.merge(scan.records) }) { tab = RecordType.totp; message = getString(R.string.totp_added, scan.records.size) } }) { Text(stringResource(R.string.totp_add_action)) } else TextButton(onClick = { scannedImport = null }) { Text(stringResource(R.string.main_ok)) } },
+                dismissButton = { if (scan.records.isNotEmpty()) TextButton(onClick = { scannedImport = null }) { Text(stringResource(R.string.main_cancel)) } })
+        }
         if (importBytes != null) {
             var backupPassword by remember { mutableStateOf("") }
             val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true
