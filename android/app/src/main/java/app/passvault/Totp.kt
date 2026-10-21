@@ -23,7 +23,7 @@ data class TotpAccount(val secret: ByteArray, val issuer: String = "", val accou
     val secretBase32 get() = Totp.base32(secret)
     /** Canonical URI: the form stored in the vault and backups, and readable by other authenticator apps. */
     fun uri(): String {
-        fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8).replace("+", "%20")
+        fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
         val label = if (issuer.isNotEmpty()) enc(issuer) + ":" + enc(account) else enc(account)
         return "otpauth://totp/$label?secret=$secretBase32" + (if (issuer.isNotEmpty()) "&issuer=${enc(issuer)}" else "") + "&algorithm=$algorithm&digits=$digits&period=$period"
     }
@@ -69,7 +69,7 @@ object Totp {
     }
 
     private fun query(raw: String?): Map<String, String> = raw.orEmpty().split('&').filter { it.isNotEmpty() }.associate { part ->
-        val i = part.indexOf('='); fun dec(s: String) = URLDecoder.decode(s.replace("+", "%2B"), Charsets.UTF_8)
+        val i = part.indexOf('='); fun dec(s: String) = URLDecoder.decode(s.replace("+", "%2B"), "UTF-8")
         if (i < 0) dec(part).lowercase() to "" else dec(part.substring(0, i)).lowercase() to dec(part.substring(i + 1))
     }
 
@@ -79,7 +79,7 @@ object Totp {
         require(uri != null && uri.scheme.equals("otpauth", ignoreCase = true)) { "Not an authenticator QR code." }
         require(uri.host.equals("totp", ignoreCase = true)) { "Only time-based (TOTP) codes are supported." }
         val params = query(uri.rawQuery)
-        val label = URLDecoder.decode(uri.rawPath.orEmpty().removePrefix("/").replace("+", "%2B"), Charsets.UTF_8)
+        val label = URLDecoder.decode(uri.rawPath.orEmpty().removePrefix("/").replace("+", "%2B"), "UTF-8")
         val colon = label.indexOf(':')
         val labelIssuer = if (colon >= 0) label.substring(0, colon).trim() else ""
         val account = (if (colon >= 0) label.substring(colon + 1) else label).trim()
