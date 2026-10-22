@@ -15,10 +15,12 @@ final class KeychainStorage: VaultStorage {
         // no ciphertext), drop stale items so a reinstalled app starts over instead of finding state that points at missing files.
         // An existing install that predates the marker keeps its vault and just gets the marker.
         let marker = directory.appendingPathComponent("installed")
-        if !FileManager.default.fileExists(atPath: marker.path) && !(try hasBlobs()) {
-            for account in ["state", "biometric"] {
-                let status = SecItemDelete(query(account) as CFDictionary)
-                guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError.invalid("Could not reset protected storage (\(status)).") }
+        if !FileManager.default.fileExists(atPath: marker.path) {
+            if try !hasBlobs() {
+                for account in ["state", "biometric"] {
+                    let status = SecItemDelete(query(account) as CFDictionary)
+                    guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError.invalid("Could not reset protected storage (\(status)).") }
+                }
             }
         }
         // Empty and nonsecret, so it may be written during a prewarmed launch before the first unlock.
