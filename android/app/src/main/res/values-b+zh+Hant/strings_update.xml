@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="update_title">更新</string>
+    <string name="update_version">PassVault %1$s · %2$s</string>
+    <string name="update_idle">檢查是否有新版本</string>
+    <string name="update_checking">正在檢查更新…</string>
+    <string name="update_current">已是最新版本</string>
+    <string name="update_available_play">Google Play 有可用更新</string>
+    <string name="update_available">有新版本 %1$s</string>
+    <string name="update_downloading">正在下載更新… %1$d%%</string>
+    <string name="update_permission">允許 PassVault 安裝應用程式，然後返回。</string>
+    <string name="update_installing">請在 Android 中確認安裝。</string>
+    <string name="update_error">無法檢查或安裝更新，請再試一次。</string>
+    <string name="update_now">立即更新</string>
+    <string name="update_continue">繼續安裝</string>
+    <string name="update_retry">重試更新</string>
+    <string name="update_check">檢查更新</string>
+</resources>

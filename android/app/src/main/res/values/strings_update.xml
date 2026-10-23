@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="update_title">Updates</string>
+    <string name="update_version">PassVault %1$s · %2$s</string>
+    <string name="update_idle">Check for a newer version</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_current">You\'re up to date</string>
+    <string name="update_available_play">An update is available on Google Play</string>
+    <string name="update_available">Version %1$s is available</string>
+    <string name="update_downloading">Downloading update… %1$d%%</string>
+    <string name="update_permission">Allow installs from PassVault, then return here.</string>
+    <string name="update_installing">Confirm the installation in Android.</string>
+    <string name="update_error">Could not check or install the update. Please try again.</string>
+    <string name="update_now">Update now</string>
+    <string name="update_continue">Continue installation</string>
+    <string name="update_retry">Retry update</string>
+    <string name="update_check">Check for updates</string>
+</resources>
