@@ -28,10 +28,13 @@ android {
         }
     }
     buildTypes {
-        all { buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "false") }
+        // UPDATE_CHANNEL: "none" (debug, qa: no update check), "github" (sideload APK), "play" (Google Play AAB).
+        all { buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "false"); buildConfigField("String", "UPDATE_CHANNEL", "\"none\"") }
         // Own package name and label so the debug build installs next to (not over) a release build signed with a different key.
         debug { applicationIdSuffix = ".debug"; versionNameSuffix = "-debug"; manifestPlaceholders["appLabel"] = "PassVault Dev" }
-        release { if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release"); isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
+        release { if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release"); isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"); buildConfigField("String", "UPDATE_CHANNEL", "\"github\"") }
+        // Upload this variant to Play. It updates through Play and has no INTERNET or APK-install permission.
+        create("playRelease") { initWith(getByName("release")); matchingFallbacks += listOf("release"); buildConfigField("String", "UPDATE_CHANNEL", "\"play\"") }
         // Emulator-only build: emulators lack hardware-backed keys. Never distribute this variant.
         create("qa") { initWith(getByName("debug")); applicationIdSuffix = ".qa"; versionNameSuffix = "-qa"; manifestPlaceholders["appLabel"] = "PassVault QA"; buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "true") }
     }
@@ -51,6 +54,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
     implementation("com.google.zxing:core:3.5.3")
+    // In-app updates: Google Play's update flow for Play installs (talks to the Play Store app, not the network).
+    implementation("com.google.android.play:app-update:2.1.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
     androidTestImplementation("androidx.test:runner:1.6.2")

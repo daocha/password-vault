@@ -162,6 +162,13 @@ class MainActivity : FragmentActivity() {
         }
     }
     private var biometricCandidate: ByteArray? = null
+    private val playUpdateLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        updates?.onPlayResult(result.resultCode)
+    }
+    /** Null in debug and QA builds: they never check for, download or offer updates. */
+    internal val updates: AppUpdates? by lazy {
+        if (BuildConfig.UPDATE_CHANNEL == "none") null else AppUpdates(this, playUpdateLauncher)
+    }
 
     private val importPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         systemPickerOpen = false
@@ -300,6 +307,7 @@ class MainActivity : FragmentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        updates?.onResume()
         // Offer biometrics once per lock; cancelling the prompt must not re-trigger it on the next resume.
         if (ready && exists && !unlocked && !busy && !biometricAutoPrompted && biometricEnabled) { biometricAutoPrompted = true; biometrics() }
     }
@@ -324,6 +332,7 @@ class MainActivity : FragmentActivity() {
         if (::engine.isInitialized) lifecycleScope.launch(vaultQueue) { engine.lock() }
     }
     override fun onDestroy() {
+        updates?.close()
         unregisterReceiver(screenOff); exportBytes?.fill(0); importBytes?.fill(0); biometricCandidate?.fill(0)
         // The auto-lock coroutine dies with this activity, so zero the data key now (off the main thread: the engine may be mid-Argon2).
         if (::engine.isInitialized) { val e = engine; Thread { e.lock() }.start() }
@@ -420,7 +429,7 @@ class MainActivity : FragmentActivity() {
                         if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
             floatingActionButton = { if (!selecting) ExtendedFloatingActionButton(onClick = { viewing = if (tab == RecordType.login) VaultRecord() else VaultRecord(type = tab, fields = emptyList()); editing = true }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) }) }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
@@ -806,6 +815,10 @@ class MainActivity : FragmentActivity() {
                     Row(Icons.Outlined.EnhancedEncryption, stringResource(R.string.main_export_encrypted), stringResource(R.string.main_export_encrypted_summary)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
                     Row(Icons.Outlined.Description, stringResource(R.string.main_export_csv), stringResource(R.string.main_export_csv_summary)) { dialog = SettingsDialog.Exporting(Export.csv) }
                 }
+                updates?.ui?.let { update ->
+                    SectionTitle(stringResource(R.string.update_title))
+                    Group { UpdateRow(update) }
+                }
                 Text(stringResource(R.string.main_attempts_note), Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -843,6 +856,34 @@ class MainActivity : FragmentActivity() {
                     exportIsCSV = csv
                     work({ exportBytes?.fill(0); exportBytes = engine.export(pass, csv); null }) { if (!launchPicker { if (csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) { exportBytes?.fill(0); exportBytes = null } }
                 }
+            }
+        }
+    }
+    @Composable private fun UpdateRow(update: UpdateUi) {
+        val status = when (update.phase) {
+            UpdatePhase.IDLE -> stringResource(R.string.update_idle)
+            UpdatePhase.CHECKING -> stringResource(R.string.update_checking)
+            UpdatePhase.CURRENT -> stringResource(R.string.update_current)
+            UpdatePhase.AVAILABLE -> if (update.source == UpdateSource.PLAY) stringResource(R.string.update_available_play) else stringResource(R.string.update_available, update.version.orEmpty())
+            UpdatePhase.DOWNLOADING -> stringResource(R.string.update_downloading, update.percent)
+            UpdatePhase.PERMISSION -> stringResource(R.string.update_permission)
+            UpdatePhase.INSTALLING -> stringResource(R.string.update_installing)
+            UpdatePhase.ERROR -> stringResource(R.string.update_error)
+        }
+        val install = update.phase in setOf(UpdatePhase.AVAILABLE, UpdatePhase.PERMISSION) || (update.phase == UpdatePhase.ERROR && update.version != null)
+        val enabled = update.phase !in setOf(UpdatePhase.CHECKING, UpdatePhase.DOWNLOADING, UpdatePhase.INSTALLING)
+        Column(Modifier.padding(16.dp)) {
+            Text(stringResource(R.string.update_version, BuildConfig.VERSION_NAME, if (update.source == UpdateSource.PLAY) "Google Play" else "GitHub"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(4.dp)); Text(status, style = MaterialTheme.typography.bodyLarge)
+            if (update.phase == UpdatePhase.DOWNLOADING) { Spacer(Modifier.height(8.dp)); LinearProgressIndicator(progress = { update.percent / 100f }, Modifier.fillMaxWidth()) }
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = { if (install) updates?.update() else updates?.check(true) }, enabled = enabled) {
+                Text(stringResource(when {
+                    update.phase == UpdatePhase.AVAILABLE -> R.string.update_now
+                    update.phase == UpdatePhase.PERMISSION -> R.string.update_continue
+                    update.phase == UpdatePhase.ERROR && update.version != null -> R.string.update_retry
+                    else -> R.string.update_check
+                }))
             }
         }
     }

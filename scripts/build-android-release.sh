@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Builds a signed PassVault release locally: an AAB for Google Play and an APK for sideloading.
+# The APK updates itself from GitHub Releases; the AAB (playRelease variant) updates through Google Play.
 # The signing key never leaves your machine and its password is never written to disk or passed on a command line.
 # If scripts/rotate-signing-key.sh has created a key-rotation lineage, it is attached to the APK automatically so
 # phones running a build signed by the old key update in place. The AAB is unaffected (Google re-signs it).
@@ -12,7 +13,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"; . "$here/_signing-common.sh"
 run_tests=1
-for arg in "$@"; do case "$arg" in --skip-tests) run_tests=0 ;; -h|--help) sed -n '2,10p' "$0"; exit 0 ;; *) echo "Unknown option: $arg" >&2; exit 2 ;; esac; done
+for arg in "$@"; do case "$arg" in --skip-tests) run_tests=0 ;; -h|--help) sed -n '2,11p' "$0"; exit 0 ;; *) echo "Unknown option: $arg" >&2; exit 2 ;; esac; done
 
 find_toolchain
 ensure_keystore
@@ -27,7 +28,7 @@ gradle_args=(--no-daemon -Pkotlin.compiler.execution.strategy=in-process ${GRADL
 [ "$run_tests" = 1 ] && ./gradlew "${gradle_args[@]}" :app:testDebugUnitTest
 # Passed to Gradle through the environment only, with no Gradle or Kotlin daemon left holding it afterwards.
 QV_KEYSTORE_FILE="$keystore" QV_KEYSTORE_PASSWORD="$PASSVAULT_KEYSTORE_PASSWORD" QV_KEY_PASSWORD="$PASSVAULT_KEYSTORE_PASSWORD" QV_KEY_ALIAS="$alias_name" \
-  ./gradlew "${gradle_args[@]}" :app:assembleRelease :app:bundleRelease
+  ./gradlew "${gradle_args[@]}" :app:assembleRelease :app:bundlePlayRelease
 
 # --- Collect and verify --------------------------------------------------------------------------
 version="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -1)"
@@ -46,7 +47,7 @@ if [ -f "$lineage" ]; then
   rm -f "$apk.unrotated" "$apk.idsig"
   echo "Key-rotation lineage attached: $lineage"
 fi
-cp app/build/outputs/bundle/release/app-release.aab "$aab"
+cp app/build/outputs/bundle/playRelease/app-playRelease.aab "$aab"
 
 "$apksigner" verify --print-certs -v --min-sdk-version "$min_sdk" "$apk" | sed -n '1,8p'
 # jarsigner -verify exits 0 even for an unsigned jar, so check its verdict and that the signer is our upload key.
