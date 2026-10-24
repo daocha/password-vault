@@ -35,6 +35,11 @@ android {
     testBuildType = "qa"
     defaultConfig.testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     buildFeatures { compose = true; buildConfig = true }
+    // Only the app's own languages. Libraries ship ~80 translations each; the Chinese forms they use (zh-rCN/TW/HK) are kept so
+    // system pieces such as the date picker and the biometric prompt stay translated.
+    androidResources { localeFilters += listOf("en", "b+zh+Hans", "b+zh+Hant", "zh-rCN", "zh-rTW", "zh-rHK") }
+    // Code and native libraries are stored compressed: about half the APK download, unpacked once at install.
+    packaging { jniLibs { useLegacyPackaging = true }; dex { useLegacyPackaging = true } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     // Release signing comes only from the environment (CI secrets); no key is ever committed.
     val releaseKeystore = System.getenv("QV_KEYSTORE_FILE")
@@ -56,7 +61,13 @@ android {
                 buildConfigField("String", "DEV_UPDATE_URL", "\"http://$devUpdateHost:$devUpdatePort/\"")
             }
         }
-        release { if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release"); isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"); buildConfigField("String", "UPDATE_CHANNEL", "\"github\"") }
+        release {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true; isShrinkResources = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Phones are ARM; x86 is only for emulators, which use the debug and qa builds (they keep every ABI).
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+            buildConfigField("String", "UPDATE_CHANNEL", "\"github\"")
+        }
         // Upload this variant to Play. It updates through Play and has no INTERNET or APK-install permission.
         create("playRelease") { initWith(getByName("release")); matchingFallbacks += listOf("release"); buildConfigField("String", "UPDATE_CHANNEL", "\"play\"") }
         // Emulator-only build: emulators lack hardware-backed keys. Never distribute this variant.

@@ -4,6 +4,7 @@
 //
 //   mkdir /tmp/brandgen && (cd /tmp/brandgen && npm init -y && npm i simple-icons @resvg/resvg-js)
 //   BRANDGEN_DIR=/tmp/brandgen node scripts/generate-brand-icons.mjs
+//   swift scripts/compress-brand-icons.swift   # macOS: re-encodes the Android copies as JPEG to keep the APK small
 //
 // Icon source, in order of preference for each brand:
 //   1. assets/brand-icons/<id>.jpg, the brand's official app icon. Fetch missing ones with `--fetch` (uses Apple's public iTunes lookup
