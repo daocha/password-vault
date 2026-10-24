@@ -115,7 +115,11 @@ internal class AppUpdates(
                         prefs.edit().putLong("last_check", System.currentTimeMillis()).putString("latest_json", json).apply()
                     }
                 val candidate = release
-                val pending = pendingApk?.takeIf(File::isFile)
+                // A leftover download that is not newer than this build (installed some other way since) is dropped, not installed.
+                val pending = pendingApk?.takeIf(File::isFile)?.let { file ->
+                    val code = file.name.removePrefix("PassVault-").removeSuffix(".apk").toLongOrNull()
+                    if (code != null && code <= BuildConfig.VERSION_CODE) { file.delete(); pendingApk = null; prefs.edit().remove("pending_apk").apply(); null } else file
+                }
                 if (pending != null && (candidate == null || pending.name == "PassVault-${candidate.versionCode}.apk")) {
                     installPending(); return@launch
                 }

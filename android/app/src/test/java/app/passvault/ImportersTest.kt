@@ -90,4 +90,8 @@ class ImportersTest {
         val records = import("name,url,username,password,totp\nGame,,me,test-only-11,steam://ABCDEF\n")
         assertEquals(1, records.size); assertEquals("steam://ABCDEF", records[0].value("One-time password"))
     }
+    @Test fun nestedFoldersOutsideKeePassXcAreKept() {
+        val records = import("folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\nWork/Email,,login,A,,,0,,me,p1,\nWork/Bank,,login,B,,,0,,me,p2,\nWork,,login,C,,,0,,me,p3,\n")
+        assertEquals(listOf("Work/Email", "Work/Bank", "Work"), records.map { it.group })
+    }
 }

@@ -35,4 +35,10 @@ class TransferTest {
         // A frame from a newer transfer starts over.
         assertTrue(partial.add(TransferFrames.frames(ByteArray(10), "ZZ99")[0])); assertTrue(partial.complete); assertArrayEquals(ByteArray(10), partial.result())
     }
+    @Test fun largestTransferReassemblesQuickly() {
+        val data = ByteArray(TransferFrames.CHUNK * TransferFrames.MAX_FRAMES) { it.toByte() }
+        val collector = TransferFrames.Collector(); TransferFrames.frames(data).forEach { collector.add(it) }
+        val started = System.nanoTime(); val result = collector.result()
+        assertArrayEquals(data, result); assertTrue("linear join", System.nanoTime() - started < 2_000_000_000L)
+    }
 }

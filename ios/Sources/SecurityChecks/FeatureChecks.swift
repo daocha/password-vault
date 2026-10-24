@@ -290,3 +290,17 @@ func transferChecks() throws {
         try check(try Transfer.open(data, code: "ANDRD2CDE3FG").map(\.name) == ["From Android", "Android card"], "opens Android's transfer")
     } else { throw VaultError.invalid("FAILED: missing fixtures/transfer/android.pvtransfer") }
 }
+
+/// Fixes from the branch review: health checks only real passwords, nested CSV folders are kept, a large transfer joins linearly.
+func reviewFixChecks() throws {
+    var r = VaultRecord(); r.name = "Imported"
+    r.fields = [.init(kind: .password, label: "Password", value: "x7#Qm2!vLp9@Zr4^"), .init(kind: .password, label: "PIN", value: "1234"), .init(kind: .password, label: "One-time password", value: "steam://AB"),
+                .init(kind: .password, label: "Old password", value: "123456"), .init(kind: .question, label: "Security question", value: "Paris")]
+    try check(VaultHealth.passwordFields(r).map(\.label) == ["Password", "Old password"] && VaultHealth.check([r]).weak.map(\.password.field.label) == ["Old password"], "health checks only real passwords")
+    let nested = try Importers.importPlain(Data("folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\nWork/Email,,login,A,,,0,,me,p1,\nWork/Bank,,login,B,,,0,,me,p2,\nWork,,login,C,,,0,,me,p3,\n".utf8))
+    try check(nested.map(\.group) == ["Work/Email", "Work/Bank", "Work"], "nested folders outside KeePassXC kept")
+    let data = Data((0..<(TransferFrames.chunk * 400)).map { UInt8(truncatingIfNeeded: $0) }), collector = TransferFrames.Collector()
+    for f in try TransferFrames.frames(data) { collector.add(f) }
+    let started = Date(); let joined = collector.result()
+    try check(joined == data && Date().timeIntervalSince(started) < 2, "transfer joins linearly")
+}

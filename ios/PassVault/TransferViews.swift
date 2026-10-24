@@ -9,6 +9,9 @@ import VaultCore
 struct TransferPayload: Identifiable {
     static let keep: TimeInterval = 600
     let id = UUID(); let code: String; let data: Data; let decoy: Bool; let expiresAt = Date().addingTimeInterval(keep)
+    /// Built once: the receiver starts over whenever the session id changes, so every frame must come from the same split.
+    let frames: [String]
+    init(code: String, data: Data, decoy: Bool) { self.code = code; self.data = data; self.decoy = decoy; frames = (try? TransferFrames.frames(data)) ?? [] }
 }
 
 /// A QR code, one point per module scaled without smoothing.
@@ -29,7 +32,7 @@ struct TransferSendView: View {
     @State private var saving = false
     @State private var saved = false
     var body: some View {
-        let frames = (try? TransferFrames.frames(payload.data)) ?? []
+        let frames = payload.frames
         NavigationStack {
             VStack(spacing: 16) {
                 Text("On the new phone, open PassVault, go to Import, export & security, Receive from another phone, and point its camera at this screen. Keep this screen open until it is done.")

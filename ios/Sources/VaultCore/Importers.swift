@@ -126,10 +126,11 @@ enum GenericCsv {
         let used = Set(index.values)
         let data = rows.dropFirst().filter { $0 != [""] }
         guard data.allSatisfy({ $0.count == header.count }) else { throw VaultError.invalid("A CSV row has the wrong number of columns.") }
-        // KeePassXC writes every group path from its root ("Root/Email"); a prefix shared by all rows is dropped.
+        // KeePassXC writes every group path from the database's root group ("Root/Email"); only its exports lose that first segment.
         let groups = data.map { row in index["group"].map { row[$0].trimmingCharacters(in: .whitespaces) } ?? "" }
         let nonEmpty = groups.filter { !$0.isEmpty }, firsts = Set(nonEmpty.map { String($0.split(separator: "/", omittingEmptySubsequences: false)[0]) })
-        let firstSegment = firsts.count == 1 && (nonEmpty.contains { $0.contains("/") } || firsts.first!.lowercased() == "root") ? firsts.first : nil
+        let keePassXc = ["group", "title", "icon", "lastmodified", "created"].allSatisfy(keys.contains)
+        let firstSegment = keePassXc && firsts.count == 1 ? firsts.first : nil
         var out = [VaultRecord]()
         for (r, row) in data.enumerated() {
             func cell(_ name: String) -> String { index[name].map { row[$0] } ?? "" }

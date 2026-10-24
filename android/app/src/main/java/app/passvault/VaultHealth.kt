@@ -79,7 +79,7 @@ class HealthReport(
 object VaultHealth {
     const val OLD_DAYS = 365L
     fun check(records: List<VaultRecord>, today: LocalDate = LocalDate.now()): HealthReport {
-        val passwords = records.filter { it.type == RecordType.login }.flatMap { r -> r.fields.filter { it.kind == FieldKind.password && it.value.isNotEmpty() }.map { CheckedPassword(r, it) } }
+        val passwords = records.filter { it.type == RecordType.login }.flatMap { r -> passwordFields(r).map { CheckedPassword(r, it) } }
         val reused = passwords.groupBy { it.field.value }.values.filter { group -> group.map { it.record.id }.distinct().size > 1 }
             .sortedByDescending { it.size }
         val weak = passwords.map { it to PasswordStrength.score(it.field.value) }.filter { it.second <= 1 }.sortedBy { it.second }
@@ -91,6 +91,15 @@ object VaultHealth {
             .filter { r -> findBrand(r.website, r.name)?.let { it.id !in covered } == true }.sortedBy { it.name.lowercase() }
         return HealthReport(reused, weak, old, expiring, noTwoFactor, passwords.size)
     }
+    /**
+     * The fields checked as passwords: a login's first password field, and any other whose label says it is a password. Other hidden
+     * fields (PINs, recovery codes, imported custom secrets, a kept one-time-password value) are not passwords and would skew the report.
+     */
+    fun passwordFields(record: VaultRecord): List<VaultField> {
+        val hidden = record.fields.filter { it.kind == FieldKind.password && it.value.isNotEmpty() }
+        return hidden.filterIndexed { i, f -> i == 0 || looksLikePassword(f.label) }.filter { it.label != "One-time password" }
+    }
+    private fun looksLikePassword(label: String) = label.lowercase().let { "password" in it || "passwort" in it || "密码" in it || "密碼" in it } && label != "One-time password"
     /**
      * When the current value was set: the newest history entry (the moment the previous value was replaced), else Password Keeper's
      * `passwordSetDate`, else the record's last change, which is only an upper bound for records edited without changing the password.

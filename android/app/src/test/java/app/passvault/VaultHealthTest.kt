@@ -56,4 +56,11 @@ class VaultHealthTest {
         val record = login("Keeper", "Kf8#pW2!zQ7mVx").copy(legacy = mapOf("passwordSetDate" to "1500000000"))
         assertEquals(LocalDate.of(2017, 7, 14), VaultHealth.passwordSetOn(CheckedPassword(record, record.fields[1])))
     }
+    @Test fun onlyRealPasswordsAreChecked() {
+        val r = VaultRecord(name = "Imported", fields = listOf(VaultField(kind = FieldKind.password, label = "Password", value = "x7#Qm2!vLp9@Zr4^"),
+            VaultField(kind = FieldKind.password, label = "PIN", value = "1234"), VaultField(kind = FieldKind.password, label = "One-time password", value = "steam://AB"),
+            VaultField(kind = FieldKind.password, label = "Old password", value = "123456"), VaultField(kind = FieldKind.question, label = "Security question", value = "Paris")))
+        assertEquals(listOf("Password", "Old password"), VaultHealth.passwordFields(r).map { it.label })
+        assertEquals(listOf("Old password"), VaultHealth.check(listOf(r)).weak.map { it.first.field.label })
+    }
 }

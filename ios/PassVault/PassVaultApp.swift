@@ -45,6 +45,8 @@ import AVFoundation
     func recordBackup() {
         UserDefaults.standard.set(Date(), forKey: backupPrefix + "lastBackupAt"); UserDefaults.standard.removeObject(forKey: backupPrefix + "backupSnoozeUntil"); loadBackupStatus()
     }
+    /// The removed decoy's backup history and reminder choice.
+    func forgetDecoyBackups() { for key in ["lastBackupAt", "backupReminderDays", "backupSnoozeUntil"] { UserDefaults.standard.removeObject(forKey: "decoy." + key) } }
     func snoozeBackup() { UserDefaults.standard.set(Date().addingTimeInterval(Double(BackupReminder.snoozeDays) * 86400), forKey: backupPrefix + "backupSnoozeUntil"); loadBackupStatus() }
     func setBackupInterval(_ days: Int) { UserDefaults.standard.set(days, forKey: backupPrefix + "backupReminderDays"); loadBackupStatus() }
     var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil) }
@@ -123,6 +125,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
                     if phase == .background { model.lock() }
                 }
+                // Locking the phone (not just leaving the app to share the file) ends a pending transfer.
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in model.sending = nil }
                 .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in model.checkTimeout() }
         }
     }
@@ -470,7 +474,7 @@ struct TransferView: View {
                         let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
                         model.run { try $0.changePassword(current: current, new: next); return nil }
                     }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || newPassword != confirmNew)
-                    Text("Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again above.").font(.footnote)
+                    Text(model.decoy ? "Existing exported backups keep their original password." : "Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again above.").font(.footnote)
                 }
                 Section {
                     LabeledContent("Last encrypted backup", value: model.lastBackup.map { "\($0.formatted(date: .abbreviated, time: .shortened)) (\($0.formatted(.relative(presentation: .named))))" } ?? "Never")
@@ -523,7 +527,7 @@ struct TransferView: View {
                 } }
                 .sheet(item: $encryptedImport) { file in DecryptImportView(file: file) { records in encryptedImport = nil; if model.unlocked { pendingImport = records } } }
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
-                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.message = "Decoy vault removed." }) }
+                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
                 }
                 .confirmationDialog("Import \(pendingImport?.count ?? 0) records?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
                     Button("Import") { if let records = pendingImport { model.run { try $0.merge(records) } }; pendingImport = nil }

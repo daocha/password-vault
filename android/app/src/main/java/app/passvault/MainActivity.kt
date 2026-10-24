@@ -141,7 +141,7 @@ class MainActivity : FragmentActivity() {
     private var biometricAutoPrompted = false
     private var enablingBiometric = false
     private var importPreview by mutableStateOf<List<VaultRecord>?>(null)
-    private val screenOff = object : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { if (unlocked) lockVault() else discardPendingUnlock() } }
+    private val screenOff = object : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { if (unlocked) lockVault() else { discardPendingUnlock(); discardTransfer() } } }
     /** An unlock still deriving its key when the app leaves the foreground must not complete unattended: its result is dropped and the engine re-locked. */
     private fun discardPendingUnlock() { if (busy && !unlocked) generation++ }
     private var generation by mutableIntStateOf(0)
@@ -381,13 +381,14 @@ class MainActivity : FragmentActivity() {
         // The app's own system pickers get a bounded grace period instead of suspending auto-lock, so leaving from inside a picker still locks.
         val timeout = if (systemPickerOpen) PICKER_GRACE_MILLIS else autoLock.millis ?: return // deviceLock: the screen-off receiver locks.
         lockTimeout = timeout
-        if (timeout == 0L) lockVault(clearClipboard = false) else { backgroundLock?.cancel(); backgroundLock = lifecycleScope.launch { delay(timeout); lockVault() } }
+        if (timeout == 0L) lockVault(clearClipboard = false, keepTransfer = true) else { backgroundLock?.cancel(); backgroundLock = lifecycleScope.launch { delay(timeout); lockVault(keepTransfer = true) } }
     }
-    private fun lockVault(clearClipboard: Boolean = true) {
+    /** [keepTransfer]: the lock comes from leaving the app (perhaps to share the transfer file), not from turning the screen off. */
+    private fun lockVault(clearClipboard: Boolean = true, keepTransfer: Boolean = false) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
         generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
         // A transfer outlives the lock for a while, so its code is still there after sharing the file from another app.
-        if (sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
+        if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
         scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
@@ -1030,7 +1031,9 @@ class MainActivity : FragmentActivity() {
                 if (repeat.isNotEmpty() && repeat != next) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 Text(stringResource(R.string.main_existing_backups_keep), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } },
-            confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; current = ""; next = ""; repeat = ""; dismiss(); work({ engine.changePassword(c, n); null }) { biometricEnabled = false; message = getString(if (hadBiometric) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && next == repeat) { Text(stringResource(R.string.main_change)) } },
+            confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; val decoy = decoySession; current = ""; next = ""; repeat = ""; dismiss()
+                // The decoy's password change leaves the real vault's biometric key alone, and must not mention it.
+                work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && next == repeat) { Text(stringResource(R.string.main_change)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun DecoySetupDialog(dismiss: () -> Unit) {

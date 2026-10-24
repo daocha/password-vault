@@ -86,10 +86,12 @@ android {
         res.srcDir("src/lanUpdate/res")
     }
 }
-if (devUpdateHost != null) androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) { variant ->
-    // Every LAN build must count as newer than the installed one: minutes since 2026-01-01 UTC.
-    val stamp = (System.currentTimeMillis() / 60_000 - 29_453_760).toInt()
+androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) { variant ->
+    // Every debug build, with or without a LAN server, must count as newer than the installed one: seconds since 2026-01-01 UTC
+    // (earlier LAN builds counted minutes, which are far smaller, so they still upgrade; two builds a minute apart no longer collide).
+    val stamp = (System.currentTimeMillis() / 1000 - 1_767_225_600).toInt()
     variant.outputs.forEach { it.versionCode.set(stamp) }
+    if (devUpdateHost == null) return@onVariants
     val network = tasks.register<LanNetworkConfig>("${variant.name}LanNetworkConfig") { host.set(devUpdateHost) }
     variant.sources.res?.addGeneratedSourceDirectory(network, LanNetworkConfig::outputDir)
     val publish = tasks.register<PublishLanUpdate>("${variant.name}PublishLanUpdate") {

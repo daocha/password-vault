@@ -100,6 +100,11 @@ public enum TransferFrames {
             guard parts[numbers[0] - 1] == nil else { return false }
             parts[numbers[0] - 1] = part; return true
         }
-        public func result() -> Data? { complete ? parts.reduce(Data()) { $0 + $1! } : nil }
+        public func result() -> Data? {
+            guard complete else { return nil }
+            var out = Data(capacity: parts.reduce(0) { $0 + $1!.count })
+            for part in parts { out.append(part!) }
+            return out
+        }
     }
 }

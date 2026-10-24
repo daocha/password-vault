@@ -98,10 +98,11 @@ internal object GenericCsv {
         val used = index.values.filterNotNull().toSet()
         val data = rows.drop(1).filter { it != listOf("") }
         data.forEach { require(it.size == header.size) { "A CSV row has the wrong number of columns." } }
-        // KeePassXC writes every group path from its root ("Root/Email"); a prefix shared by all rows is dropped.
+        // KeePassXC writes every group path from the database's root group ("Root/Email"); only its exports lose that first segment.
         val groupColumn = index["group"]
         val groups = data.map { row -> groupColumn?.let { row[it].trim() }.orEmpty() }
-        val firstSegment = groups.filter { it.isNotEmpty() }.map { it.substringBefore('/') }.distinct().singleOrNull()?.takeIf { root -> groups.filter { it.isNotEmpty() }.any { it.contains('/') } || root.equals("Root", true) }
+        val keePassXc = keys.containsAll(listOf("group", "title", "icon", "lastmodified", "created"))
+        val firstSegment = if (keePassXc) groups.filter { it.isNotEmpty() }.map { it.substringBefore('/') }.distinct().singleOrNull() else null
         return Records.validate(data.flatMapIndexed { r, row ->
             fun cell(name: String) = index[name]?.let { row[it] }.orEmpty()
             val website = cell("url").lineSequence().firstOrNull().orEmpty().trim()

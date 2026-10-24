@@ -102,6 +102,11 @@ object TransferFrames {
             if (parts[index - 1] != null) return false
             parts[index - 1] = chunk; return true
         }
-        fun result(): ByteArray? = if (complete) parts.fold(ByteArray(0)) { acc, p -> acc + p!! } else null
+        fun result(): ByteArray? {
+            if (!complete) return null
+            val out = ByteArray(parts.sumOf { it!!.size }); var offset = 0
+            for (p in parts) { p!!.copyInto(out, offset); offset += p.size }
+            return out
+        }
     }
 }

@@ -83,7 +83,7 @@ public struct HealthReport: Sendable {
 public enum VaultHealth {
     public static let oldDays = 365
     public static func check(_ records: [VaultRecord], today: DateComponents = Expiry.today()) -> HealthReport {
-        let passwords = records.filter(\.isLogin).flatMap { r in r.fields.filter { $0.kind == .password && !$0.value.isEmpty }.map { CheckedPassword(record: r, field: $0) } }
+        let passwords = records.filter(\.isLogin).flatMap { r in passwordFields(r).map { CheckedPassword(record: r, field: $0) } }
         var groups = [String: [CheckedPassword]](), order = [String]()
         for p in passwords { if groups[p.field.value] == nil { order.append(p.field.value) }; groups[p.field.value, default: []].append(p) }
         let reused = order.compactMap { groups[$0] }.filter { Set($0.map(\.record.id)).count > 1 }.enumerated().sorted { ($0.element.count, -$0.offset) > ($1.element.count, -$1.offset) }.map(\.element)
@@ -100,6 +100,13 @@ public enum VaultHealth {
             .sorted { $0.name.lowercased() < $1.name.lowercased() }
         return HealthReport(reused: reused, weak: weak, old: old, expiring: expiring, noTwoFactor: noTwoFactor, checked: passwords.count)
     }
+    /// The fields checked as passwords: a login's first password field, and any other whose label says it is a password. Other hidden
+    /// fields (PINs, recovery codes, imported custom secrets, a kept one-time-password value) are not passwords and would skew the report.
+    public static func passwordFields(_ record: VaultRecord) -> [VaultField] {
+        let hidden = record.fields.filter { $0.kind == .password && !$0.value.isEmpty }
+        return hidden.enumerated().filter { i, f in (i == 0 || looksLikePassword(f.label)) && f.label != "One-time password" }.map(\.element)
+    }
+    static func looksLikePassword(_ label: String) -> Bool { let l = label.lowercased(); return ["password", "passwort", "密码", "密碼"].contains { l.contains($0) } }
     /// When the current value was set: the newest history entry (the moment the previous value was replaced), else Password Keeper's
     /// `passwordSetDate`, else the record's last change, which is only an upper bound for records edited without changing the password.
     public static func passwordSetOn(_ p: CheckedPassword) -> DateComponents? {
