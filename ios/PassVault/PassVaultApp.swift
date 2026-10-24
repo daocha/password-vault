@@ -16,6 +16,9 @@ import UniformTypeIdentifiers
     @Published var backupIntervalDays = 30
     @Published var backupSnoozedUntil: Date?
     private var backupPrefix = ""
+    /// The decoy vault is open: settings that would reveal or touch the real vault are not shown.
+    @Published var decoy = false
+    @Published var hasDecoy = false
     private var unlockedAt = Date.distantPast
     private(set) var engine: VaultEngine? = nil
     private var generation = 0
@@ -43,7 +46,8 @@ import UniformTypeIdentifiers
     func setBackupInterval(_ days: Int) { UserDefaults.standard.set(days, forKey: backupPrefix + "backupReminderDays"); loadBackupStatus() }
     var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil) }
     func lock() {
-        generation += 1; unlocked = false; records = []
+        generation += 1; unlocked = false; records = []; decoy = false; hasDecoy = false
+        if !backupPrefix.isEmpty { backupPrefix = ""; loadBackupStatus() }
         let engine = engine
         Task.detached { engine?.lock() }
     }
@@ -54,7 +58,11 @@ import UniformTypeIdentifiers
             do {
                 let result = try await Task.detached { try work(engine) }.value
                 guard generation == current else { engine.lock(); busy = false; return }
-                if let result { records = result; unlocked = true; exists = true; unlockedAt = Date() }
+                if let result {
+                    records = result; unlocked = true; exists = true; unlockedAt = Date()
+                    // Each vault keeps its own backup history, so the decoy shows only its own.
+                    decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; backupPrefix = decoy ? "decoy." : ""; loadBackupStatus()
+                }
                 attempts = try engine.remainingAttempts(); done?()
             } catch {
                 message = error.localizedDescription
@@ -415,6 +423,9 @@ struct TransferView: View {
     @State private var exporting = false
     @State private var document: ExportDocument?
     @State private var pendingImport: [VaultRecord]?
+    @State private var decoyPassword = ""
+    @State private var confirmDecoy = ""
+    @State private var removingDecoy = false
     /// An encrypted file (PassVault backup, Password Keeper .pkb2 or KeePass .kdbx) waiting for its password.
     @State private var encryptedImport: EncryptedImport?
     @State private var newPassword = ""
@@ -422,9 +433,27 @@ struct TransferView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Biometric unlock") {
-                    SecureField("Current app password", text: $password)
-                    Button("Enable Face ID / Touch ID") { let value = password; password = ""; model.run { try $0.enableBiometrics(password: value); return nil } }
+                Section("App password") { SecureField("Current app password", text: $password) }
+                // Biometrics always open the real vault, so the decoy vault neither shows nor changes them.
+                if !model.decoy {
+                    Section("Biometric unlock") {
+                        Button("Enable Face ID / Touch ID") { let value = password; password = ""; model.run { try $0.enableBiometrics(password: value); return nil } }.disabled(password.isEmpty)
+                    }
+                    Section {
+                        if model.hasDecoy {
+                            Button("Remove decoy vault", role: .destructive) { removingDecoy = true }.disabled(password.isEmpty)
+                        } else {
+                            SecureField("Decoy password", text: $decoyPassword)
+                            SecureField("Repeat decoy password", text: $confirmDecoy)
+                            if !decoyPassword.isEmpty { Text(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.").font(.footnote) }
+                            Button("Set up decoy vault") {
+                                let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
+                                model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.message = "Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it." })
+                            }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || decoyPassword != confirmDecoy)
+                        }
+                    } header: { Text("Decoy vault") } footer: {
+                        Text("A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden. To fill it, lock PassVault and unlock with the decoy password. This section is not shown inside the decoy vault. Face ID / Touch ID always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone could still tell that a second vault exists.")
+                    }
                 }
                 Section("Change master password") {
                     SecureField("New passphrase", text: $newPassword)
@@ -475,6 +504,9 @@ struct TransferView: View {
                     } catch { model.message = error.localizedDescription }
                 }
                 .sheet(item: $encryptedImport) { file in DecryptImportView(file: file) { records in encryptedImport = nil; if model.unlocked { pendingImport = records } } }
+                .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
+                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.message = "Decoy vault removed." }) }
+                }
                 .confirmationDialog("Import \(pendingImport?.count ?? 0) records?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
                     Button("Import") { if let records = pendingImport { model.run { try $0.merge(records) } }; pendingImport = nil }
                     Button("Full replacement", role: .destructive) { if let records = pendingImport { model.run { try $0.replaceAll(records) } }; pendingImport = nil }

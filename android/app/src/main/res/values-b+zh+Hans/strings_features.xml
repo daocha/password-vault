@@ -70,4 +70,13 @@
     <string name="import_keyfile_choose">选择密钥文件</string>
     <string name="import_keyfile_chosen">已选择密钥文件</string>
     <string name="import_keyfile_remove">移除密钥文件</string>
+    <string name="decoy_title">诱饵密码库</string>
+    <string name="decoy_body">第二个应用密码，用来打开另一个无关紧要的密码库。如果有人强迫你解锁 PassVault，就输入诱饵密码：对方只会看到你放在诱饵库里的内容，真实条目保持隐藏。\n\n要添加内容，请锁定 PassVault 后用诱饵密码解锁。在诱饵库中不会显示此设置。生物识别解锁总是打开真实密码库，如果你可能被迫使用它，请将其关闭。非常熟悉 PassVault 的人检查手机存储时，仍可能看出存在第二个密码库。</string>
+    <string name="decoy_password">诱饵密码</string>
+    <string name="decoy_repeat">再次输入诱饵密码</string>
+    <string name="decoy_create">设置</string>
+    <string name="decoy_created">诱饵密码库已设置。锁定 PassVault 后用诱饵密码解锁即可添加内容。</string>
+    <string name="decoy_remove">移除诱饵密码库</string>
+    <string name="decoy_remove_body">这会删除诱饵密码库及其中的所有内容。你的真实密码库不受影响。</string>
+    <string name="decoy_removed">诱饵密码库已移除。</string>
 </resources>

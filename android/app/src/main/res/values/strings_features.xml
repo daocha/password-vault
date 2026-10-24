@@ -74,4 +74,14 @@
     <string name="import_keyfile_choose">Choose key file</string>
     <string name="import_keyfile_chosen">Key file chosen</string>
     <string name="import_keyfile_remove">Remove key file</string>
+    <!-- Decoy vault -->
+    <string name="decoy_title">Decoy vault</string>
+    <string name="decoy_body">A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden.\n\nTo fill it, lock PassVault and unlock with the decoy password. This setting is not shown inside the decoy vault. Biometric unlock always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone\'s storage could still tell that a second vault exists.</string>
+    <string name="decoy_password">Decoy password</string>
+    <string name="decoy_repeat">Repeat decoy password</string>
+    <string name="decoy_create">Set up</string>
+    <string name="decoy_created">Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it.</string>
+    <string name="decoy_remove">Remove decoy vault</string>
+    <string name="decoy_remove_body">This deletes the decoy vault and everything in it. Your real vault is not affected.</string>
+    <string name="decoy_removed">Decoy vault removed.</string>
 </resources>

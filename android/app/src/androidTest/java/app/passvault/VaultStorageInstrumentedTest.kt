@@ -225,4 +225,53 @@ class VaultStorageInstrumentedTest {
         val error = assertThrows(NewerVersionException::class.java) { VaultCrypto.importBackup("QVAULT03".toByteArray() + ByteArray(80), password) }
         assertTrue(error.backup)
     }
+
+    @Test fun decoyVaultOpensSeparatelyAndCannotResetTheCounter() {
+        val decoyPassword = "Another decoy phrase 2?"
+        engine.create(password); engine.save(listOf(record("Real bank")))
+        assertFalse(engine.hasDecoy())
+        assertThrows(IllegalArgumentException::class.java) { engine.createDecoy(password, password) }
+        engine.createDecoy(password, decoyPassword)
+        assertTrue(engine.hasDecoy()); assertEquals(2, blobs().size)
+        engine.lock()
+
+        assertTrue(engine.unlock(decoyPassword).isEmpty()); assertTrue(engine.isDecoy()); assertFalse(engine.hasDecoy())
+        engine.save(listOf(record("Shopping")))
+        assertThrows(IllegalStateException::class.java) { engine.biometricKey(decoyPassword) }
+        assertThrows(IllegalStateException::class.java) { engine.removeDecoy(decoyPassword) }
+        assertThrows(AuthenticationFailure::class.java) { engine.export(password, csv = true) } // the main password is not accepted in the decoy vault
+        val csv = engine.export(decoyPassword, csv = true).toString(Charsets.UTF_8)
+        assertTrue(csv.contains("Shopping")); assertFalse(csv.contains("Real bank"))
+        engine.lock()
+
+        assertEquals(listOf("Real bank"), engine.unlock(password).map { it.name }); assertFalse(engine.isDecoy())
+        engine.lock(); fresh()
+        assertEquals(listOf("Shopping"), engine.unlock(decoyPassword).map { it.name })
+        engine.lock()
+
+        // Failed guesses are not cleared by decoy sign-ins, only by the real password.
+        repeat(3) { assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong passphrase 9!") } }
+        assertEquals(7, engine.remainingAttempts())
+        engine.unlock(decoyPassword); engine.lock()
+        assertEquals(7, engine.remainingAttempts())
+        engine.unlock(password); assertEquals(10, engine.remainingAttempts())
+
+        assertThrows(IllegalArgumentException::class.java) { engine.changePassword(password, decoyPassword) }
+        engine.lock(); engine.unlock(decoyPassword)
+        engine.changePassword(decoyPassword, "Fresh decoy phrase 4\$"); engine.lock()
+        assertEquals(listOf("Shopping"), engine.unlock("Fresh decoy phrase 4\$").map { it.name }); engine.lock()
+        assertEquals(listOf("Real bank"), engine.unlock(password).map { it.name }); assertEquals(2, blobs().size)
+
+        engine.removeDecoy(password)
+        assertFalse(engine.hasDecoy()); assertEquals(1, blobs().size); engine.lock()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Fresh decoy phrase 4\$") }
+    }
+
+    @Test fun erasureRemovesTheDecoyToo() {
+        engine.create(password); engine.createDecoy(password, "Another decoy phrase 2?"); engine.lock()
+        repeat(9) { assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong passphrase 9!") } }
+        assertThrows(IllegalStateException::class.java) { engine.unlock("Wrong passphrase 9!") }
+        assertTrue(blobs().isEmpty())
+        assertThrows(IllegalStateException::class.java) { VaultEngine(ProtectedStorage(context)).unlock("Another decoy phrase 2?") }
+    }
 }

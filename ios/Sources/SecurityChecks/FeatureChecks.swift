@@ -196,3 +196,69 @@ func onePuxChecks() throws {
               && card.fields.filter { $0.value == "999" }.count == 1, "1PUX card")
     try check(!records.contains { $0.name == "Old" } && value(records.first { $0.name == "Note" }!, "Notes") == "keep me", "1PUX trashed and archived items")
 }
+
+/// Decoy vault: a second password opens a separate vault; neither can see or reset the other.
+func decoyChecks() throws {
+    let main = "A lengthy test passphrase 1!", decoyPassword = "Another decoy phrase 2?"
+    let store = MemoryStorage(), engine = VaultEngine(storage: store)
+    _ = try engine.create(password: main)
+    var secret = VaultRecord(); secret.name = "Real bank"
+    try engine.save([secret]); try engine.enableBiometrics(password: main)
+    try check(!(try engine.hasDecoy()), "no decoy at first")
+    try rejects("decoy equal to the app password") { try engine.createDecoy(password: main, decoyPassword: main) }
+    try rejects("weak decoy password") { try engine.createDecoy(password: main, decoyPassword: "short") }
+    try rejects("decoy needs the app password") { try engine.createDecoy(password: "Wrong passphrase 9!", decoyPassword: decoyPassword) }
+    _ = try engine.unlock(password: main) // a failed password check locks the vault
+    try engine.createDecoy(password: main, decoyPassword: decoyPassword)
+    try check(try engine.hasDecoy() && store.blobs.count == 2, "decoy created with its own file")
+    try rejects("second decoy") { try engine.createDecoy(password: main, decoyPassword: "Yet another phrase 3#") }
+    engine.lock()
+
+    try check(try engine.unlock(password: decoyPassword).isEmpty && engine.isDecoy(), "decoy password opens the empty decoy vault")
+    try check(!(try engine.hasDecoy()), "the decoy vault cannot see that it is a decoy")
+    var harmless = VaultRecord(); harmless.name = "Shopping"
+    try engine.save([harmless])
+    try rejects("decoy cannot enable biometrics") { try engine.enableBiometrics(password: decoyPassword) }
+    try rejects("decoy cannot remove itself") { try engine.removeDecoy(password: decoyPassword) }
+    try rejects("main password is not accepted inside the decoy vault") { _ = try engine.export(password: main, backupPassword: nil, csv: true) }
+    try check(!(try engine.unlock(password: decoyPassword)).isEmpty && engine.isDecoy(), "decoy reopens after the failed check")
+    let exported = try engine.export(password: decoyPassword, backupPassword: nil, csv: true)
+    try check(String(decoding: exported, as: UTF8.self).contains("Shopping") && !String(decoding: exported, as: UTF8.self).contains("Real bank"), "decoy export holds only decoy entries")
+    engine.lock()
+
+    try check(try engine.unlock(password: main).map(\.name) == ["Real bank"] && !engine.isDecoy(), "main password still opens the real vault")
+    engine.lock()
+    try check(try engine.unlockBiometric().map(\.name) == ["Real bank"], "biometrics open the real vault")
+    engine.lock()
+    try check(try engine.unlock(password: decoyPassword).map(\.name) == ["Shopping"], "decoy entries were saved to the decoy file")
+    engine.lock()
+
+    // Failed guesses are not cleared by decoy sign-ins, only by the real password.
+    for _ in 1...3 { try rejects("wrong password") { _ = try engine.unlock(password: "Wrong passphrase 9!") } }
+    try check(try engine.remainingAttempts() == 7, "three failures counted")
+    _ = try engine.unlock(password: decoyPassword); engine.lock()
+    try check(try engine.remainingAttempts() == 7, "decoy sign-in leaves the failure count")
+    _ = try engine.unlock(password: main)
+    try check(try engine.remainingAttempts() == 10, "real password clears the failure count")
+
+    // Changing the decoy's password from inside it keeps both vaults; the real one cannot take the decoy's password.
+    try rejects("app password equal to the decoy's") { try engine.changePassword(current: main, new: decoyPassword) }
+    engine.lock(); _ = try engine.unlock(password: decoyPassword)
+    try engine.changePassword(current: decoyPassword, new: "Fresh decoy phrase 4$"); engine.lock()
+    try check(try engine.unlock(password: "Fresh decoy phrase 4$").map(\.name) == ["Shopping"], "decoy password changed"); engine.lock()
+    try check(try engine.unlock(password: main).map(\.name) == ["Real bank"] && store.blobs.count == 2, "real vault untouched by the decoy's password change")
+
+    try engine.removeDecoy(password: main)
+    try check(!(try engine.hasDecoy()) && store.blobs.count == 1, "decoy removed with its file"); engine.lock()
+    try rejects("removed decoy no longer opens") { _ = try engine.unlock(password: "Fresh decoy phrase 4$") }
+
+    // Erasure after 10 failures destroys both vaults.
+    let wiped = MemoryStorage(), e = VaultEngine(storage: wiped)
+    _ = try e.create(password: main); try e.createDecoy(password: main, decoyPassword: decoyPassword); e.lock()
+    for _ in 1...10 { try rejects("failure toward erasure") { _ = try e.unlock(password: "Wrong passphrase 9!") } }
+    try check(wiped.blobs.isEmpty, "erasure removes the decoy vault too")
+    try rejects("decoy after erasure") { _ = try VaultEngine(storage: wiped).unlock(password: decoyPassword) }
+    // State written before decoys existed still reads.
+    let legacy = MemoryStorage(); _ = try VaultEngine(storage: legacy).create(password: main)
+    try check(!String(decoding: legacy.state!, as: UTF8.self).contains("decoy"), "no decoy key stored without a decoy")
+}

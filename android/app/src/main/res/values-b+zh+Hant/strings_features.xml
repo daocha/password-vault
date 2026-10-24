@@ -70,4 +70,13 @@
     <string name="import_keyfile_choose">選擇金鑰檔案</string>
     <string name="import_keyfile_chosen">已選擇金鑰檔案</string>
     <string name="import_keyfile_remove">移除金鑰檔案</string>
+    <string name="decoy_title">誘餌密碼庫</string>
+    <string name="decoy_body">第二個應用程式密碼，用來開啟另一個無關緊要的密碼庫。如果有人強迫你解鎖 PassVault，就輸入誘餌密碼：對方只會看到你放在誘餌庫裡的內容，真實項目保持隱藏。\n\n要加入內容，請鎖定 PassVault 後用誘餌密碼解鎖。在誘餌庫中不會顯示此設定。生物辨識解鎖總是開啟真實密碼庫，如果你可能被迫使用它，請將其關閉。非常熟悉 PassVault 的人檢查手機儲存空間時，仍可能看出存在第二個密碼庫。</string>
+    <string name="decoy_password">誘餌密碼</string>
+    <string name="decoy_repeat">再次輸入誘餌密碼</string>
+    <string name="decoy_create">設定</string>
+    <string name="decoy_created">誘餌密碼庫已設定。鎖定 PassVault 後用誘餌密碼解鎖即可加入內容。</string>
+    <string name="decoy_remove">移除誘餌密碼庫</string>
+    <string name="decoy_remove_body">這會刪除誘餌密碼庫及其中的所有內容。你的真實密碼庫不受影響。</string>
+    <string name="decoy_removed">誘餌密碼庫已移除。</string>
 </resources>
