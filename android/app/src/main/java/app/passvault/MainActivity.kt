@@ -165,7 +165,7 @@ class MainActivity : FragmentActivity() {
     private val playUpdateLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         updates?.onPlayResult(result.resultCode)
     }
-    /** Null in debug and QA builds: they never check for, download or offer updates. */
+    /** Null in QA builds and in debug builds without a LAN update server: they never check for, download or offer updates. */
     internal val updates: AppUpdates? by lazy {
         if (BuildConfig.UPDATE_CHANNEL == "none") null else AppUpdates(this, playUpdateLauncher)
     }
@@ -817,7 +817,7 @@ class MainActivity : FragmentActivity() {
                 }
                 updates?.ui?.let { update ->
                     SectionTitle(stringResource(R.string.update_title))
-                    Group { UpdateRow(update) }
+                    UpdateRow(update)
                 }
                 Text(stringResource(R.string.main_attempts_note), Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -873,7 +873,7 @@ class MainActivity : FragmentActivity() {
         val install = update.phase in setOf(UpdatePhase.AVAILABLE, UpdatePhase.PERMISSION) || (update.phase == UpdatePhase.ERROR && update.version != null)
         val enabled = update.phase !in setOf(UpdatePhase.CHECKING, UpdatePhase.DOWNLOADING, UpdatePhase.INSTALLING)
         Column(Modifier.padding(16.dp)) {
-            Text(stringResource(R.string.update_version, BuildConfig.VERSION_NAME, if (update.source == UpdateSource.PLAY) "Google Play" else "GitHub"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.update_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE, when (update.source) { UpdateSource.PLAY -> "Google Play"; UpdateSource.LAN -> stringResource(R.string.update_source_lan); UpdateSource.GITHUB -> "GitHub" }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(4.dp)); Text(status, style = MaterialTheme.typography.bodyLarge)
             if (update.phase == UpdatePhase.DOWNLOADING) { Spacer(Modifier.height(8.dp)); LinearProgressIndicator(progress = { update.percent / 100f }, Modifier.fillMaxWidth()) }
             Spacer(Modifier.height(12.dp))
