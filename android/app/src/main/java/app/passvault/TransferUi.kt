@@ -48,9 +48,8 @@ private fun qrBitmap(text: String): ImageBitmap {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransferSendScreen(payload: ByteArray, code: String, onSaveFile: () -> Unit, onDone: () -> Unit) {
+fun TransferSendScreen(frames: List<String>?, code: String, onSaveFile: () -> Unit, onDone: () -> Unit) {
     KeepScreenOn()
-    val frames = remember(payload) { runCatching { TransferFrames.frames(payload) }.getOrNull() }
     var index by remember { mutableIntStateOf(0) }
     var showCode by remember { mutableStateOf(false) }
     LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(250); index = (index + 1) % frames.size } }

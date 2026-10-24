@@ -95,7 +95,10 @@ private sealed interface SettingsDialog {
  * A transfer being sent: kept through a lock for [MainActivity.TRANSFER_KEEP_MILLIS] (leaving the app to share the file locks it), and
  * shown again only after unlocking the same vault it was made from.
  */
-private class PendingTransfer(val code: String, val bytes: ByteArray, val decoy: Boolean, val expiresAt: Long)
+private class PendingTransfer(val code: String, val bytes: ByteArray, val decoy: Boolean, val expiresAt: Long) {
+    /** Built once: the receiver starts over whenever the session id changes, so the frames must survive the screen coming back. */
+    val frames: List<String>? = runCatching { TransferFrames.frames(bytes) }.getOrNull()
+}
 private class ScannedImport(val records: List<VaultRecord>, val hotp: Int, val duplicates: Int)
 
 private val LANGUAGES = listOf("", "en", "zh-Hans", "zh-Hant")
@@ -156,11 +159,14 @@ class MainActivity : FragmentActivity() {
     private var receiving by mutableStateOf(false)
     private val transferFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         systemPickerOpen = false
-        val bytes = sending?.bytes ?: return@registerForActivityResult
-        if (uri != null) lifecycleScope.launch {
+        if (uri == null) return@registerForActivityResult
+        // A copy: turning the screen off mid-write zeroes the pending transfer's own bytes.
+        val bytes = sending?.bytes?.copyOf() ?: return@registerForActivityResult
+        lifecycleScope.launch {
             // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
             try { withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }; message = getString(R.string.transfer_saved) }
             catch (e: Exception) { messageError = true; message = e.message ?: getString(R.string.main_export_failed) }
+            finally { bytes.fill(0) }
         }
     }
     /** The decoy vault is open: settings that would reveal or touch the real vault are not shown. */
@@ -335,7 +341,7 @@ class MainActivity : FragmentActivity() {
                             val record = viewing
                             when {
                                 !unlocked -> UnlockScreen()
-                                sending != null -> sending?.let { t -> TransferSendScreen(t.bytes, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
+                                sending != null -> sending?.let { t -> TransferSendScreen(t.frames, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
                                 receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
                                 record != null -> RecordScreen(record, editing)
                                 health -> HealthScreen(records, onBack = { health = false }, onOpen = { viewing = it; editing = false })
