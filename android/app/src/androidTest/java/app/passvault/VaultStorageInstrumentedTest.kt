@@ -258,6 +258,8 @@ class VaultStorageInstrumentedTest {
 
         assertThrows(IllegalArgumentException::class.java) { engine.changePassword(password, decoyPassword) }
         engine.lock(); engine.unlock(decoyPassword)
+        assertThrows(IllegalArgumentException::class.java) { engine.changePassword(decoyPassword, password) }
+        engine.lock(); assertEquals(listOf("Shopping"), engine.unlock(decoyPassword).map { it.name })
         engine.changePassword(decoyPassword, "Fresh decoy phrase 4\$"); engine.lock()
         assertEquals(listOf("Shopping"), engine.unlock("Fresh decoy phrase 4\$").map { it.name }); engine.lock()
         assertEquals(listOf("Real bank"), engine.unlock(password).map { it.name }); assertEquals(2, blobs().size)

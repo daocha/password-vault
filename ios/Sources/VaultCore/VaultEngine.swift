@@ -181,6 +181,13 @@ public final class VaultEngine: @unchecked Sendable {
         try VaultCrypto.requireStrongPassword(new)
         var proven = try authenticate(current).key; proven.resetBytes(in: 0..<proven.count) // the vault is unlocked, so the old data key is not needed again
         guard var value = try state() else { throw VaultError.locked }
+        if activeDecoy {
+            // Each decoy password change is a counted attempt that only the real password clears; otherwise changing the decoy's password
+            // to a guess and unlocking with it would test guesses at the real password without limit.
+            value.attempts += 1; try write(value)
+            if value.attempts >= 10 { try erase(value); throw VaultError.erased }
+            if try unwrap(new, salt: value.salt, secret: value.secret, wrapped: value.wrappedKey) != nil { throw VaultError.invalid("Choose a different password.") }
+        }
         if !activeDecoy, let d = value.decoy, try unwrap(new, salt: d.salt, secret: d.secret, wrapped: d.wrappedKey) != nil {
             throw VaultError.invalid("Choose a password different from your decoy vault's.")
         }

@@ -174,6 +174,13 @@ class VaultEngine(private val storage: ProtectedStorage) {
         check(key != null) { "Vault is locked." }; VaultCrypto.strongPassword(new)
         authenticate(current).key.fill(0) // proves the current password; the vault is unlocked, so the old data key is not needed again
         val value = state() ?: error("Vault is locked.")
+        if (activeDecoy) {
+            // Each decoy password change is a counted attempt that only the real password clears; otherwise changing the decoy's password
+            // to a guess and unlocking with it would test guesses at the real password without limit.
+            value.attempts++; storage.writeState(value.encode())
+            if (value.attempts >= 10) { erase(value); error("The local vault was erased after 10 failed attempts.") }
+            unwrap(new, value.salt, value.secret, value.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a different password.") }
+        }
         value.decoy?.let { d -> if (!activeDecoy) unwrap(new, d.salt, d.secret, d.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a password different from your decoy vault's.") } }
         val previous = liveBlobs(value); val blob = UUID.randomUUID().toString()
         val dataKey = VaultCrypto.random(32); val plain = Records.encode(records)

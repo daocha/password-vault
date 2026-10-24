@@ -176,6 +176,8 @@ object Kdbx {
         }
         return String(payload, p, payload.size - p, Charsets.UTF_8) to innerStream(streamId, streamKey)
     }
+    // KeePass specifies AES-CBC for these existing files. This importer only decrypts; KDBX 4 verifies block HMACs before this call,
+    // and KDBX 3 checks its stream-start bytes and block hashes afterward. AES-GCM would not read KeePass AES databases.
     private fun cipher(id: ByteArray, key: ByteArray, iv: ByteArray, input: ByteArray): ByteArray =
         if (id.contentEquals(AES)) Cipher.getInstance("AES/CBC/PKCS5Padding").run { init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv)); doFinal(input) }
         else { require(iv.size == 12) { "The KeePass file is damaged or not supported." }; ChaCha7539Engine().run { init(false, ParametersWithIV(KeyParameter(key), iv)); ByteArray(input.size).also { processBytes(input, 0, input.size, it, 0) } } }

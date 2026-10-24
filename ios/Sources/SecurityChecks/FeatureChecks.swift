@@ -266,6 +266,8 @@ func decoyChecks() throws {
     // Changing the decoy's password from inside it keeps both vaults; the real one cannot take the decoy's password.
     try rejects("app password equal to the decoy's") { try engine.changePassword(current: main, new: decoyPassword) }
     engine.lock(); _ = try engine.unlock(password: decoyPassword)
+    try rejects("decoy password equal to the app's") { try engine.changePassword(current: decoyPassword, new: main) }
+    engine.lock(); _ = try engine.unlock(password: decoyPassword)
     try engine.changePassword(current: decoyPassword, new: "Fresh decoy phrase 4$"); engine.lock()
     try check(try engine.unlock(password: "Fresh decoy phrase 4$").map(\.name) == ["Shopping"], "decoy password changed"); engine.lock()
     try check(try engine.unlock(password: main).map(\.name) == ["Real bank"] && store.blobs.count == 2, "real vault untouched by the decoy's password change")
