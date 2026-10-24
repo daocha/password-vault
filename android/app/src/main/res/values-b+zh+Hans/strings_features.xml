@@ -79,4 +79,23 @@
     <string name="decoy_remove">移除诱饵密码库</string>
     <string name="decoy_remove_body">这会删除诱饵密码库及其中的所有内容。你的真实密码库不受影响。</string>
     <string name="decoy_removed">诱饵密码库已移除。</string>
+    <string name="transfer_send">发送到另一部手机</string>
+    <string name="transfer_send_summary">动态二维码或文件，无需网络</string>
+    <string name="transfer_send_body">请输入应用密码。PassVault 随后会显示供新手机扫描的动态二维码，以及要在新手机上输入的一次性传输码。</string>
+    <string name="transfer_receive">从另一部手机接收</string>
+    <string name="transfer_receive_summary">扫描旧手机上的动态二维码</string>
+    <string name="transfer_instructions">在新手机上打开 PassVault，进入“设置”→“从另一部手机接收”，并将摄像头对准此屏幕。完成前请保持此屏幕打开。</string>
+    <string name="transfer_frame">第 %1$d / %2$d 个码</string>
+    <string name="transfer_show_code">显示传输码</string>
+    <string name="transfer_hide_code">重新显示二维码</string>
+    <string name="transfer_code_label">传输码</string>
+    <string name="transfer_code_body">新手机提示时输入此码。二维码中只有加密数据，没有此码就无法使用，所以不要让任何人拍下它。</string>
+    <string name="transfer_save_file">改为保存为文件</string>
+    <string name="transfer_saved">传输文件已保存。在新手机上导入它并输入传输码。</string>
+    <string name="transfer_too_large">此密码库太大，无法用二维码传输。请改为保存传输文件。</string>
+    <string name="transfer_receive_body">将摄像头对准旧手机上的动态二维码。码的顺序不限，漏掉的会再次出现。</string>
+    <string name="transfer_waiting">正在等待第一个码…</string>
+    <string name="transfer_received">已接收 %1$d / %2$d</string>
+    <string name="transfer_import_title">从另一部手机传输</string>
+    <string name="transfer_import_body">请输入另一部手机上显示的传输码。</string>
 </resources>

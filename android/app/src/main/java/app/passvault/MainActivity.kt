@@ -86,6 +86,7 @@ private sealed interface SettingsDialog {
     data object ChangePassword : SettingsDialog
     data object BackupReminderChoice : SettingsDialog
     data object DecoySetup : SettingsDialog
+    data object TransferSend : SettingsDialog
     data object DecoyRemove : SettingsDialog
     data class Exporting(val kind: Export) : SettingsDialog
 }
@@ -144,6 +145,18 @@ class MainActivity : FragmentActivity() {
     private var health by mutableStateOf(false)
     /** The open settings dialog; kept here so the backup reminder can open the export dialog directly. */
     private var settingsDialog by mutableStateOf<SettingsDialog?>(null)
+    /** Phone-to-phone transfer: the one-time code and sealed payload being shown, or the scanner collecting one. */
+    private var sending by mutableStateOf<Pair<String, ByteArray>?>(null)
+    private var receiving by mutableStateOf(false)
+    private val transferFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        systemPickerOpen = false
+        val bytes = sending?.second ?: return@registerForActivityResult
+        if (uri != null) lifecycleScope.launch {
+            // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
+            try { withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }; message = getString(R.string.transfer_saved) }
+            catch (e: Exception) { messageError = true; message = e.message ?: getString(R.string.main_export_failed) }
+        }
+    }
     /** The decoy vault is open: settings that would reveal or touch the real vault are not shown. */
     private var decoySession by mutableStateOf(false)
     private var decoyEnabled by mutableStateOf(false)
@@ -190,6 +203,8 @@ class MainActivity : FragmentActivity() {
             val record = viewing
             when {
                 selected.isNotEmpty() -> selected = emptySet()
+                sending != null -> { sending?.second?.fill(0); sending = null }
+                receiving -> receiving = false
                 record != null && editing && records.any { it.id == record.id } -> editing = false
                 record != null -> { viewing = null; editing = false }
                 health -> health = false
@@ -302,7 +317,7 @@ class MainActivity : FragmentActivity() {
             }
         })
         onBackPressedDispatcher.addCallback(this, backCallback)
-        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || health || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
+        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || health || sending != null || receiving || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         try { engine = VaultEngine(ProtectedStorage(this)); exists = engine.exists(); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric(); ready = true }
         catch (e: Exception) { message = errorText(e, R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
@@ -314,6 +329,8 @@ class MainActivity : FragmentActivity() {
                             val record = viewing
                             when {
                                 !unlocked -> UnlockScreen()
+                                sending != null -> sending?.let { (code, bytes) -> TransferSendScreen(bytes, code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { bytes.fill(0); sending = null }) }
+                                receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
                                 record != null -> RecordScreen(record, editing)
                                 health -> HealthScreen(records, onBack = { health = false }, onOpen = { viewing = it; editing = false })
                                 settings -> SettingsScreen()
@@ -362,7 +379,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun lockVault(clearClipboard: Boolean = true) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; scannedImport = null; cameraGranted = null; imageRead = null
+        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; sending?.second?.fill(0); sending = null; receiving = false; scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -896,6 +913,8 @@ class MainActivity : FragmentActivity() {
                     Row(Icons.Outlined.History, stringResource(R.string.backup_last_title), lastBackup?.let { stringResource(R.string.backup_last_value, formatUpdated(it.toString()).orEmpty(), backupAge(it)) } ?: stringResource(R.string.backup_never)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
                     Row(Icons.Outlined.NotificationsActive, stringResource(R.string.backup_reminder_title), stringResource(backupInterval.labelRes)) { dialog = SettingsDialog.BackupReminderChoice }
                     Row(Icons.Outlined.FileOpen, stringResource(R.string.main_import_action), stringResource(R.string.main_import_row_summary)) { launchPicker { importPicker.launch(arrayOf("*/*")) } }
+                    Row(Icons.Outlined.SendToMobile, stringResource(R.string.transfer_send), stringResource(R.string.transfer_send_summary)) { dialog = SettingsDialog.TransferSend }
+                    Row(Icons.Outlined.QrCodeScanner, stringResource(R.string.transfer_receive), stringResource(R.string.transfer_receive_summary)) { withCamera { receiving = true } }
                     Row(Icons.Outlined.EnhancedEncryption, stringResource(R.string.main_export_encrypted), stringResource(R.string.main_export_encrypted_summary)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
                     Row(Icons.Outlined.Description, stringResource(R.string.main_export_csv), stringResource(R.string.main_export_csv_summary)) { dialog = SettingsDialog.Exporting(Export.csv) }
                 }
@@ -933,6 +952,10 @@ class MainActivity : FragmentActivity() {
             SettingsDialog.EnableBiometrics -> PasswordDialog(Icons.Outlined.Fingerprint, stringResource(R.string.main_enable_biometric_unlock), stringResource(R.string.main_enable_biometric_body), stringResource(R.string.main_continue_action), { dialog = null }) { biometrics(it) }
             SettingsDialog.ChangePassword -> ChangePasswordDialog { dialog = null }
             SettingsDialog.DecoySetup -> DecoySetupDialog { dialog = null }
+            SettingsDialog.TransferSend -> PasswordDialog(Icons.Outlined.SendToMobile, stringResource(R.string.transfer_send), stringResource(R.string.transfer_send_body), stringResource(R.string.main_continue_action), { dialog = null }) { pass ->
+                var sealed: Pair<String, ByteArray>? = null
+                work({ sealed = engine.exportTransfer(pass); null }) { sending = sealed }
+            }
             SettingsDialog.DecoyRemove -> PasswordDialog(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_remove), stringResource(R.string.decoy_remove_body), stringResource(R.string.main_delete), { dialog = null }) { pass ->
                 work({ engine.removeDecoy(pass); null }) { decoyEnabled = false; prefs.edit().remove("decoy.lastBackupAt").remove("decoy.backupReminder").remove("decoy.backupSnoozeUntil").apply(); message = getString(R.string.decoy_removed) }
             }
@@ -1027,12 +1050,15 @@ class MainActivity : FragmentActivity() {
         }
         if (importBytes != null) {
             var backupPassword by remember { mutableStateOf("") }
-            val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true; val keepass = importBytes?.let { Kdbx.isKdbx(it) } == true
+            val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true; val keepass = importBytes?.let { Kdbx.isKdbx(it) } == true; val transfer = importBytes?.let { Transfer.isTransfer(it) } == true
             fun discard() { importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null }
-            AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(stringResource(when { keepass -> R.string.import_kdbx_title; keeper -> R.string.main_keeper_backup_title; else -> R.string.main_encrypted_backup_title })) },
+            AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(stringResource(when { transfer -> R.string.transfer_import_title; keepass -> R.string.import_kdbx_title; keeper -> R.string.main_keeper_backup_title; else -> R.string.main_encrypted_backup_title })) },
                 text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(when { keepass -> R.string.import_kdbx_body; keeper -> R.string.main_keeper_backup_body; else -> R.string.main_encrypted_backup_body }))
-                    SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it })
+                    Text(stringResource(when { transfer -> R.string.transfer_import_body; keepass -> R.string.import_kdbx_body; keeper -> R.string.main_keeper_backup_body; else -> R.string.main_encrypted_backup_body }))
+                    // The transfer code is read off another screen, so it is typed in the clear.
+                    if (transfer) OutlinedTextField(backupPassword, { backupPassword = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.transfer_code_label)) }, singleLine = true, shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters, keyboardType = KeyboardType.Ascii), textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
+                    else SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it })
                     if (keepass) {
                         if (importKeyFile == null) OutlinedButton(onClick = { launchPicker { keyFilePicker.launch(arrayOf("*/*")) } }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Key, null); Text("  " + stringResource(R.string.import_keyfile_choose)) }
                         else Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1043,7 +1069,7 @@ class MainActivity : FragmentActivity() {
                 } },
                 // A KeePass database may have an empty password, or only a key file.
                 confirmButton = { TextButton(onClick = { val bytes = importBytes ?: return@TextButton; val pass = backupPassword; val key = importKeyFile; backupPassword = ""
-                    readImport({ when { Kdbx.isKdbx(bytes) -> Kdbx.importTyped(bytes, pass, key); Pkb2.isPkb2(bytes) -> Pkb2.import(bytes, pass); else -> VaultCrypto.importBackup(bytes, pass) } }) { bytes.fill(0); key?.fill(0); if (importBytes === bytes) { importBytes = null; importKeyFile = null } } },
+                    readImport({ when { Transfer.isTransfer(bytes) -> Transfer.open(bytes, pass); Kdbx.isKdbx(bytes) -> Kdbx.importTyped(bytes, pass, key); Pkb2.isPkb2(bytes) -> Pkb2.import(bytes, pass); else -> VaultCrypto.importBackup(bytes, pass) } }) { bytes.fill(0); key?.fill(0); if (importBytes === bytes) { importBytes = null; importKeyFile = null } } },
                     enabled = backupPassword.isNotEmpty() || keepass) { Text(stringResource(R.string.main_decrypt)) } },
                 dismissButton = { TextButton(onClick = { discard() }) { Text(stringResource(R.string.main_cancel)) } })
         }

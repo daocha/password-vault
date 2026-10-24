@@ -79,4 +79,23 @@
     <string name="decoy_remove">移除誘餌密碼庫</string>
     <string name="decoy_remove_body">這會刪除誘餌密碼庫及其中的所有內容。你的真實密碼庫不受影響。</string>
     <string name="decoy_removed">誘餌密碼庫已移除。</string>
+    <string name="transfer_send">傳送到另一部手機</string>
+    <string name="transfer_send_summary">動態 QR 碼或檔案，無需網絡</string>
+    <string name="transfer_send_body">請輸入應用程式密碼。PassVault 隨後會顯示供新手機掃描的動態 QR 碼，以及要在新手機上輸入的一次性傳輸碼。</string>
+    <string name="transfer_receive">從另一部手機接收</string>
+    <string name="transfer_receive_summary">掃描舊手機上的動態 QR 碼</string>
+    <string name="transfer_instructions">在新手機上開啟 PassVault，進入「設定」→「從另一部手機接收」，並將相機對準此螢幕。完成前請保持此螢幕開啟。</string>
+    <string name="transfer_frame">第 %1$d / %2$d 個碼</string>
+    <string name="transfer_show_code">顯示傳輸碼</string>
+    <string name="transfer_hide_code">重新顯示 QR 碼</string>
+    <string name="transfer_code_label">傳輸碼</string>
+    <string name="transfer_code_body">新手機提示時輸入此碼。QR 碼中只有加密資料，沒有此碼就無法使用，所以不要讓任何人拍下它。</string>
+    <string name="transfer_save_file">改為儲存為檔案</string>
+    <string name="transfer_saved">傳輸檔案已儲存。在新手機上匯入它並輸入傳輸碼。</string>
+    <string name="transfer_too_large">此密碼庫太大，無法用 QR 碼傳輸。請改為儲存傳輸檔案。</string>
+    <string name="transfer_receive_body">將相機對準舊手機上的動態 QR 碼。碼的順序不限，漏掉的會再次出現。</string>
+    <string name="transfer_waiting">正在等待第一個碼…</string>
+    <string name="transfer_received">已接收 %1$d / %2$d</string>
+    <string name="transfer_import_title">從另一部手機傳輸</string>
+    <string name="transfer_import_body">請輸入另一部手機上顯示的傳輸碼。</string>
 </resources>

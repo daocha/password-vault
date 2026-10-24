@@ -274,4 +274,26 @@ class VaultStorageInstrumentedTest {
         assertTrue(blobs().isEmpty())
         assertThrows(IllegalStateException::class.java) { VaultEngine(ProtectedStorage(context)).unlock("Another decoy phrase 2?") }
     }
+
+    @Test fun transferRoundTripThroughQrFramesAndWrongCodes() {
+        val records = listOf(record("Mail"), VaultRecord(name = "Visa", type = RecordType.card, fields = defaultFields(RecordType.card)))
+        engine.create(password); engine.save(records)
+        val (code, sealed) = engine.exportTransfer(password)
+        assertFalse("no plaintext", String(sealed, Charsets.ISO_8859_1).contains("Mail"))
+        val collector = TransferFrames.Collector()
+        TransferFrames.frames(sealed).let { frames -> (frames.reversed() + frames).forEach { collector.add(it) } }
+        assertEquals(records, Transfer.open(collector.result()!!, Transfer.display(code).lowercase()))
+        val wrong = if (code == "222222222222") "333333333333" else "222222222222"
+        assertThrows(AuthenticationFailure::class.java) { Transfer.open(sealed, wrong) }
+        assertThrows(AuthenticationFailure::class.java) { engine.exportTransfer("Wrong passphrase 9!") }
+        assertEquals(9, engine.remainingAttempts())
+    }
+
+    @Test fun transfersOpenAcrossPlatforms() {
+        val ios = InstrumentationRegistry.getInstrumentation().context.assets.open("ios.pvtransfer").use { it.readBytes() }
+        assertEquals(listOf("From iOS", "iOS note"), Transfer.open(ios, "PHNE-2C3D-E4FG").map { it.name })
+        // Written for the iOS checks (fixtures/transfer/android.pvtransfer); see fixtures/transfer/README.md.
+        val fromAndroid = Transfer.seal(listOf(record("From Android"), VaultRecord(name = "Android card", type = RecordType.card, fields = defaultFields(RecordType.card))), "ANDRD2CDE3FG")
+        android.util.Log.i("PassVaultFixture", "android.pvtransfer " + Base64.getEncoder().encodeToString(fromAndroid))
+    }
 }

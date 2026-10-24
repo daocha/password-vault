@@ -161,6 +161,11 @@ class VaultEngine(private val storage: ProtectedStorage) {
         check(key != null) { "Vault is locked." }; authenticate(password).key.fill(0)
         return if (csv) VaultCSV.exportRecords(records).toByteArray() else VaultCrypto.exportBackup(records, password)
     }
+    /** Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code. */
+    @Synchronized fun exportTransfer(password: String): Pair<String, ByteArray> {
+        check(key != null) { "Vault is locked." }; authenticate(password).key.fill(0)
+        val code = Transfer.newCode(); return code to Transfer.seal(records, code)
+    }
     /**
      * Changes the open vault's password (the decoy's when the decoy is open). Also replaces the data key and re-encrypts the vault, so
      * nothing derived from the old password or old state can open future data.

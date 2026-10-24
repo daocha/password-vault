@@ -262,3 +262,31 @@ func decoyChecks() throws {
     let legacy = MemoryStorage(); _ = try VaultEngine(storage: legacy).create(password: main)
     try check(!String(decoding: legacy.state!, as: UTF8.self).contains("decoy"), "no decoy key stored without a decoy")
 }
+
+/// Phone-to-phone transfer; Android opens fixtures/transfer/ios.pvtransfer and iOS opens Android's android.pvtransfer.
+func transferChecks() throws {
+    let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../fixtures/transfer").standardized
+    for _ in 0..<100 { let c = Transfer.newCode(); try check(c.count == 12 && c.allSatisfy(Transfer.codeAlphabet.contains), "transfer code alphabet") }
+    try check(Transfer.display("7K4P92XMQD3F") == "7K4P-92XM-QD3F" && (try Transfer.canonical(" 7k4p-92xm qd3f ")) == "7K4P92XMQD3F", "transfer code formats")
+    for bad in ["7K4P92XMQD3", "7K4P92XMQD30", "OK4P92XMQD3F"] { try rejects("bad code \(bad)") { _ = try Transfer.canonical(bad) } }
+    var a = VaultRecord(); a.name = "Mail"; var b = VaultRecord.new(type: "card"); b.name = "Visa"
+    let code = Transfer.newCode(), sealed = try Transfer.seal([a, b], code: code)
+    try check(try Transfer.open(sealed, code: Transfer.display(code).lowercased()) == [a, b], "transfer round trip")
+    try rejects("wrong transfer code") { _ = try Transfer.open(sealed, code: code == "222222222222" ? "333333333333" : "222222222222") }
+    var tampered = sealed; tampered[tampered.count - 1] ^= 1
+    try rejects("tampered transfer") { _ = try Transfer.open(tampered, code: code) }
+    // QR frames in any order, with repeats, rebuild the same bytes.
+    let frames = try TransferFrames.frames(sealed, session: "AB12"), collector = TransferFrames.Collector()
+    for f in frames.reversed() + frames { collector.add(f) }
+    try check(collector.result() == sealed && frames.allSatisfy { $0.count < 700 }, "transfer frames reassemble")
+    let android = Array(try TransferFrames.frames(Data(repeating: 7, count: 2345), session: "AB12").prefix(1))
+    try check(android[0].hasPrefix("PVX1:AB12:1/5:"), "frame layout matches Android")
+    if ProcessInfo.processInfo.environment["PASSVAULT_WRITE_TRANSFER_FIXTURE"] != nil {
+        var x = VaultRecord(); x.name = "From iOS"; var y = VaultRecord.new(type: "note"); y.name = "iOS note"
+        try Transfer.seal([x, y], code: "PHNE2C3DE4FG").write(to: fixtures.appendingPathComponent("ios.pvtransfer"))
+    }
+    // Interoperability: Android's fixture (code in the README) must open here.
+    if let data = try? Data(contentsOf: fixtures.appendingPathComponent("android.pvtransfer")) {
+        try check(try Transfer.open(data, code: "ANDRD2CDE3FG").map(\.name) == ["From Android", "Android card"], "opens Android's transfer")
+    } else { throw VaultError.invalid("FAILED: missing fixtures/transfer/android.pvtransfer") }
+}

@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import VaultCore
 import UniformTypeIdentifiers
+import AVFoundation
 
 @MainActor final class VaultModel: ObservableObject {
     @Published var records = [VaultRecord]()
@@ -423,6 +424,8 @@ struct TransferView: View {
     @State private var exporting = false
     @State private var document: ExportDocument?
     @State private var pendingImport: [VaultRecord]?
+    @State private var sending: TransferPayload?
+    @State private var receiving = false
     @State private var decoyPassword = ""
     @State private var confirmDecoy = ""
     @State private var removingDecoy = false
@@ -477,6 +480,12 @@ struct TransferView: View {
                 } header: { Text("Import") } footer: {
                     Text("PassVault backups, KeePass (.kdbx or XML), Bitwarden (JSON or CSV), 1Password (.1pux or CSV), Password Keeper (.pkb2 or CSV), and CSV from browsers and other managers. The format is recognised from the file.")
                 }
+                Section {
+                    Button("Send to another phone", systemImage: "iphone.and.arrow.forward") { send() }.disabled(password.isEmpty)
+                    Button("Receive from another phone", systemImage: "qrcode.viewfinder") { receive() }
+                } header: { Text("Move to another phone") } footer: {
+                    Text("No network needed: the old phone shows a moving QR code, encrypted with a one-time code shown only on its screen, for the new phone to scan. A transfer file works too. Sending asks for the app password above.")
+                }
                 Section("Export") {
                     Toggle("Plaintext CSV", isOn: $csv)
                     if csv {
@@ -503,6 +512,11 @@ struct TransferView: View {
                         }
                     } catch { model.message = error.localizedDescription }
                 }
+                .fullScreenCover(item: $sending) { TransferSendView(payload: $0) }
+                .fullScreenCover(isPresented: $receiving) { TransferReceiveView { data in
+                    // Present the code prompt once the scanner has finished closing; SwiftUI drops a sheet shown mid-dismissal.
+                    receiving = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { encryptedImport = EncryptedImport(data: data) }
+                } }
                 .sheet(item: $encryptedImport) { file in DecryptImportView(file: file) { records in encryptedImport = nil; if model.unlocked { pendingImport = records } } }
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
                     Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.message = "Decoy vault removed." }) }
@@ -521,6 +535,24 @@ struct TransferView: View {
                     case .success: if !csv { model.recordBackup() }
                     }
                 }
+        }
+    }
+    private func send() {
+        guard !model.busy, let engine = model.engine else { return }
+        let pass = password; password = ""; model.busy = true
+        Task {
+            do {
+                let sealed = try await Task.detached { try engine.exportTransfer(password: pass) }.value
+                if model.unlocked { sending = TransferPayload(code: sealed.code, data: sealed.data) }
+            } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
+            model.busy = false
+        }
+    }
+    private func receive() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: receiving = true
+        case .notDetermined: AVCaptureDevice.requestAccess(for: .video) { granted in Task { @MainActor in if granted { receiving = true } else { model.message = "Camera access is needed to scan. Allow it in Settings, or use a transfer file." } } }
+        default: model.message = "Camera access is needed to scan. Allow it in Settings, or use a transfer file."
         }
     }
     private func export() {
@@ -559,24 +591,27 @@ struct DecryptImportView: View {
     @State private var working = false
     @State private var error = ""
     var keepass: Bool { Kdbx.isKdbx(file.data) }
+    var transfer: Bool { Transfer.isTransfer(file.data) }
     var keeper: Bool { Pkb2.isPkb2(file.data) }
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField(keepass ? "Database password" : "File password", text: $password)
+                    // The transfer code is read off another screen, so it is typed in the clear.
+                    if transfer { TextField("Transfer code", text: $password).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.body.monospaced()) }
+                    else { SecureField(keepass ? "Database password" : "File password", text: $password) }
                     if keepass {
                         if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }
                         else { HStack { Label("Key file chosen", systemImage: "key.fill"); Spacer(); Button("Remove") { keyFile = nil } } }
                     }
                 } footer: {
-                    Text(keepass ? "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds."
+                    Text(transfer ? "Enter the transfer code shown on the other phone." : keepass ? "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds."
                          : keeper ? "Enter the password you chose when exporting this .pkb2 file from Password Keeper." : "Enter the password this backup was exported with.")
                 }
                 if !error.isEmpty { Text(error).foregroundStyle(.red).font(.footnote) }
                 if working { ProgressView("Decrypting…") }
             }
-            .navigationTitle(keepass ? "KeePass database" : keeper ? "Password Keeper backup" : "Encrypted backup").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(transfer ? "Transfer from another phone" : keepass ? "KeePass database" : keeper ? "Password Keeper backup" : "Encrypted backup").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Decrypt") { decrypt() }.disabled(working || (password.isEmpty && !keepass)) }
@@ -592,6 +627,7 @@ struct DecryptImportView: View {
         Task {
             do {
                 let records = try await Task.detached { () throws -> [VaultRecord] in
+                    if Transfer.isTransfer(data) { return try Transfer.open(data, code: pass) }
                     if Kdbx.isKdbx(data) { return try Kdbx.importTyped(data, password: pass, keyFile: key) }
                     if Pkb2.isPkb2(data) { return try Pkb2.importRecords(data, password: pass) }
                     return try VaultCrypto.importBackup(data, password: pass)

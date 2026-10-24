@@ -50,7 +50,7 @@ internal object ImportBuilder {
 
 /** Reads exports from other password managers. Encrypted formats (`.pvault`, `.pkb2`, `.kdbx`) need a password and are opened elsewhere. */
 object Importers {
-    fun needsPassword(data: ByteArray) = VaultCrypto.isBackup(data) || Pkb2.isPkb2(data) || Kdbx.isKdbx(data)
+    fun needsPassword(data: ByteArray) = VaultCrypto.isBackup(data) || Pkb2.isPkb2(data) || Kdbx.isKdbx(data) || Transfer.isTransfer(data)
     /**
      * Unencrypted exports, recognised by content rather than file name: 1Password `.1pux`, Bitwarden JSON, KeePass XML and CSV from
      * Password Keeper, LastPass, Chrome, Edge, Firefox, Safari, Bitwarden, 1Password, KeePass, KeePassXC, Dashlane, Proton Pass and others.

@@ -77,7 +77,7 @@ enum ImportBuilder {
 
 /// Reads exports from other password managers, like Android's `Importers`. Encrypted formats (`.pvault`, `.pkb2`, `.kdbx`) need a password.
 public enum Importers {
-    public static func needsPassword(_ data: Data) -> Bool { data.prefix(6) == Data("QVAULT".utf8) || Pkb2.isPkb2(data) || Kdbx.isKdbx(data) }
+    public static func needsPassword(_ data: Data) -> Bool { data.prefix(6) == Data("QVAULT".utf8) || Pkb2.isPkb2(data) || Kdbx.isKdbx(data) || Transfer.isTransfer(data) }
     /// Unencrypted exports, recognised by content: 1Password `.1pux`, Bitwarden JSON, KeePass XML, and CSV from Password Keeper, LastPass,
     /// browsers, Bitwarden, 1Password, KeePass, KeePassXC, Dashlane, Proton Pass and others.
     public static func importPlain(_ data: Data) throws -> [VaultRecord] {

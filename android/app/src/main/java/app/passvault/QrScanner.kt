@@ -49,9 +49,12 @@ object QrDecoder {
     }
 }
 
-/** Live camera preview that reports the first QR code it reads, once. The camera is released when this leaves the composition. */
+/**
+ * Live camera preview that reports the first QR code it reads, once, or with [continuous] every code it reads (a transfer's loop of
+ * frames). The camera is released when this leaves the composition.
+ */
 @Composable
-fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifier = Modifier) {
+fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifier = Modifier, continuous: Boolean = false) {
     val executor = remember { Executors.newSingleThreadExecutor() }
     val done = remember { AtomicBoolean(false) }
     val bound = remember { arrayOfNulls<Pair<ProcessCameraProvider, Array<androidx.camera.core.UseCase>>>(1) }
@@ -72,7 +75,7 @@ fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifie
                         val rows = minOf(image.height, (data.size + plane.rowStride - 1) / plane.rowStride)
                         val text = QrDecoder.decode(PlanarYUVLuminanceSource(data, plane.rowStride, rows, 0, 0, image.width, rows, false), reader)
                         data.fill(0)
-                        if (text != null && done.compareAndSet(false, true)) ContextCompat.getMainExecutor(context).execute { onCode(text) }
+                        if (text != null && (continuous || done.compareAndSet(false, true))) ContextCompat.getMainExecutor(context).execute { if (!continuous || !done.get()) onCode(text) }
                     } finally { image.close() }
                 }
                 runCatching {

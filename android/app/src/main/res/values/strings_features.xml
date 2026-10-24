@@ -84,4 +84,24 @@
     <string name="decoy_remove">Remove decoy vault</string>
     <string name="decoy_remove_body">This deletes the decoy vault and everything in it. Your real vault is not affected.</string>
     <string name="decoy_removed">Decoy vault removed.</string>
+    <!-- Phone-to-phone transfer -->
+    <string name="transfer_send">Send to another phone</string>
+    <string name="transfer_send_summary">Moving QR code or a file, no network needed</string>
+    <string name="transfer_send_body">Enter your app password. PassVault then shows a moving QR code for the new phone to scan, and a one-time transfer code to type there.</string>
+    <string name="transfer_receive">Receive from another phone</string>
+    <string name="transfer_receive_summary">Scan the moving QR code on the old phone</string>
+    <string name="transfer_instructions">On the new phone, open PassVault, go to Settings, Receive from another phone, and point its camera at this screen. Keep this screen open until it is done.</string>
+    <string name="transfer_frame">Code %1$d of %2$d</string>
+    <string name="transfer_show_code">Show transfer code</string>
+    <string name="transfer_hide_code">Show QR code again</string>
+    <string name="transfer_code_label">Transfer code</string>
+    <string name="transfer_code_body">Type this code on the new phone when it asks. The QR codes hold only encrypted data; without this code they are useless, so don\'t let anyone photograph it.</string>
+    <string name="transfer_save_file">Save as file instead</string>
+    <string name="transfer_saved">Transfer file saved. On the new phone, import it and type the transfer code.</string>
+    <string name="transfer_too_large">This vault is too large for QR codes. Save a transfer file instead.</string>
+    <string name="transfer_receive_body">Point the camera at the moving QR code on the old phone. Codes can arrive in any order; missed ones come round again.</string>
+    <string name="transfer_waiting">Waiting for the first code…</string>
+    <string name="transfer_received">Received %1$d of %2$d</string>
+    <string name="transfer_import_title">Transfer from another phone</string>
+    <string name="transfer_import_body">Enter the transfer code shown on the other phone.</string>
 </resources>

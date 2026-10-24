@@ -78,6 +78,8 @@ android {
         create("qa") { initWith(getByName("debug")); applicationIdSuffix = ".qa"; versionNameSuffix = "-qa"; manifestPlaceholders["appLabel"] = "PassVault QA"; buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "true")
             buildConfigField("String", "UPDATE_CHANNEL", "\"none\""); buildConfigField("String", "DEV_UPDATE_URL", "\"\"") }
     }
+    // Instrumented tests open transfers written by the iOS app (fixtures/transfer).
+    sourceSets.getByName("androidTest") { assets.srcDir("../../fixtures/transfer") }
     // Network, install permission and FileProvider exist in debug only when a LAN update server is set.
     if (devUpdateHost != null) sourceSets.getByName("debug") {
         manifest.srcFile("src/lanUpdate/AndroidManifest.xml")

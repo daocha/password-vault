@@ -40,6 +40,12 @@ Readers accept at most 16 MiB plaintext, 10,000 records and 200 fields per recor
 
 The cipher suite is fixed by the version; only the Argon2id cost varies, within the bounds above. A future suite requires a new version. There is no embedded verifier separate from authenticated encryption, and no attempt counter in portable backups: copied files can always be attacked offline.
 
+## Phone-to-phone transfer (`PVXFER01`)
+
+Extension `.pvtransfer` when saved as a file. Layout as `QVAULT02` with magic `PVXFER01`: u32be Argon2id memory in KiB (written: 65,536), u32be passes (written: 3), 16-byte salt, then the XChaCha20-Poly1305 box with the 32-byte header as additional data and the same cost bounds on read. The key is Argon2id (one lane) of the transfer code: 12 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (about 59 bits), chosen at random by the sending phone and shown on its screen only; readers accept it in any case and ignore spaces and dashes. The plaintext is raw DEFLATE (no zlib or gzip header) of the backup JSON, inflated to at most 16 MiB. A transfer is not a backup: its code is not kept.
+
+Shown as QR codes, the file is split into 500-byte chunks, each one QR code (error correction L) with the text `PVX1:<session>:<index>/<count>:<chunk as unpadded Base64url>`, where `session` is 4 random code characters, `index` counts from 1, and `count` is at most 4000. The sender loops through them about four times a second; the receiver keeps one chunk per index for the current session, in any order, and starts over when a frame of another session or count appears. Frames are only ciphertext, and the code is never encoded in them.
+
 ## Local storage
 
 Local data uses a separate random 32-byte data key. Ciphertext is `nonce || ciphertext || tag`, with a fresh UUID filename authenticated as additional data. The protected state points to the committed file. Writers create ciphertext first, update the protected state pointer, then clean old ciphertext. Local password wrapping combines Argon2id output (64 MiB, 3 passes, NFKC-normalized password) with a random device secret using keyed BLAKE2b-256: key = device secret, message = UTF-8 `PassVault/device-wrap/v1` followed by the Argon2id key. The data-key wrapper authenticates UTF-8 `PassVault/key/v1`.

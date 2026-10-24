@@ -230,6 +230,13 @@ public final class VaultEngine: @unchecked Sendable {
         guard let backupPassword else { throw VaultError.invalid("A backup password is required.") }
         return try VaultCrypto.exportBackup(records, password: backupPassword)
     } }
+    /// Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code.
+    public func exportTransfer(password: String) throws -> (code: String, data: Data) { try serialized {
+        guard key != nil else { throw VaultError.locked }
+        var candidate = try authenticate(password).key; defer { candidate.resetBytes(in: 0..<candidate.count) }
+        let code = Transfer.newCode()
+        return (code, try Transfer.seal(records, code: code))
+    } }
     public func merge(_ imported: [VaultRecord]) throws -> [VaultRecord] { try serialized {
         guard key != nil else { throw VaultError.locked }
         // Matched by record id only: a record already in the vault is replaced in place (whole, fields included), the rest are added with their ids.
