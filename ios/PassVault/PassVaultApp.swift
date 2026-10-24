@@ -206,6 +206,7 @@ struct RecordList: View {
     @State private var editingTotp: VaultRecord?
     @State private var showTotp = false
     @State private var transfer = false
+    @State private var health = false
     var filtered: [VaultRecord] { model.records.filter { $0.isTotp == showTotp && $0.matches(query) && (!favorites || $0.favorite) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
     var body: some View {
         NavigationStack {
@@ -213,6 +214,10 @@ struct RecordList: View {
                 Section {
                     Picker("Show", selection: $showTotp) { Text("Passwords").tag(false); Text("2FA codes").tag(true) }.pickerStyle(.segmented)
                     Toggle("Favorites only", isOn: $favorites)
+                }
+                let expiring = model.records.filter { [.expired, .soon].contains($0.expiryState()) }.count
+                if expiring > 0 {
+                    Section { Button { health = true } label: { Label("Expired or expiring soon: \(expiring)", systemImage: "calendar.badge.exclamationmark") } }
                 }
                 Section(showTotp ? "\(filtered.count) codes" : "\(filtered.count) records") {
                     ForEach(filtered) { record in
@@ -246,6 +251,7 @@ struct RecordList: View {
                 ToolbarItem(placement: .principal) { WordMark().font(.headline) }
                 ToolbarItem(placement: .topBarLeading) { Button("Lock", systemImage: "lock") { model.lock() } }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button("Vault health", systemImage: "heart.text.square") { health = true }
                     Button("Import, export & security", systemImage: "gearshape") { transfer = true }
                     if showTotp {
                         Button("Add 2FA code", systemImage: "plus") { var record = VaultRecord(); record.type = "totp"; record.fields = []; editingTotp = record }
@@ -261,6 +267,7 @@ struct RecordList: View {
             .sheet(item: $editing) { RecordEditor(record: $0) }
             .sheet(item: $editingTotp) { TotpEditor(record: $0) }
             .sheet(isPresented: $transfer) { TransferView() }
+            .sheet(isPresented: $health) { HealthView() }
         }
     }
 }

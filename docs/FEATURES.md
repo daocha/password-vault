@@ -18,6 +18,7 @@ This repository is a native implementation under development, not an audited or 
 | Authenticator (2FA codes) | RFC 6238 TOTP (SHA1/SHA256/SHA512, 6–8 digits, any period) generated offline. Add by scanning the site's QR code with the camera (Android: CameraX + ZXing; iOS: AVFoundation), reading it from a screenshot, or typing the setup key. Google Authenticator "Transfer accounts" export QR codes (`otpauth-migration://`) import all their TOTP accounts at once, skipping HOTP accounts and keys already in the vault. Keys are stored as `otpauth://` URIs inside the encrypted vault, so `.pvault` backups export and import them; they are never written to CSV |
 | Cards and secure notes | Payment-card records (cardholder, number, expiry, security code, PIN; network detected from the number, shown as "Visa •••• 1234") and secure notes, listed with the passwords and filterable; never written to CSV |
 | Expiry reminders | Optional reminder date on logins and notes; cards use their own expiry date. Records expiring within 30 days or already expired are badged in the list. Reminders are shown inside the app only: while locked, the app cannot read dates to post notifications |
+| Vault health | On-device report (no network, stated on the screen): reused passwords, weak passwords, passwords unchanged for over a year (from password history, Password Keeper's set date, or the record's last change), expired or soon-expiring items, and well-known services with no 2FA code saved (advice only). Score 0–100. The same offline strength estimate on both platforms: a common-password list (also with leetspeak and digits or symbols around a word) and length × log2(character pool) with repeats, sequences and keyboard runs discounted. No breach lookup |
 | CSV migration | Supplied CSV tested; legacy metadata and unknown custom payloads preserved |
 | Encrypted backup | Same documented Argon2id/XChaCha20-Poly1305 file format on both platforms |
 | Export authorization | Requires current app password (a counted attempt) for every export, including CSV; Android encrypts backups with the app password |
@@ -32,7 +33,7 @@ This repository is a native implementation under development, not an audited or 
 ## Still required before claiming full Password Keeper parity
 
 - A version-specific BlackBerry feature checklist and migration samples containing its different custom-field encodings. Current sample exercises basic fields only.
-- Production-quality password-strength estimation; character count alone is not a strength meter.
+- The vault health strength estimate is a deliberately simple offline heuristic (common list, character pool, pattern discounts), not a zxcvbn-grade model with dictionaries and names; the app-password rule still checks length and character classes only.
 - Decide whether OS autofill integrations are in the desired parity scope. Neither an iOS credential provider extension nor Android autofill service is included yet.
 - Additional accessibility, large-vault performance, localization, and destructive-action UX review.
 - Real iOS and Android compilation, UI testing, device lifecycle tests, biometric and hardware-backed-storage verification, cross-platform backup exchange, signing and independent security review.

@@ -23,4 +23,33 @@
     <string name="rec_expired_on">Expired %1$s</string>
     <string name="rec_expires_soon">Expires soon</string>
     <string name="rec_expired">Expired</string>
+    <!-- Vault health -->
+    <string name="health_title">Vault health</string>
+    <string name="health_private_title">Checked on this phone only</string>
+    <string name="health_private_body">Your passwords are never uploaded or sent anywhere. PassVault checks them here, on this device, and nothing leaves it. Because it works offline, it cannot look passwords up in online lists of leaked passwords.</string>
+    <string name="health_score_label">Health score</string>
+    <string name="health_checked">%1$d passwords checked</string>
+    <string name="health_excellent">Excellent</string>
+    <string name="health_good">Good</string>
+    <string name="health_fair">Fair</string>
+    <string name="health_poor">Needs attention</string>
+    <string name="health_nothing">No passwords to check yet</string>
+    <string name="health_all_good">No problems found.</string>
+    <string name="health_summary">Score %1$d · %2$d to review</string>
+    <string name="health_reused">Reused passwords</string>
+    <string name="health_reused_body">The same password on several sites: one leak exposes them all.</string>
+    <string name="health_reused_group">Shared by %1$d entries</string>
+    <string name="health_weak">Weak passwords</string>
+    <string name="health_weak_body">Easy to guess. Replace them with generated ones.</string>
+    <string name="health_very_weak">Very weak</string>
+    <string name="health_weak_label">Weak</string>
+    <string name="health_old">Old passwords</string>
+    <string name="health_old_body">Not changed for over a year.</string>
+    <string name="health_old_since">Unchanged since %1$s</string>
+    <string name="health_expiring">Expired or expiring soon</string>
+    <string name="health_expiring_body">Expired, or expiring within the next 30 days.</string>
+    <string name="health_2fa">Consider two-factor codes</string>
+    <string name="health_2fa_body">Well-known services with no 2FA code saved in PassVault. If you already use another authenticator or text messages for them, ignore this.</string>
+    <string name="health_banner_expiring">Expired or expiring soon: %1$d</string>
+    <string name="health_review">Review</string>
 </resources>

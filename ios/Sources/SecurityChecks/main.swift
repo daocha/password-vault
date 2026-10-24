@@ -254,6 +254,7 @@ do {
         try rejects("truncated export") { _ = try Totp.parseMigration("otpauth-migration://offline?data=" + Data([10, 50, 1]).base64EncodedString()) }
     }
     try cardChecks()
+    try healthChecks()
     if let path = ProcessInfo.processInfo.environment["PASSVAULT_TEST_CSV"] {
         let migrated = try VaultCSV.importRecords(String(contentsOfFile: path, encoding: .utf8))
         try check(!migrated.isEmpty, "local migration fixture has records")

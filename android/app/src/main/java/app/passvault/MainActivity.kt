@@ -137,6 +137,8 @@ class MainActivity : FragmentActivity() {
     private fun discardPendingUnlock() { if (busy && !unlocked) generation++ }
     private var generation by mutableIntStateOf(0)
     private var settings by mutableStateOf(false)
+    /** The vault health report; entries opened from it come back to it. */
+    private var health by mutableStateOf(false)
     private var tab by mutableStateOf(RecordType.login)
     /** Accounts read from a Google Authenticator export QR, waiting for the user to confirm adding them. */
     private var scannedImport by mutableStateOf<ScannedImport?>(null)
@@ -160,6 +162,7 @@ class MainActivity : FragmentActivity() {
                 selected.isNotEmpty() -> selected = emptySet()
                 record != null && editing && records.any { it.id == record.id } -> editing = false
                 record != null -> { viewing = null; editing = false }
+                health -> health = false
                 settings -> settings = false
             }
         }
@@ -268,7 +271,7 @@ class MainActivity : FragmentActivity() {
             }
         })
         onBackPressedDispatcher.addCallback(this, backCallback)
-        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
+        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || health || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         try { engine = VaultEngine(ProtectedStorage(this)); exists = engine.exists(); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric(); ready = true }
         catch (e: Exception) { message = errorText(e, R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
@@ -281,6 +284,7 @@ class MainActivity : FragmentActivity() {
                             when {
                                 !unlocked -> UnlockScreen()
                                 record != null -> RecordScreen(record, editing)
+                                health -> HealthScreen(records, onBack = { health = false }, onOpen = { viewing = it; editing = false })
                                 settings -> SettingsScreen()
                                 else -> VaultScreen()
                             }
@@ -327,7 +331,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun lockVault(clearClipboard: Boolean = true) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; scannedImport = null; cameraGranted = null; imageRead = null
+        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -433,7 +437,7 @@ class MainActivity : FragmentActivity() {
                         if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { health = true }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
             floatingActionButton = { if (!selecting) Box {
                 ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
@@ -461,6 +465,8 @@ class MainActivity : FragmentActivity() {
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(groupColorArgb(name)).copy(alpha = 0.28f), selectedLabelColor = MaterialTheme.colorScheme.onSurface),
                         border = FilterChipDefaults.filterChipBorder(true, group == name, borderColor = Color(groupColorArgb(name)), selectedBorderColor = Color(groupColorArgb(name)), borderWidth = 1.dp, selectedBorderWidth = 2.dp)) }
                 }
+                val expiring = remember(records) { records.count { it.expiryState() == ExpiryState.expired || it.expiryState() == ExpiryState.soon } }
+                if (expiring > 0 && !selecting) AttentionBanner(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { health = true }
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconBadge(when (tab) { RecordType.seed -> Icons.Outlined.AccountBalanceWallet; RecordType.totp -> Icons.Outlined.Pin; else -> Icons.Outlined.Key }, 72.dp); Spacer(Modifier.height(16.dp))
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_no_seed_phrases; RecordType.totp -> R.string.totp_empty_title; else -> R.string.main_peace_of_mind }), style = MaterialTheme.typography.titleLarge)
@@ -823,6 +829,8 @@ class MainActivity : FragmentActivity() {
                 }
                 SectionTitle(stringResource(R.string.main_security))
                 Group {
+                    val report = remember(records) { VaultHealth.check(records) }
+                    Row(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title), report.score?.let { stringResource(R.string.health_summary, it, report.problemCount) } ?: stringResource(R.string.health_nothing)) { health = true }
                     Row(Icons.Outlined.Timer, stringResource(R.string.main_auto_lock), stringResource(autoLock.labelRes)) { dialog = SettingsDialog.AutoLockChoice }
                     Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } }) }) {
                         if (biometricEnabled) { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } else dialog = SettingsDialog.EnableBiometrics

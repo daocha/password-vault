@@ -193,3 +193,16 @@ fun ExpiryField(value: String, change: (String) -> Unit) {
         }
     }
 }
+
+/** A tappable notice above the list, e.g. items expiring soon or a backup reminder. */
+@Composable
+fun AttentionBanner(icon: ImageVector, text: String, action: String, onDismiss: (() -> Unit)? = null, onClick: () -> Unit) {
+    Card(onClick = onClick, Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer)) {
+        Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null)
+            Text(text, Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onClick) { Text(action) }
+            if (onDismiss != null) IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, stringResource(R.string.main_close)) }
+        }
+    }
+}
