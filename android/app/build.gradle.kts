@@ -39,7 +39,11 @@ android {
     // system pieces such as the date picker and the biometric prompt stay translated.
     androidResources { localeFilters += listOf("en", "b+zh+Hans", "b+zh+Hant", "zh-rCN", "zh-rTW", "zh-rHK") }
     // Code and native libraries are stored compressed: about half the APK download, unpacked once at install.
-    packaging { jniLibs { useLegacyPackaging = true }; dex { useLegacyPackaging = true } }
+    packaging {
+        jniLibs { useLegacyPackaging = true }; dex { useLegacyPackaging = true }
+        // BouncyCastle's data files (post-quantum tables, X.509 messages); the KeePass import uses only Argon2, ChaCha20 and Salsa20.
+        resources { excludes += "org/bouncycastle/**" }
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     // Release signing comes only from the environment (CI secrets); no key is ever committed.
     val releaseKeystore = System.getenv("QV_KEYSTORE_FILE")
@@ -145,6 +149,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
     implementation("com.google.zxing:core:3.5.3")
+    // KeePass (.kdbx) import: Argon2d/Argon2id, ChaCha20 and Salsa20 (libsodium has Argon2id only). R8 keeps only the classes used.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.81")
     // In-app updates: Google Play's update flow for Play installs (talks to the Play Store app, not the network).
     implementation("com.google.android.play:app-update:2.1.0")
     testImplementation("junit:junit:4.13.2")

@@ -24,7 +24,7 @@
     <string name="rec_expired">已到期</string>
     <string name="health_title">密碼庫健康</string>
     <string name="health_private_title">僅在本機檢查</string>
-    <string name="health_private_body">您的密碼絕不會被上傳或傳送到任何地方。PassVault 只在這部裝置上檢查它們，任何內容都不會離開裝置。由於完全離線運作，它無法在網上的外洩密碼清單中查詢您的密碼。</string>
+    <string name="health_private_body">你的密碼絕不會被上傳或傳送到任何地方。PassVault 只在這部裝置上檢查它們，任何內容都不會離開裝置。由於完全離線運作，它無法在網上的外洩密碼清單中查詢你的密碼。</string>
     <string name="health_score_label">健康評分</string>
     <string name="health_checked">已檢查 %1$d 個密碼</string>
     <string name="health_excellent">優秀</string>
@@ -47,7 +47,7 @@
     <string name="health_expiring">已到期或即將到期</string>
     <string name="health_expiring_body">已到期，或將在 30 天內到期。</string>
     <string name="health_2fa">建議使用雙重驗證碼</string>
-    <string name="health_2fa_body">這些常見服務在 PassVault 中沒有儲存雙重驗證碼。如果您已使用其他驗證器或簡訊驗證，可以忽略。</string>
+    <string name="health_2fa_body">這些常見服務在 PassVault 中沒有儲存雙重驗證碼。如果你已使用其他驗證器或簡訊驗證，可以忽略。</string>
     <string name="health_banner_expiring">已到期或即將到期：%1$d 項</string>
     <string name="health_review">查看</string>
     <string name="backup_last_title">上次加密備份</string>
@@ -61,8 +61,13 @@
     <string name="backup_reminder_week">每週</string>
     <string name="backup_reminder_two_weeks">每兩週</string>
     <string name="backup_reminder_month">每月</string>
-    <string name="backup_reminder_body">PassVault 不保存任何雲端副本：如果這部手機遺失或被重設，只有您自己的備份才能找回項目。需要備份且內容有變更時，應用程式內會顯示提醒。CSV 匯出不算備份，因為它不包含雙重驗證金鑰、助記詞、銀行卡和筆記。</string>
+    <string name="backup_reminder_body">PassVault 不保存任何雲端副本：如果這部手機遺失或被重設，只有你自己的備份才能找回項目。需要備份且內容有變更時，應用程式內會顯示提醒。CSV 匯出不算備份，因為它不包含雙重驗證金鑰、助記詞、銀行卡和筆記。</string>
     <string name="backup_banner_never">尚未備份。如果這部手機遺失或被重設，這些項目將無法找回。</string>
     <string name="backup_banner_due">上次備份 %1$s · 之後有 %2$d 個項目變更</string>
     <string name="backup_now">立即備份</string>
+    <string name="import_kdbx_title">KeePass 資料庫</string>
+    <string name="import_kdbx_body">請輸入資料庫密碼。如果它還使用金鑰檔案，也請選擇該檔案。開啟可能需要幾秒鐘。</string>
+    <string name="import_keyfile_choose">選擇金鑰檔案</string>
+    <string name="import_keyfile_chosen">已選擇金鑰檔案</string>
+    <string name="import_keyfile_remove">移除金鑰檔案</string>
 </resources>

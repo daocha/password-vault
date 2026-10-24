@@ -159,6 +159,22 @@ class MainActivity : FragmentActivity() {
     private var viewing by mutableStateOf<VaultRecord?>(null)
     private var editing by mutableStateOf(false)
     private var importBytes by mutableStateOf<ByteArray?>(null)
+    /** A KeePass key file chosen in the import password dialog. */
+    private var importKeyFile by mutableStateOf<ByteArray?>(null)
+    private val keyFilePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        systemPickerOpen = false
+        if (uri != null && unlocked) lifecycleScope.launch {
+            val epoch = generation
+            val bytes = runCatching { withContext(Dispatchers.IO) { contentResolver.openInputStream(uri)?.use { input ->
+                val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
+                while (out.size() <= 1024 * 1024) { val n = input.read(buffer); if (n < 0) break; out.write(buffer, 0, n) }
+                out.toByteArray()
+            } } }.getOrNull()
+            if (bytes == null || bytes.size > 1024 * 1024) { messageError = true; message = getString(R.string.main_cannot_open_file); return@launch }
+            if (epoch != generation || !unlocked) { bytes.fill(0); return@launch }
+            importKeyFile?.fill(0); importKeyFile = bytes
+        }
+    }
     private var exportBytes: ByteArray? = null
     private var exportIsCSV = false
     private lateinit var biometricPrompt: BiometricPrompt
@@ -199,8 +215,8 @@ class MainActivity : FragmentActivity() {
                 if (epoch != generation || !unlocked) { bytes.fill(0); return@launch } // Locked while the file was read.
                 importBytes?.fill(0); importBytes = null
                 if (BackupFormat.isNewer(bytes)) { bytes.fill(0); throw NewerVersionException(backup = true) } // Not a CSV: say so before asking for a password.
-                if (VaultCrypto.isBackup(bytes) || Pkb2.isPkb2(bytes)) importBytes = bytes // Password dialog decrypts it.
-                else readImport({ try { VaultCSV.importRecords(bytes.toString(Charsets.UTF_8)) } finally { bytes.fill(0) } })
+                if (Importers.needsPassword(bytes)) importBytes = bytes // Password dialog decrypts it.
+                else readImport({ try { Importers.importPlain(bytes) } finally { bytes.fill(0) } })
             } catch (e: Exception) { messageError = true; message = errorText(e, R.string.main_import_failed) }
         }
     }
@@ -342,7 +358,7 @@ class MainActivity : FragmentActivity() {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
         generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
-        importPreview = null; importBytes?.fill(0); importBytes = null; exportBytes?.fill(0); exportBytes = null
+        importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
         if (::engine.isInitialized) lifecycleScope.launch(vaultQueue) { engine.lock() }
@@ -983,11 +999,25 @@ class MainActivity : FragmentActivity() {
         }
         if (importBytes != null) {
             var backupPassword by remember { mutableStateOf("") }
-            val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true
-            AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(if (keeper) stringResource(R.string.main_keeper_backup_title) else stringResource(R.string.main_encrypted_backup_title)) },
-                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(if (keeper) stringResource(R.string.main_keeper_backup_body) else stringResource(R.string.main_encrypted_backup_body)); SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it }) } },
-                confirmButton = { TextButton(onClick = { val bytes = importBytes ?: return@TextButton; val pass = backupPassword; backupPassword = ""; readImport({ if (Pkb2.isPkb2(bytes)) Pkb2.import(bytes, pass) else VaultCrypto.importBackup(bytes, pass) }) { bytes.fill(0); if (importBytes === bytes) importBytes = null } }, enabled = backupPassword.isNotEmpty()) { Text(stringResource(R.string.main_decrypt)) } },
-                dismissButton = { TextButton(onClick = { importBytes?.fill(0); importBytes = null }) { Text(stringResource(R.string.main_cancel)) } })
+            val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true; val keepass = importBytes?.let { Kdbx.isKdbx(it) } == true
+            fun discard() { importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null }
+            AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(stringResource(when { keepass -> R.string.import_kdbx_title; keeper -> R.string.main_keeper_backup_title; else -> R.string.main_encrypted_backup_title })) },
+                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(when { keepass -> R.string.import_kdbx_body; keeper -> R.string.main_keeper_backup_body; else -> R.string.main_encrypted_backup_body }))
+                    SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it })
+                    if (keepass) {
+                        if (importKeyFile == null) OutlinedButton(onClick = { launchPicker { keyFilePicker.launch(arrayOf("*/*")) } }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Key, null); Text("  " + stringResource(R.string.import_keyfile_choose)) }
+                        else Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Key, null, tint = MaterialTheme.colorScheme.primary); Text(stringResource(R.string.import_keyfile_chosen), Modifier.weight(1f).padding(start = 8.dp))
+                            IconButton(onClick = { importKeyFile?.fill(0); importKeyFile = null }) { Icon(Icons.Default.Close, stringResource(R.string.import_keyfile_remove)) }
+                        }
+                    }
+                } },
+                // A KeePass database may have an empty password, or only a key file.
+                confirmButton = { TextButton(onClick = { val bytes = importBytes ?: return@TextButton; val pass = backupPassword; val key = importKeyFile; backupPassword = ""
+                    readImport({ when { Kdbx.isKdbx(bytes) -> Kdbx.importTyped(bytes, pass, key); Pkb2.isPkb2(bytes) -> Pkb2.import(bytes, pass); else -> VaultCrypto.importBackup(bytes, pass) } }) { bytes.fill(0); key?.fill(0); if (importBytes === bytes) { importBytes = null; importKeyFile = null } } },
+                    enabled = backupPassword.isNotEmpty() || keepass) { Text(stringResource(R.string.main_decrypt)) } },
+                dismissButton = { TextButton(onClick = { discard() }) { Text(stringResource(R.string.main_cancel)) } })
         }
         importPreview?.let { imported -> AlertDialog(onDismissRequest = { importPreview = null }, icon = { Icon(Icons.Outlined.FileOpen, null) }, title = { Text(stringResource(R.string.main_import_title, imported.size)) }, text = { HardenWindow(); val seeds = imported.count { it.type == RecordType.seed }; Text(when { seeds == 0 -> stringResource(R.string.main_import_body); seeds == 1 -> stringResource(R.string.main_import_body_seed_one, seeds); else -> stringResource(R.string.main_import_body_seed_many, seeds) }) }, confirmButton = { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 fun start(replace: Boolean) { importPreview = null; work({ if (replace) engine.replaceAll(imported) else engine.merge(imported) }) { settings = false; message = getString(R.string.main_imported_count, imported.size) } }

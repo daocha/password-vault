@@ -68,4 +68,10 @@
     <string name="backup_banner_never">No backup yet. If this phone is lost or reset, these entries are gone.</string>
     <string name="backup_banner_due">Last backup %1$s · %2$d entries changed since</string>
     <string name="backup_now">Back up</string>
+    <!-- Importing from other managers -->
+    <string name="import_kdbx_title">KeePass database</string>
+    <string name="import_kdbx_body">Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds.</string>
+    <string name="import_keyfile_choose">Choose key file</string>
+    <string name="import_keyfile_chosen">Key file chosen</string>
+    <string name="import_keyfile_remove">Remove key file</string>
 </resources>

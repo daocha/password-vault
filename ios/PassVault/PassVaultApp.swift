@@ -415,6 +415,8 @@ struct TransferView: View {
     @State private var exporting = false
     @State private var document: ExportDocument?
     @State private var pendingImport: [VaultRecord]?
+    /// An encrypted file (PassVault backup, Password Keeper .pkb2 or KeePass .kdbx) waiting for its password.
+    @State private var encryptedImport: EncryptedImport?
     @State private var newPassword = ""
     @State private var confirmNew = ""
     var body: some View {
@@ -441,36 +443,38 @@ struct TransferView: View {
                 } header: { Text("Backups") } footer: {
                     Text("PassVault keeps no cloud copy: if this phone is lost or reset, only your own backups bring your entries back. A reminder appears in the app when a backup is due and something has changed. CSV exports do not count, because they leave out 2FA keys, cards and notes.")
                 }
-                Section("Import & export") {
+                Section {
+                    Button("Import file") { importing = true }
+                } header: { Text("Import") } footer: {
+                    Text("PassVault backups, KeePass (.kdbx or XML), Bitwarden (JSON or CSV), 1Password (.1pux or CSV), Password Keeper (.pkb2 or CSV), and CSV from browsers and other managers. The format is recognised from the file.")
+                }
+                Section("Export") {
                     Toggle("Plaintext CSV", isOn: $csv)
                     if csv {
                         Text("CSV files expose every password. Keep them out of spreadsheets: cells may contain formulas. Delete your migration copy after checking the import.").font(.footnote).foregroundStyle(.orange)
                         Toggle("I understand the plaintext export risk", isOn: $csvConsent)
                     } else {
-                        SecureField("Encrypted file password (also for Password Keeper .pkb2)", text: $backupPassword)
+                        SecureField("Encrypted export password", text: $backupPassword)
                         SecureField("Repeat password for export", text: $confirmBackup)
                         Text("Encrypted exports use their own password. Keep it safe; there is no recovery service.").font(.footnote)
                     }
-                    Button("Import file") { importing = true }
                     Button("Export all passwords") { export() }.disabled(password.isEmpty || (csv ? !csvConsent : backupPassword != confirmBackup || VaultCrypto.passwordProblem(backupPassword) != nil))
                 }
                 Section("Security") { Text("The vault locks in the background and after five minutes per session. Copied values expire after 30 seconds. Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Biometrics do not reset the password counter.").font(.footnote) }
             }.navigationTitle("Vault settings").toolbar { Button("Done") { dismiss() } }
-                .fileImporter(isPresented: $importing, allowedContentTypes: csv ? [.commaSeparatedText, .plainText, .data] : [.data]) { result in
+                .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
                     do {
-                        let url = try result.get(), access = url.startAccessingSecurityScopedResource()
-                        defer { if access { url.stopAccessingSecurityScopedResource() } }
-                        guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max) <= Records.maxBytes + 64 else { throw VaultError.invalid("File exceeds 16 MiB.") }
-                        let data = try Data(contentsOf: url), isCSV = csv, pass = backupPassword
-                        backupPassword = ""; confirmBackup = ""
+                        let data = try readPicked(result.get())
+                        if Importers.needsPassword(data) { encryptedImport = EncryptedImport(data: data); return }
                         Task {
                             do {
-                                let imported = try await Task.detached { try isCSV ? VaultCSV.importRecords(String(decoding: data, as: UTF8.self)) : (Pkb2.isPkb2(data) ? Pkb2.importRecords(data, password: pass) : VaultCrypto.importBackup(data, password: pass)) }.value
-                                if model.unlocked { pendingImport = imported }
+                                let imported = try await Task.detached { try Importers.importPlain(data) }.value
+                                if model.unlocked { if imported.isEmpty { model.message = "The file contains no records." } else { pendingImport = imported } }
                             } catch { model.message = error.localizedDescription }
                         }
                     } catch { model.message = error.localizedDescription }
                 }
+                .sheet(item: $encryptedImport) { file in DecryptImportView(file: file) { records in encryptedImport = nil; if model.unlocked { pendingImport = records } } }
                 .confirmationDialog("Import \(pendingImport?.count ?? 0) records?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
                     Button("Import") { if let records = pendingImport { model.run { try $0.merge(records) } }; pendingImport = nil }
                     Button("Full replacement", role: .destructive) { if let records = pendingImport { model.run { try $0.replaceAll(records) } }; pendingImport = nil }
@@ -497,6 +501,72 @@ struct TransferView: View {
                 if model.unlocked { document = ExportDocument(data: data); exporting = true }
             } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
+        }
+    }
+}
+
+/// Reads a file chosen in a document picker, refusing anything larger than a vault can hold.
+func readPicked(_ url: URL, limit: Int = Records.maxBytes + 64) throws -> Data {
+    let access = url.startAccessingSecurityScopedResource()
+    defer { if access { url.stopAccessingSecurityScopedResource() } }
+    guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max) <= limit else { throw VaultError.invalid("The file is too large.") }
+    return try Data(contentsOf: url)
+}
+
+struct EncryptedImport: Identifiable { let id = UUID(); let data: Data }
+
+/// Asks for the password of an encrypted import file, and for KeePass optionally its key file.
+struct DecryptImportView: View {
+    @EnvironmentObject var model: VaultModel
+    @Environment(\.dismiss) var dismiss
+    let file: EncryptedImport
+    let done: ([VaultRecord]) -> Void
+    @State private var password = ""
+    @State private var keyFile: Data?
+    @State private var choosingKey = false
+    @State private var working = false
+    @State private var error = ""
+    var keepass: Bool { Kdbx.isKdbx(file.data) }
+    var keeper: Bool { Pkb2.isPkb2(file.data) }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField(keepass ? "Database password" : "File password", text: $password)
+                    if keepass {
+                        if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }
+                        else { HStack { Label("Key file chosen", systemImage: "key.fill"); Spacer(); Button("Remove") { keyFile = nil } } }
+                    }
+                } footer: {
+                    Text(keepass ? "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds."
+                         : keeper ? "Enter the password you chose when exporting this .pkb2 file from Password Keeper." : "Enter the password this backup was exported with.")
+                }
+                if !error.isEmpty { Text(error).foregroundStyle(.red).font(.footnote) }
+                if working { ProgressView("Decrypting…") }
+            }
+            .navigationTitle(keepass ? "KeePass database" : keeper ? "Password Keeper backup" : "Encrypted backup").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Decrypt") { decrypt() }.disabled(working || (password.isEmpty && !keepass)) }
+            }
+            .fileImporter(isPresented: $choosingKey, allowedContentTypes: [.item]) { result in
+                do { keyFile = try readPicked(result.get(), limit: 1024 * 1024) } catch { self.error = error.localizedDescription }
+            }
+        }
+    }
+    private func decrypt() {
+        let data = file.data, pass = password, key = keyFile
+        password = ""; working = true; error = ""
+        Task {
+            do {
+                let records = try await Task.detached { () throws -> [VaultRecord] in
+                    if Kdbx.isKdbx(data) { return try Kdbx.importTyped(data, password: pass, keyFile: key) }
+                    if Pkb2.isPkb2(data) { return try Pkb2.importRecords(data, password: pass) }
+                    return try VaultCrypto.importBackup(data, password: pass)
+                }.value
+                working = false
+                if records.isEmpty { error = "The file contains no records." } else { done(records) }
+            } catch { working = false; self.error = error.localizedDescription }
         }
     }
 }

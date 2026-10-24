@@ -24,7 +24,7 @@
     <string name="rec_expired">已到期</string>
     <string name="health_title">密码库健康</string>
     <string name="health_private_title">仅在本机检查</string>
-    <string name="health_private_body">您的密码绝不会被上传或发送到任何地方。PassVault 只在这台设备上检查它们，任何内容都不会离开设备。由于完全离线运行，它无法在网上的泄露密码列表中查询您的密码。</string>
+    <string name="health_private_body">你的密码绝不会被上传或发送到任何地方。PassVault 只在这台设备上检查它们，任何内容都不会离开设备。由于完全离线运行，它无法在网上的泄露密码列表中查询你的密码。</string>
     <string name="health_score_label">健康评分</string>
     <string name="health_checked">已检查 %1$d 个密码</string>
     <string name="health_excellent">优秀</string>
@@ -47,7 +47,7 @@
     <string name="health_expiring">已到期或即将到期</string>
     <string name="health_expiring_body">已到期，或将在 30 天内到期。</string>
     <string name="health_2fa">建议使用两步验证码</string>
-    <string name="health_2fa_body">这些常见服务在 PassVault 中没有保存两步验证码。如果您已使用其他验证器或短信验证，可以忽略。</string>
+    <string name="health_2fa_body">这些常见服务在 PassVault 中没有保存两步验证码。如果你已使用其他验证器或短信验证，可以忽略。</string>
     <string name="health_banner_expiring">已到期或即将到期：%1$d 项</string>
     <string name="health_review">查看</string>
     <string name="backup_last_title">上次加密备份</string>
@@ -61,8 +61,13 @@
     <string name="backup_reminder_week">每周</string>
     <string name="backup_reminder_two_weeks">每两周</string>
     <string name="backup_reminder_month">每月</string>
-    <string name="backup_reminder_body">PassVault 不保存任何云端副本：如果这部手机丢失或被重置，只有您自己的备份才能找回条目。需要备份且内容有变更时，应用内会显示提醒。CSV 导出不算备份，因为它不包含两步验证密钥、助记词、银行卡和笔记。</string>
+    <string name="backup_reminder_body">PassVault 不保存任何云端副本：如果这部手机丢失或被重置，只有你自己的备份才能找回条目。需要备份且内容有变更时，应用内会显示提醒。CSV 导出不算备份，因为它不包含两步验证密钥、助记词、银行卡和笔记。</string>
     <string name="backup_banner_never">尚未备份。如果这部手机丢失或被重置，这些条目将无法找回。</string>
     <string name="backup_banner_due">上次备份 %1$s · 之后有 %2$d 个条目变更</string>
     <string name="backup_now">立即备份</string>
+    <string name="import_kdbx_title">KeePass 数据库</string>
+    <string name="import_kdbx_body">请输入数据库密码。如果它还使用密钥文件，也请选择该文件。打开可能需要几秒钟。</string>
+    <string name="import_keyfile_choose">选择密钥文件</string>
+    <string name="import_keyfile_chosen">已选择密钥文件</string>
+    <string name="import_keyfile_remove">移除密钥文件</string>
 </resources>
