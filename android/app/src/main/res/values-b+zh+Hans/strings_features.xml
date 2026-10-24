@@ -50,4 +50,19 @@
     <string name="health_2fa_body">这些常见服务在 PassVault 中没有保存两步验证码。如果您已使用其他验证器或短信验证，可以忽略。</string>
     <string name="health_banner_expiring">已到期或即将到期：%1$d 项</string>
     <string name="health_review">查看</string>
+    <string name="backup_last_title">上次加密备份</string>
+    <string name="backup_never">从未</string>
+    <string name="backup_last_value">%1$s（%2$s）</string>
+    <string name="backup_today">今天</string>
+    <string name="backup_yesterday">昨天</string>
+    <string name="backup_days_ago">%1$d 天前</string>
+    <string name="backup_reminder_title">备份提醒</string>
+    <string name="backup_reminder_off">关闭</string>
+    <string name="backup_reminder_week">每周</string>
+    <string name="backup_reminder_two_weeks">每两周</string>
+    <string name="backup_reminder_month">每月</string>
+    <string name="backup_reminder_body">PassVault 不保存任何云端副本：如果这部手机丢失或被重置，只有您自己的备份才能找回条目。需要备份且内容有变更时，应用内会显示提醒。CSV 导出不算备份，因为它不包含两步验证密钥、助记词、银行卡和笔记。</string>
+    <string name="backup_banner_never">尚未备份。如果这部手机丢失或被重置，这些条目将无法找回。</string>
+    <string name="backup_banner_due">上次备份 %1$s · 之后有 %2$d 个条目变更</string>
+    <string name="backup_now">立即备份</string>
 </resources>

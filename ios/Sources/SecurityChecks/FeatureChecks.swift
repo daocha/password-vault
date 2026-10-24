@@ -73,3 +73,20 @@ func healthChecks() throws {
     try check(VaultHealth.passwordSetOn(CheckedPassword(record: keeper, field: keeper.fields[1])).map { $0.year == 2017 && $0.month == 7 } == true, "Password Keeper set date")
     try check(PasswordStrength.common.count > 250, "common password list loaded")
 }
+
+/// Backup reminders; mirrors Android's BackupReminderTest.
+func backupChecks() throws {
+    let now = Date(timeIntervalSince1970: 1_793_016_000), day = 86400.0
+    func record(_ date: Date) -> VaultRecord { var r = VaultRecord(); r.updatedAt = ISO8601DateFormatter().string(from: date); return r }
+    let records = [record(now - 40 * day), record(now - 2 * day)]
+    try check(!BackupReminder.due([], lastBackup: nil, intervalDays: 30, snoozedUntil: nil, now: now), "no reminder for an empty vault")
+    try check(BackupReminder.due(records, lastBackup: nil, intervalDays: 30, snoozedUntil: nil, now: now), "reminder before the first backup")
+    try check(!BackupReminder.due(records, lastBackup: nil, intervalDays: 0, snoozedUntil: nil, now: now), "reminders off")
+    try check(!BackupReminder.due(records, lastBackup: nil, intervalDays: 30, snoozedUntil: now + 60, now: now) && BackupReminder.due(records, lastBackup: nil, intervalDays: 30, snoozedUntil: now - 60, now: now), "snooze")
+    try check(BackupReminder.due(records, lastBackup: now - 31 * day, intervalDays: 30, snoozedUntil: nil, now: now), "interval passed with changes")
+    try check(!BackupReminder.due([record(now - 40 * day)], lastBackup: now - 31 * day, intervalDays: 30, snoozedUntil: nil, now: now), "interval passed without changes")
+    try check(!BackupReminder.due(records, lastBackup: now - 10 * day, intervalDays: 30, snoozedUntil: nil, now: now) && BackupReminder.due(records, lastBackup: now - 8 * day, intervalDays: 7, snoozedUntil: nil, now: now), "interval length")
+    var undated = VaultRecord(); undated.updatedAt = "not a date"
+    let mixed = [record(now - 6 * day), record(now - day), undated]
+    try check(BackupReminder.changedSince(mixed, lastBackup: now - 5 * day) == 2 && BackupReminder.changedSince(mixed, lastBackup: nil) == 3, "entries changed since the backup")
+}

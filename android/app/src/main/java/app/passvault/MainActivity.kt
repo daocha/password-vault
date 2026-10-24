@@ -84,6 +84,7 @@ private sealed interface SettingsDialog {
     data object Generator : SettingsDialog
     data object EnableBiometrics : SettingsDialog
     data object ChangePassword : SettingsDialog
+    data object BackupReminderChoice : SettingsDialog
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
@@ -139,6 +140,13 @@ class MainActivity : FragmentActivity() {
     private var settings by mutableStateOf(false)
     /** The vault health report; entries opened from it come back to it. */
     private var health by mutableStateOf(false)
+    /** The open settings dialog; kept here so the backup reminder can open the export dialog directly. */
+    private var settingsDialog by mutableStateOf<SettingsDialog?>(null)
+    private val backups get() = BackupStatus(prefs)
+    private var lastBackup by mutableStateOf<Instant?>(null)
+    private var backupInterval by mutableStateOf(BackupInterval.month)
+    private var backupSnoozedUntil by mutableStateOf<Instant?>(null)
+    private fun loadBackupStatus() { val b = backups; lastBackup = b.lastBackup; backupInterval = b.interval; backupSnoozedUntil = b.snoozedUntil }
     private var tab by mutableStateOf(RecordType.login)
     /** Accounts read from a Google Authenticator export QR, waiting for the user to confirm adding them. */
     private var scannedImport by mutableStateOf<ScannedImport?>(null)
@@ -255,6 +263,7 @@ class MainActivity : FragmentActivity() {
         clipboardClear = runCatching { ClipboardClear.valueOf(prefs.getString("clipboardClear", null) ?: "") }.getOrDefault(ClipboardClear.m1)
         generatorOptions = GeneratorOptions(prefs.getInt("genLength", 10).coerceIn(GeneratorOptions.MIN_LENGTH, GeneratorOptions.MAX_LENGTH), prefs.getBoolean("genLetters", true), prefs.getBoolean("genNumbers", true), prefs.getBoolean("genSymbols", true)).let { if (it.sets.isEmpty()) GeneratorOptions() else it }
         allowCopy = prefs.getBoolean("allowCopy", true); clearClipOnLock = prefs.getBoolean("clearClipOnLock", true)
+        loadBackupStatus()
         biometricPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 val enable = enablingBiometric; enablingBiometric = false
@@ -331,7 +340,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun lockVault(clearClipboard: Boolean = true) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; scannedImport = null; cameraGranted = null; imageRead = null
+        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -464,6 +473,11 @@ class MainActivity : FragmentActivity() {
                     if (tab == RecordType.login) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) },
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(groupColorArgb(name)).copy(alpha = 0.28f), selectedLabelColor = MaterialTheme.colorScheme.onSurface),
                         border = FilterChipDefaults.filterChipBorder(true, group == name, borderColor = Color(groupColorArgb(name)), selectedBorderColor = Color(groupColorArgb(name)), borderWidth = 1.dp, selectedBorderWidth = 2.dp)) }
+                }
+                if (!selecting && remember(records, lastBackup, backupInterval, backupSnoozedUntil) { BackupReminder.due(records, lastBackup, backupInterval, backupSnoozedUntil) }) {
+                    val last = lastBackup
+                    AttentionBanner(Icons.Outlined.SaveAlt, if (last == null) stringResource(R.string.backup_banner_never) else stringResource(R.string.backup_banner_due, backupAge(last), BackupReminder.changedSince(records, last)),
+                        stringResource(R.string.backup_now), onDismiss = { backups.snooze(); loadBackupStatus() }) { settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }
                 }
                 val expiring = remember(records) { records.count { it.expiryState() == ExpiryState.expired || it.expiryState() == ExpiryState.soon } }
                 if (expiring > 0 && !selecting) AttentionBanner(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { health = true }
@@ -807,7 +821,7 @@ class MainActivity : FragmentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun SettingsScreen() {
-        var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
+        var dialog by this::settingsDialog
         @Composable fun Row(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String? = null, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) =
             ListItem(headlineContent = { Text(title) }, supportingContent = subtitle?.let { { Text(it) } }, leadingContent = { IconBadge(icon) }, trailingContent = trailing,
                 modifier = Modifier.clickable(onClick = onClick), colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
@@ -852,6 +866,8 @@ class MainActivity : FragmentActivity() {
                 }
                 SectionTitle(stringResource(R.string.main_backup_migration))
                 Group {
+                    Row(Icons.Outlined.History, stringResource(R.string.backup_last_title), lastBackup?.let { stringResource(R.string.backup_last_value, formatUpdated(it.toString()).orEmpty(), backupAge(it)) } ?: stringResource(R.string.backup_never)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
+                    Row(Icons.Outlined.NotificationsActive, stringResource(R.string.backup_reminder_title), stringResource(backupInterval.labelRes)) { dialog = SettingsDialog.BackupReminderChoice }
                     Row(Icons.Outlined.FileOpen, stringResource(R.string.main_import_action), stringResource(R.string.main_import_row_summary)) { launchPicker { importPicker.launch(arrayOf("*/*")) } }
                     Row(Icons.Outlined.EnhancedEncryption, stringResource(R.string.main_export_encrypted), stringResource(R.string.main_export_encrypted_summary)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
                     Row(Icons.Outlined.Description, stringResource(R.string.main_export_csv), stringResource(R.string.main_export_csv_summary)) { dialog = SettingsDialog.Exporting(Export.csv) }
@@ -873,6 +889,11 @@ class MainActivity : FragmentActivity() {
                 text = { Column {
                     Text(stringResource(R.string.main_autolock_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(8.dp))
                     AutoLock.entries.forEach { option -> androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(autoLock == option, onClick = { autoLock = option; prefs.edit().putString("autoLock", option.name).apply(); dialog = null }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(autoLock == option, null); Text("  " + stringResource(option.labelRes)) } }
+                } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
+            SettingsDialog.BackupReminderChoice -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.NotificationsActive, null) }, title = { Text(stringResource(R.string.backup_reminder_title)) },
+                text = { Column {
+                    Text(stringResource(R.string.backup_reminder_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(8.dp))
+                    BackupInterval.entries.forEach { option -> androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(backupInterval == option, onClick = { backups.interval = option; loadBackupStatus(); dialog = null }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(backupInterval == option, null); Text("  " + stringResource(option.labelRes)) } }
                 } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
             SettingsDialog.ClipboardChoice -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.AvTimer, null) }, title = { Text(stringResource(R.string.main_clear_copied_text)) },
                 text = { Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -986,10 +1007,19 @@ class MainActivity : FragmentActivity() {
         systemPickerOpen = false
         val bytes = exportBytes ?: return; exportBytes = null
         lifecycleScope.launch {
-            try { if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }; message = if (uri == null) getString(R.string.main_export_cancelled) else if (exportIsCSV) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done) }
+            try {
+                if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }
+                // Only a saved encrypted backup counts: CSV leaves out 2FA keys, seed phrases, cards and notes.
+                if (uri != null && !exportIsCSV) { backups.lastBackup = Instant.now(); loadBackupStatus() }
+                message = if (uri == null) getString(R.string.main_export_cancelled) else if (exportIsCSV) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done) }
             catch (e: Exception) { message = e.message ?: getString(R.string.main_export_failed) }
             finally { bytes.fill(0) }
         }
+    }
+    /** "today", "yesterday" or "12 days ago". */
+    @Composable private fun backupAge(at: Instant): String {
+        val days = java.time.Duration.between(at, Instant.now()).toDays().coerceAtLeast(0)
+        return when (days) { 0L -> stringResource(R.string.backup_today); 1L -> stringResource(R.string.backup_yesterday); else -> stringResource(R.string.backup_days_ago, days.toInt()) }
     }
     @Composable private fun PasswordHint(value: String) {
         val problem = if (value.isEmpty()) null else PasswordPolicy.problem(value)

@@ -11,6 +11,11 @@ import UniformTypeIdentifiers
     @Published var message = ""
     @Published var attempts = 10
     @Published var erased = false
+    /// When the last encrypted backup was saved, and the reminder settings. Ordinary preferences: only times and a choice, no secrets.
+    @Published var lastBackup: Date?
+    @Published var backupIntervalDays = 30
+    @Published var backupSnoozedUntil: Date?
+    private var backupPrefix = ""
     private var unlockedAt = Date.distantPast
     private(set) var engine: VaultEngine? = nil
     private var generation = 0
@@ -22,7 +27,21 @@ import UniformTypeIdentifiers
         } catch { message = error.localizedDescription }
         engine = initialized
         erased = (try? initialized?.isErased()) ?? false
+        loadBackupStatus()
     }
+    func loadBackupStatus() {
+        let defaults = UserDefaults.standard
+        lastBackup = defaults.object(forKey: backupPrefix + "lastBackupAt") as? Date
+        backupIntervalDays = defaults.object(forKey: backupPrefix + "backupReminderDays") as? Int ?? 30
+        backupSnoozedUntil = defaults.object(forKey: backupPrefix + "backupSnoozeUntil") as? Date
+    }
+    /// Only a saved encrypted backup counts: CSV leaves out 2FA keys, cards and notes.
+    func recordBackup() {
+        UserDefaults.standard.set(Date(), forKey: backupPrefix + "lastBackupAt"); UserDefaults.standard.removeObject(forKey: backupPrefix + "backupSnoozeUntil"); loadBackupStatus()
+    }
+    func snoozeBackup() { UserDefaults.standard.set(Date().addingTimeInterval(Double(BackupReminder.snoozeDays) * 86400), forKey: backupPrefix + "backupSnoozeUntil"); loadBackupStatus() }
+    func setBackupInterval(_ days: Int) { UserDefaults.standard.set(days, forKey: backupPrefix + "backupReminderDays"); loadBackupStatus() }
+    var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil) }
     func lock() {
         generation += 1; unlocked = false; records = []
         let engine = engine
@@ -214,6 +233,13 @@ struct RecordList: View {
                 Section {
                     Picker("Show", selection: $showTotp) { Text("Passwords").tag(false); Text("2FA codes").tag(true) }.pickerStyle(.segmented)
                     Toggle("Favorites only", isOn: $favorites)
+                }
+                if model.backupDue {
+                    Section {
+                        Label(model.lastBackup.map { "Last backup \($0.formatted(.relative(presentation: .named))) · \(BackupReminder.changedSince(model.records, lastBackup: $0)) entries changed since" }
+                              ?? "No backup yet. If this phone is lost or reset, these entries are gone.", systemImage: "externaldrive.badge.exclamationmark")
+                        HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless)
+                    }
                 }
                 let expiring = model.records.filter { [.expired, .soon].contains($0.expiryState()) }.count
                 if expiring > 0 {
@@ -407,6 +433,14 @@ struct TransferView: View {
                     }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || newPassword != confirmNew)
                     Text("Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again above.").font(.footnote)
                 }
+                Section {
+                    LabeledContent("Last encrypted backup", value: model.lastBackup.map { "\($0.formatted(date: .abbreviated, time: .shortened)) (\($0.formatted(.relative(presentation: .named))))" } ?? "Never")
+                    Picker("Backup reminder", selection: Binding(get: { model.backupIntervalDays }, set: { model.setBackupInterval($0) })) {
+                        ForEach(BackupReminder.intervals, id: \.self) { days in Text(days == 0 ? "Off" : days == 7 ? "Every week" : days == 14 ? "Every 2 weeks" : "Every month").tag(days) }
+                    }
+                } header: { Text("Backups") } footer: {
+                    Text("PassVault keeps no cloud copy: if this phone is lost or reset, only your own backups bring your entries back. A reminder appears in the app when a backup is due and something has changed. CSV exports do not count, because they leave out 2FA keys, cards and notes.")
+                }
                 Section("Import & export") {
                     Toggle("Plaintext CSV", isOn: $csv)
                     if csv {
@@ -446,7 +480,10 @@ struct TransferView: View {
                 }
                 .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { result in
                     document = nil
-                    if case .failure(let error) = result { model.message = error.localizedDescription }
+                    switch result {
+                    case .failure(let error): model.message = error.localizedDescription
+                    case .success: if !csv { model.recordBackup() }
+                    }
                 }
         }
     }
