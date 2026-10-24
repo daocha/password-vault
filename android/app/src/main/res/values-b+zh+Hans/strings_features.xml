@@ -98,4 +98,5 @@
     <string name="transfer_received">已接收 %1$d / %2$d</string>
     <string name="transfer_import_title">从另一部手机传输</string>
     <string name="transfer_import_body">请输入另一部手机上显示的传输码。</string>
+    <string name="transfer_keep_hint">离开 PassVault 去发送文件时它会锁定。10 分钟内再次解锁，此画面会带着同一个传输码回来。</string>
 </resources>

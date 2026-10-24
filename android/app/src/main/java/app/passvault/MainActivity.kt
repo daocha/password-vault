@@ -91,13 +91,18 @@ private sealed interface SettingsDialog {
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
+/**
+ * A transfer being sent: kept through a lock for [MainActivity.TRANSFER_KEEP_MILLIS] (leaving the app to share the file locks it), and
+ * shown again only after unlocking the same vault it was made from.
+ */
+private class PendingTransfer(val code: String, val bytes: ByteArray, val decoy: Boolean, val expiresAt: Long)
 private class ScannedImport(val records: List<VaultRecord>, val hotp: Int, val duplicates: Int)
 
 private val LANGUAGES = listOf("", "en", "zh-Hans", "zh-Hant")
 private fun languageName(tag: String) = when (tag) { "en" -> R.string.main_language_english; "zh-Hans" -> R.string.main_language_zh_hans; "zh-Hant" -> R.string.main_language_zh_hant; else -> R.string.main_language_system }
 
 class MainActivity : FragmentActivity() {
-    private companion object { const val PICKER_GRACE_MILLIS = 120_000L }
+    private companion object { const val PICKER_GRACE_MILLIS = 120_000L; const val TRANSFER_KEEP_MILLIS = 10 * 60_000L }
     private lateinit var engine: VaultEngine
     // Every engine call runs on this one queue, so a lock can never interleave with the next unlock or save.
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -146,11 +151,12 @@ class MainActivity : FragmentActivity() {
     /** The open settings dialog; kept here so the backup reminder can open the export dialog directly. */
     private var settingsDialog by mutableStateOf<SettingsDialog?>(null)
     /** Phone-to-phone transfer: the one-time code and sealed payload being shown, or the scanner collecting one. */
-    private var sending by mutableStateOf<Pair<String, ByteArray>?>(null)
+    private var sending by mutableStateOf<PendingTransfer?>(null)
+    private fun discardTransfer() { sending?.bytes?.fill(0); sending = null }
     private var receiving by mutableStateOf(false)
     private val transferFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         systemPickerOpen = false
-        val bytes = sending?.second ?: return@registerForActivityResult
+        val bytes = sending?.bytes ?: return@registerForActivityResult
         if (uri != null) lifecycleScope.launch {
             // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
             try { withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }; message = getString(R.string.transfer_saved) }
@@ -203,7 +209,7 @@ class MainActivity : FragmentActivity() {
             val record = viewing
             when {
                 selected.isNotEmpty() -> selected = emptySet()
-                sending != null -> { sending?.second?.fill(0); sending = null }
+                sending != null -> discardTransfer()
                 receiving -> receiving = false
                 record != null && editing && records.any { it.id == record.id } -> editing = false
                 record != null -> { viewing = null; editing = false }
@@ -329,7 +335,7 @@ class MainActivity : FragmentActivity() {
                             val record = viewing
                             when {
                                 !unlocked -> UnlockScreen()
-                                sending != null -> sending?.let { (code, bytes) -> TransferSendScreen(bytes, code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { bytes.fill(0); sending = null }) }
+                                sending != null -> sending?.let { t -> TransferSendScreen(t.bytes, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
                                 receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
                                 record != null -> RecordScreen(record, editing)
                                 health -> HealthScreen(records, onBack = { health = false }, onOpen = { viewing = it; editing = false })
@@ -379,7 +385,10 @@ class MainActivity : FragmentActivity() {
     }
     private fun lockVault(clearClipboard: Boolean = true) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; sending?.second?.fill(0); sending = null; receiving = false; scannedImport = null; cameraGranted = null; imageRead = null
+        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
+        // A transfer outlives the lock for a while, so its code is still there after sharing the file from another app.
+        if (sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
+        scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -388,7 +397,7 @@ class MainActivity : FragmentActivity() {
     }
     override fun onDestroy() {
         updates?.close()
-        unregisterReceiver(screenOff); exportBytes?.fill(0); importBytes?.fill(0); biometricCandidate?.fill(0)
+        unregisterReceiver(screenOff); discardTransfer(); exportBytes?.fill(0); importBytes?.fill(0); biometricCandidate?.fill(0)
         // The auto-lock coroutine dies with this activity, so zero the data key now (off the main thread: the engine may be mid-Argon2).
         if (::engine.isInitialized) { val e = engine; Thread { e.lock() }.start() }
         super.onDestroy()
@@ -409,6 +418,8 @@ class MainActivity : FragmentActivity() {
                 if (result != null) {
                     records = result; unlocked = true; exists = true
                     decoySession = runCatching { engine.isDecoy() }.getOrDefault(false); decoyEnabled = runCatching { engine.hasDecoy() }.getOrDefault(false); loadBackupStatus()
+                    // Only the vault that made a pending transfer may see it again.
+                    sending?.let { if (it.decoy != decoySession || SystemClock.elapsedRealtime() >= it.expiresAt) discardTransfer() }
                 }
                 remaining = engine.remainingAttempts(); done()
             } catch (e: Exception) {
@@ -954,7 +965,7 @@ class MainActivity : FragmentActivity() {
             SettingsDialog.DecoySetup -> DecoySetupDialog { dialog = null }
             SettingsDialog.TransferSend -> PasswordDialog(Icons.Outlined.SendToMobile, stringResource(R.string.transfer_send), stringResource(R.string.transfer_send_body), stringResource(R.string.main_continue_action), { dialog = null }) { pass ->
                 var sealed: Pair<String, ByteArray>? = null
-                work({ sealed = engine.exportTransfer(pass); null }) { sending = sealed }
+                work({ sealed = engine.exportTransfer(pass); null }) { sealed?.let { (code, bytes) -> sending = PendingTransfer(code, bytes, decoySession, SystemClock.elapsedRealtime() + TRANSFER_KEEP_MILLIS) } }
             }
             SettingsDialog.DecoyRemove -> PasswordDialog(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_remove), stringResource(R.string.decoy_remove_body), stringResource(R.string.main_delete), { dialog = null }) { pass ->
                 work({ engine.removeDecoy(pass); null }) { decoyEnabled = false; prefs.edit().remove("decoy.lastBackupAt").remove("decoy.backupReminder").remove("decoy.backupSnoozeUntil").apply(); message = getString(R.string.decoy_removed) }

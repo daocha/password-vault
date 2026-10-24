@@ -20,6 +20,8 @@ import AVFoundation
     /// The decoy vault is open: settings that would reveal or touch the real vault are not shown.
     @Published var decoy = false
     @Published var hasDecoy = false
+    /// The transfer being sent, if any; it survives a lock for a while so its code is still there after sharing the file from another app.
+    @Published var sending: TransferPayload?
     private var unlockedAt = Date.distantPast
     private(set) var engine: VaultEngine? = nil
     private var generation = 0
@@ -48,6 +50,7 @@ import AVFoundation
     var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil) }
     func lock() {
         generation += 1; unlocked = false; records = []; decoy = false; hasDecoy = false
+        if let sending, Date() >= sending.expiresAt { self.sending = nil }
         if !backupPrefix.isEmpty { backupPrefix = ""; loadBackupStatus() }
         let engine = engine
         Task.detached { engine?.lock() }
@@ -63,6 +66,8 @@ import AVFoundation
                     records = result; unlocked = true; exists = true; unlockedAt = Date()
                     // Each vault keeps its own backup history, so the decoy shows only its own.
                     decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; backupPrefix = decoy ? "decoy." : ""; loadBackupStatus()
+                    // Only the vault that made a pending transfer may see it again.
+                    if let sending, sending.decoy != decoy || Date() >= sending.expiresAt { self.sending = nil }
                 }
                 attempts = try engine.remainingAttempts(); done?()
             } catch {
@@ -303,6 +308,7 @@ struct RecordList: View {
             .sheet(item: $editingTotp) { TotpEditor(record: $0) }
             .sheet(isPresented: $transfer) { TransferView() }
             .sheet(isPresented: $health) { HealthView() }
+            .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
     }
 }
@@ -424,7 +430,6 @@ struct TransferView: View {
     @State private var exporting = false
     @State private var document: ExportDocument?
     @State private var pendingImport: [VaultRecord]?
-    @State private var sending: TransferPayload?
     @State private var receiving = false
     @State private var decoyPassword = ""
     @State private var confirmDecoy = ""
@@ -512,7 +517,6 @@ struct TransferView: View {
                         }
                     } catch { model.message = error.localizedDescription }
                 }
-                .fullScreenCover(item: $sending) { TransferSendView(payload: $0) }
                 .fullScreenCover(isPresented: $receiving) { TransferReceiveView { data in
                     // Present the code prompt once the scanner has finished closing; SwiftUI drops a sheet shown mid-dismissal.
                     receiving = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { encryptedImport = EncryptedImport(data: data) }
@@ -543,7 +547,8 @@ struct TransferView: View {
         Task {
             do {
                 let sealed = try await Task.detached { try engine.exportTransfer(password: pass) }.value
-                if model.unlocked { sending = TransferPayload(code: sealed.code, data: sealed.data) }
+                // Shown from the vault list, so it can come back after a lock; this sheet closes.
+                if model.unlocked { model.sending = TransferPayload(code: sealed.code, data: sealed.data, decoy: model.decoy); dismiss() }
             } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
         }

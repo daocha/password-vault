@@ -80,6 +80,7 @@ fun TransferSendScreen(payload: ByteArray, code: String, onSaveFile: () -> Unit,
                 Icon(if (showCode) Icons.Outlined.QrCode2 else Icons.Outlined.Password, null); Text("  " + stringResource(if (showCode) R.string.transfer_hide_code else R.string.transfer_show_code))
             }
             OutlinedButton(onClick = onSaveFile, Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Outlined.SaveAlt, null); Text("  " + stringResource(R.string.transfer_save_file)) }
+            Text(stringResource(R.string.transfer_keep_hint), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             TextButton(onClick = onDone, Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.main_done)) }
         }
     }

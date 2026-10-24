@@ -104,4 +104,5 @@
     <string name="transfer_received">Received %1$d of %2$d</string>
     <string name="transfer_import_title">Transfer from another phone</string>
     <string name="transfer_import_body">Enter the transfer code shown on the other phone.</string>
+    <string name="transfer_keep_hint">Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code.</string>
 </resources>

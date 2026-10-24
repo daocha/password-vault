@@ -4,7 +4,12 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import VaultCore
 
-struct TransferPayload: Identifiable { let id = UUID(); let code: String; let data: Data }
+/// A transfer being sent: kept through a lock for `TransferPayload.keep` (leaving the app to share the file locks it), and shown again only
+/// after unlocking the same vault it was made from.
+struct TransferPayload: Identifiable {
+    static let keep: TimeInterval = 600
+    let id = UUID(); let code: String; let data: Data; let decoy: Bool; let expiresAt = Date().addingTimeInterval(keep)
+}
 
 /// A QR code, one point per module scaled without smoothing.
 func qrImage(_ text: String) -> UIImage? {
@@ -43,6 +48,7 @@ struct TransferSendView: View {
                 }
                 Button(showCode ? "Show QR code again" : "Show transfer code") { showCode.toggle() }.buttonStyle(.borderedProminent)
                 Button("Save as file instead") { saving = true }
+                Text("Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 if saved { Text("Transfer file saved. On the new phone, import it and type the transfer code.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center) }
                 Spacer()
             }
