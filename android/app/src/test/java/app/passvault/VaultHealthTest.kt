@@ -56,6 +56,15 @@ class VaultHealthTest {
         val record = login("Keeper", "Kf8#pW2!zQ7mVx").copy(legacy = mapOf("passwordSetDate" to "1500000000"))
         assertEquals(LocalDate.of(2017, 7, 14), VaultHealth.passwordSetOn(CheckedPassword(record, record.fields[1])))
     }
+    @Test fun totpCoversOnlyTheMatchingAccount() {
+        fun spotify(username: String) = login("Spotify", "Kf8#pW2!zQ7mVx", "https://spotify.com")
+            .copy(fields = listOf(VaultField(kind = FieldKind.username, label = "Username", value = username), VaultField(kind = FieldKind.password, label = "Password", value = "Kf8#pW2!zQ7mVx")))
+        val me = spotify("me@example.com"); val other = spotify("other@example.com")
+        val code = TotpAccount(Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer = "Spotify", account = " ME@example.com ").record()
+        assertEquals(listOf(other.id), VaultHealth.check(listOf(me, other, code)).noTwoFactor.map { it.id })
+        val unnamed = code.copy(fields = TotpAccount(Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer = "Spotify").record().fields)
+        assertEquals(2, VaultHealth.check(listOf(me, other, unnamed)).noTwoFactor.size)
+    }
     @Test fun onlyRealPasswordsAreChecked() {
         val r = VaultRecord(name = "Imported", fields = listOf(VaultField(kind = FieldKind.password, label = "Password", value = "x7#Qm2!vLp9@Zr4^"),
             VaultField(kind = FieldKind.password, label = "PIN", value = "1234"), VaultField(kind = FieldKind.password, label = "One-time password", value = "steam://AB"),

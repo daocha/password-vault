@@ -46,6 +46,31 @@ class KeePassTest {
         val records = Importers.importPlain(file("demo.xml"))
         checkDemo(records)
     }
+    @Test fun unsupportedTotpSettingsKeepTheOriginalSecret() {
+        val xml = """<KeePassFile><Root><Group><Entry>
+            <String><Key>Title</Key><Value>Mail</Value></String>
+            <String><Key>UserName</Key><Value>me</Value></String>
+            <String><Key>TimeOtp-Secret-Base32</Key><Value>JBSWY3DPEHPK3PXP</Value></String>
+            <String><Key>TimeOtp-Algorithm</Key><Value>HMAC-SHA3</Value></String>
+        </Entry></Group></Root></KeePassFile>"""
+        val records = Importers.importPlain(xml.toByteArray())
+        assertEquals(1, records.size)
+        assertEquals("JBSWY3DPEHPK3PXP", records.single().fields.single { it.label == "TimeOtp-Secret-Base32" }.value)
+        assertTrue(records.single().fields.single { it.label == "TimeOtp-Secret-Base32" }.secret)
+        assertEquals("HMAC-SHA3", records.single().fields.single { it.label == "TimeOtp-Algorithm" }.value)
+    }
+    @Test fun supportedTotpSettingsMakeAnAuthenticator() {
+        val xml = """<KeePassFile><Root><Group><Entry>
+            <String><Key>Title</Key><Value>Spotify</Value></String>
+            <String><Key>UserName</Key><Value>me</Value></String>
+            <String><Key>TimeOtp-Secret-Base32</Key><Value>JBSWY3DPEHPK3PXP</Value></String>
+            <String><Key>TimeOtp-Algorithm</Key><Value>HMAC-SHA256</Value></String>
+        </Entry></Group></Root></KeePassFile>"""
+        val records = Importers.importPlain(xml.toByteArray())
+        assertEquals(2, records.size)
+        assertEquals("SHA256", records.single { it.type == RecordType.totp }.totp?.algorithm)
+        assertTrue(records.single { it.type == RecordType.login }.fields.none { it.label.startsWith("TimeOtp-") })
+    }
     @Test fun xmlReaderRefusesDoctypeAndBadMarkup() {
         val evil = "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><KeePassFile>&e;</KeePassFile>"
         assertThrows(IllegalArgumentException::class.java) { MiniXml.parse(evil) }

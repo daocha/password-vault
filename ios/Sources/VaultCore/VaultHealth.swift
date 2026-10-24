@@ -95,8 +95,19 @@ public enum VaultHealth {
         }.enumerated().sorted { (Expiry.dayNumber($0.element.since), $0.offset) < (Expiry.dayNumber($1.element.since), $1.offset) }.map(\.element)
         let expiring = records.filter { [.expired, .soon].contains($0.expiryState(today: today)) }.enumerated()
             .sorted { (Expiry.dayNumber($0.element.expiryDate!), $0.offset) < (Expiry.dayNumber($1.element.expiryDate!), $1.offset) }.map(\.element)
-        let covered = Set(records.filter(\.isTotp).compactMap { findBrand(website: $0.totp?.issuer ?? "", name: $0.name)?.id })
-        let noTwoFactor = records.filter { r in r.isLogin && r.fields.contains { $0.kind == .password && !$0.value.isEmpty } && (findBrand(website: r.website, name: r.name).map { !covered.contains($0.id) } ?? false) }
+        // A code for one account must not hide the warning for another account at the same service.
+        func account(_ value: String) -> String { value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        let covered = Set(records.filter(\.isTotp).compactMap { r -> String? in
+            guard let totp = r.totp, !account(totp.account).isEmpty,
+                  let brand = findBrand(website: totp.issuer, name: r.name) else { return nil }
+            return brand.id + "\u{0}" + account(totp.account)
+        })
+        let noTwoFactor = records.filter { r in
+            guard r.isLogin, r.fields.contains(where: { $0.kind == .password && !$0.value.isEmpty }),
+                  let brand = findBrand(website: r.website, name: r.name) else { return false }
+            let username = account(r.fields.first { $0.kind == .username && $0.label.caseInsensitiveCompare("Username") == .orderedSame }?.value ?? "")
+            return username.isEmpty || !covered.contains(brand.id + "\u{0}" + username)
+        }
             .sorted { $0.name.lowercased() < $1.name.lowercased() }
         return HealthReport(reused: reused, weak: weak, old: old, expiring: expiring, noTwoFactor: noTwoFactor, checked: passwords.count)
     }

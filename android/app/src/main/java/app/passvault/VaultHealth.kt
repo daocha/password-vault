@@ -86,9 +86,17 @@ object VaultHealth {
         val cutoff = today.minusDays(OLD_DAYS)
         val old = passwords.mapNotNull { p -> passwordSetOn(p)?.takeIf { it.isBefore(cutoff) }?.let { p to it } }.sortedBy { it.second }
         val expiring = records.filter { it.expiryState(today) == ExpiryState.expired || it.expiryState(today) == ExpiryState.soon }.sortedBy { it.expiryDate }
-        val covered = records.filter { it.type == RecordType.totp }.mapNotNull { t -> findBrand(t.totp?.issuer.orEmpty(), t.name)?.id }.toSet()
+        // A code for one account must not hide the warning for another account at the same service.
+        fun account(value: String) = value.trim().lowercase()
+        val covered = records.filter { it.type == RecordType.totp }.mapNotNull { t ->
+            val name = t.totp?.account?.let(::account)?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            findBrand(t.totp?.issuer.orEmpty(), t.name)?.id?.let { it to name }
+        }.toSet()
         val noTwoFactor = records.filter { it.type == RecordType.login && it.fields.any { f -> f.kind == FieldKind.password && f.value.isNotEmpty() } }
-            .filter { r -> findBrand(r.website, r.name)?.let { it.id !in covered } == true }.sortedBy { it.name.lowercase() }
+            .filter { r -> findBrand(r.website, r.name)?.let { brand ->
+                val username = r.fields.firstOrNull { it.kind == FieldKind.username && it.label.equals("Username", true) }?.value?.let(::account).orEmpty()
+                username.isEmpty() || (brand.id to username) !in covered
+            } == true }.sortedBy { it.name.lowercase() }
         return HealthReport(reused, weak, old, expiring, noTwoFactor, passwords.size)
     }
     /**

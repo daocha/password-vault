@@ -283,14 +283,19 @@ internal object KeePassXml {
         // History versions (oldest first) then the entry itself: each password that was replaced is kept with the time it was replaced.
         val versions = entry.child("History")?.all("Entry").orEmpty().map { Strings(it)["Password"] to time(it.child("Times")?.child("LastModificationTime")?.text) } + (s["Password"] to updated)
         val history = versions.zipWithNext().filter { (old, next) -> old.first.isNotEmpty() && old.first != next.first }.map { (old, next) -> PasswordChange(old.first, (next.second ?: old.second)?.epochSecond ?: 0) }
-        val extra = s.values.filterKeys { it !in standard && it !in otpKeys }.map { (key, value) -> ImportBuilder.extra(key, value, key in s.secret) }
         val name = ImportBuilder.name(s["Title"], s["URL"])
-        return ImportBuilder.login(name, s["URL"], s["UserName"], s["Password"], s["Notes"], group, updatedAt = updated, expires = expires, history = history, extra = extra, totp = totpUri(s, name))
+        val totp = totpUri(s, name)
+        val usableTotp = ImportBuilder.totp(totp, name, s["UserName"]) != null
+        // Keep the original KeePass fields if conversion fails; otherwise an unsupported key or setting disappears on import.
+        val extra = s.values.filterKeys { it !in standard && (!usableTotp || it !in otpKeys) }
+            .map { (key, value) -> ImportBuilder.extra(key, value, key in otpKeys || key in s.secret) }
+        return ImportBuilder.login(name, s["URL"], s["UserName"], s["Password"], s["Notes"], group, updatedAt = updated, expires = expires, history = history, extra = extra, totp = if (usableTotp) totp else "")
     }
     /** KeePassXC's `otp` URI, KeePass 2.47+ `TimeOtp-*` fields, or the older `TOTP Seed` / `TOTP Settings` pair, as an otpauth URI. */
     private fun totpUri(s: Strings, name: String): String {
         if (s["otp"].isNotBlank()) return s["otp"]
         fun account(secret: ByteArray, digits: Int, period: Int, algorithm: String) = runCatching { TotpAccount(secret, issuer = name, account = s["UserName"], algorithm = algorithm, digits = digits, period = period).uri() }.getOrNull()
+        fun setting(value: String, default: Int) = if (value.isBlank()) default else value.trim().toIntOrNull()
         val secret = when {
             s["TimeOtp-Secret-Base32"].isNotBlank() -> runCatching { Totp.decodeBase32(s["TimeOtp-Secret-Base32"]) }.getOrNull()
             s["TimeOtp-Secret-Hex"].isNotBlank() -> s["TimeOtp-Secret-Hex"].filter { !it.isWhitespace() }.takeIf { it.length % 2 == 0 }?.let { h -> runCatching { ByteArray(h.length / 2) { h.substring(it * 2, it * 2 + 2).toInt(16).toByte() } }.getOrNull() }
@@ -299,13 +304,15 @@ internal object KeePassXml {
             else -> null
         }
         if (secret != null) {
-            val algorithm = when (s["TimeOtp-Algorithm"].uppercase().replace("-", "")) { "HMACSHA256" -> "SHA256"; "HMACSHA512" -> "SHA512"; else -> "SHA1" }
-            return account(secret, s["TimeOtp-Length"].toIntOrNull() ?: 6, s["TimeOtp-Period"].toIntOrNull() ?: 30, algorithm) ?: ""
+            val algorithm = when (s["TimeOtp-Algorithm"].trim().uppercase().replace("-", "")) {
+                "", "HMACSHA1", "SHA1" -> "SHA1"; "HMACSHA256", "SHA256" -> "SHA256"; "HMACSHA512", "SHA512" -> "SHA512"; else -> return ""
+            }
+            return account(secret, setting(s["TimeOtp-Length"], 6) ?: return "", setting(s["TimeOtp-Period"], 30) ?: return "", algorithm) ?: ""
         }
         if (s["TOTP Seed"].isNotBlank()) {
             val settings = s["TOTP Settings"].split(';')
             val seed = runCatching { Totp.decodeBase32(s["TOTP Seed"]) }.getOrNull() ?: return s["TOTP Seed"]
-            return account(seed, settings.getOrNull(1)?.toIntOrNull() ?: 6, settings.getOrNull(0)?.toIntOrNull() ?: 30, "SHA1") ?: ""
+            return account(seed, setting(settings.getOrNull(1).orEmpty(), 6) ?: return "", setting(settings.firstOrNull().orEmpty(), 30) ?: return "", "SHA1") ?: ""
         }
         return ""
     }

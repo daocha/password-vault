@@ -326,15 +326,20 @@ enum KeePassXml {
         let versions = (entry.child("History")?.all("Entry") ?? []).map { (Strings($0)["Password"], time($0.child("Times")?.child("LastModificationTime")?.text)) } + [(s["Password"], updated)]
         let history = zip(versions, versions.dropFirst()).filter { !$0.0.0.isEmpty && $0.0.0 != $0.1.0 }
             .map { PasswordChange(value: $0.0.0, changedAt: Int64(($0.1.1 ?? $0.0.1)?.timeIntervalSince1970 ?? 0)) }
-        let extra = s.values.filter { !standard.contains($0.0) && !otpKeys.contains($0.0) }.map { ImportBuilder.extra($0.0, $0.1, secret: s.secret.contains($0.0)) }
         let name = ImportBuilder.name(s["Title"], website: s["URL"])
+        let totp = totpURI(s, name: name)
+        let usableTotp = ImportBuilder.totp(totp, name: name, account: s["UserName"]) != nil
+        // Keep the original KeePass fields if conversion fails; otherwise an unsupported key or setting disappears on import.
+        let extra = s.values.filter { !standard.contains($0.0) && (!usableTotp || !otpKeys.contains($0.0)) }
+            .map { ImportBuilder.extra($0.0, $0.1, secret: otpKeys.contains($0.0) || s.secret.contains($0.0)) }
         return ImportBuilder.login(name, website: s["URL"], username: s["UserName"], password: s["Password"], notes: s["Notes"], group: group, updatedAt: updated,
-                                   expires: expires, history: history, extra: extra, totp: totpURI(s, name: name))
+                                   expires: expires, history: history, extra: extra, totp: usableTotp ? totp : "")
     }
     /// KeePassXC's `otp` URI, KeePass 2.47+ `TimeOtp-*` fields, or the older `TOTP Seed` / `TOTP Settings` pair, as an otpauth URI.
     static func totpURI(_ s: Strings, name: String) -> String {
         if !s["otp"].trimmingCharacters(in: .whitespaces).isEmpty { return s["otp"] }
         func uri(_ secret: Data, _ digits: Int, _ period: Int, _ algorithm: String) -> String { (try? TotpAccount(secret: secret, issuer: name, account: s["UserName"], algorithm: algorithm, digits: digits, period: period).uri) ?? "" }
+        func setting(_ value: String, _ fallback: Int) -> Int? { let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines); return trimmed.isEmpty ? fallback : Int(trimmed) }
         var secret: Data?
         if !s["TimeOtp-Secret-Base32"].isEmpty { secret = try? Totp.decodeBase32(s["TimeOtp-Secret-Base32"]) }
         else if !s["TimeOtp-Secret-Hex"].isEmpty { let h = s["TimeOtp-Secret-Hex"].filter { !$0.isWhitespace }; if h.count % 2 == 0, h.allSatisfy(\.isHexDigit) { secret = Data(Kdbx.hex(h.lowercased())) } }
@@ -342,13 +347,20 @@ enum KeePassXml {
         else if !s["TimeOtp-Secret"].isEmpty { secret = Data(s["TimeOtp-Secret"].utf8) }
         if let secret {
             let algorithm: String
-            switch s["TimeOtp-Algorithm"].uppercased().replacingOccurrences(of: "-", with: "") { case "HMACSHA256": algorithm = "SHA256"; case "HMACSHA512": algorithm = "SHA512"; default: algorithm = "SHA1" }
-            return uri(secret, Int(s["TimeOtp-Length"]) ?? 6, Int(s["TimeOtp-Period"]) ?? 30, algorithm)
+            switch s["TimeOtp-Algorithm"].trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: "-", with: "") {
+            case "", "HMACSHA1", "SHA1": algorithm = "SHA1"
+            case "HMACSHA256", "SHA256": algorithm = "SHA256"
+            case "HMACSHA512", "SHA512": algorithm = "SHA512"
+            default: return ""
+            }
+            guard let digits = setting(s["TimeOtp-Length"], 6), let period = setting(s["TimeOtp-Period"], 30) else { return "" }
+            return uri(secret, digits, period, algorithm)
         }
         if !s["TOTP Seed"].trimmingCharacters(in: .whitespaces).isEmpty {
             let settings = s["TOTP Settings"].split(separator: ";", omittingEmptySubsequences: false)
             guard let seed = try? Totp.decodeBase32(s["TOTP Seed"]) else { return s["TOTP Seed"] }
-            return uri(seed, settings.count > 1 ? Int(settings[1]) ?? 6 : 6, settings.first.flatMap { Int($0) } ?? 30, "SHA1")
+            guard let digits = setting(settings.count > 1 ? String(settings[1]) : "", 6), let period = setting(settings.first.map(String.init) ?? "", 30) else { return "" }
+            return uri(seed, digits, period, "SHA1")
         }
         return ""
     }

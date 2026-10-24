@@ -67,6 +67,12 @@ func healthChecks() throws {
     try check(report.old.map(\.password.record.name) == ["Old site"], "old passwords")
     try check(report.expiring.map(\.name) == ["Passport"], "expiring records")
     try check(report.noTwoFactor.map(\.name) == ["GitHub"], "logins without 2FA")
+    var firstSpotify = login("Spotify", strong, website: "https://spotify.com"), secondSpotify = login("Spotify", strong, website: "https://spotify.com")
+    firstSpotify.fields[0].value = "me@example.com"; secondSpotify.fields[0].value = "other@example.com"
+    let matchingCode = try TotpAccount(secret: Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer: "Spotify", account: " ME@example.com ").record()
+    try check(VaultHealth.check([firstSpotify, secondSpotify, matchingCode]).noTwoFactor.map(\.id) == [secondSpotify.id], "2FA covers only the matching account")
+    let unnamedCode = try TotpAccount(secret: Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer: "Spotify").record()
+    try check(VaultHealth.check([firstSpotify, secondSpotify, unnamedCode]).noTwoFactor.count == 2, "2FA without an account does not cover every login")
     try check(report.checked == 7 && report.score == Int((100.0 * (7 - 3 - 0.5) / 7).rounded()), "health score")
     var twice = VaultRecord(); twice.fields = [.init(kind: .password, label: "Password", value: "Kf8#pW2!zQ7mVx"), .init(kind: .password, label: "PIN", value: "Kf8#pW2!zQ7mVx")]
     try check(VaultHealth.check([twice]).reused.isEmpty && VaultHealth.check([twice]).score == 100 && VaultHealth.check([]).score == nil, "one record twice is not reuse; empty vault has no score")
@@ -135,6 +141,22 @@ func importChecks() throws {
     _ = try Kdbx.importTyped(file("NoPassWithKeyFile.kdbx"), password: "", keyFile: file("NoPassWithKeyFile.key"))
     checks += 1
     try checkDemo(try Importers.importPlain(file("demo.xml")), "KeePass XML export")
+    let unsupportedOTP = """
+    <KeePassFile><Root><Group><Entry>
+    <String><Key>Title</Key><Value>Mail</Value></String>
+    <String><Key>UserName</Key><Value>me</Value></String>
+    <String><Key>TimeOtp-Secret-Base32</Key><Value>JBSWY3DPEHPK3PXP</Value></String>
+    <String><Key>TimeOtp-Algorithm</Key><Value>HMAC-SHA3</Value></String>
+    </Entry></Group></Root></KeePassFile>
+    """
+    let keptOTP = try Importers.importPlain(Data(unsupportedOTP.utf8))
+    try check(keptOTP.count == 1 && value(keptOTP[0], "TimeOtp-Secret-Base32") == "JBSWY3DPEHPK3PXP"
+              && keptOTP[0].fields.first { $0.label == "TimeOtp-Secret-Base32" }?.secret == true
+              && value(keptOTP[0], "TimeOtp-Algorithm") == "HMAC-SHA3", "unsupported KeePass TOTP settings kept")
+    let supportedOTP = unsupportedOTP.replacingOccurrences(of: "HMAC-SHA3", with: "HMAC-SHA256")
+    let convertedOTP = try Importers.importPlain(Data(supportedOTP.utf8))
+    try check(convertedOTP.count == 2 && convertedOTP.first(where: \.isTotp)?.totp?.algorithm == "SHA256"
+              && convertedOTP.first(where: \.isLogin)?.fields.contains(where: { $0.label.hasPrefix("TimeOtp-") }) == false, "supported KeePass TOTP converted")
     try rejects("XML DOCTYPE") { _ = try MiniXml.parse(Data("<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><KeePassFile>&e;</KeePassFile>".utf8)) }
     for bad in ["<a><b></a>", "<a>", "<a x=1/>", "text", "<a>&unknown;</a>", "<a/><b/>"] { try rejects("bad XML \(bad)") { _ = try MiniXml.parse(Data(bad.utf8)) } }
     let ok = try MiniXml.parse(Data("<?xml version=\"1.0\"?><!-- c --><a k='v &amp; w'><b>x &lt;y&gt; &#65;&#x42;</b><c><![CDATA[<raw>]]></c><d/></a>".utf8))
