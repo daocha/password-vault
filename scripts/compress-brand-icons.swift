@@ -13,7 +13,7 @@ import CoreGraphics
 import UniformTypeIdentifiers
 
 let directory = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "android/app/src/main/res/drawable-nodpi"
-let quality = 0.85, side = 160
+let quality = 0.78, side = 160
 var before = 0, after = 0, converted = 0
 for name in try FileManager.default.contentsOfDirectory(atPath: directory).sorted() where name.hasPrefix("brand_") && name.hasSuffix(".png") {
     let input = URL(fileURLWithPath: directory).appendingPathComponent(name)
