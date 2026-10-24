@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -55,10 +56,19 @@ private val builtInLabels = mapOf(
     SEED_LABEL to R.string.app_label_seed, SEED_PASSPHRASE_LABEL to R.string.app_label_passphrase, PRIVATE_KEY_LABEL to R.string.app_label_private_key,
     "Title" to R.string.app_label_title, "Website" to R.string.app_label_website, "Custom" to R.string.app_label_custom, "List" to R.string.app_label_list, "List item" to R.string.app_label_list_item,
     "Imported custom fields (original)" to R.string.app_label_imported_custom,
+    CARD_HOLDER_LABEL to R.string.app_label_cardholder, CARD_NUMBER_LABEL to R.string.app_label_card_number, CARD_EXPIRY_LABEL to R.string.app_label_card_expiry,
+    CARD_CODE_LABEL to R.string.app_label_card_code, CARD_PIN_LABEL to R.string.app_label_card_pin,
 )
 /** Display-only: a label the user typed themselves is returned unchanged. */
 @Composable fun displayLabel(stored: String): String = builtInLabels[stored]?.let { stringResource(it) } ?: stored
 val VaultField.displayName: String @Composable get() = displayLabel(label)
+/** The field's kind icon, or a card-specific one for the built-in card fields. */
+val VaultField.icon: ImageVector get() = when (label) {
+    CARD_NUMBER_LABEL -> Icons.Outlined.CreditCard
+    CARD_EXPIRY_LABEL -> Icons.Outlined.Event
+    CARD_CODE_LABEL, CARD_PIN_LABEL -> Icons.Outlined.Pin
+    else -> kind.icon
+}
 
 /** Tinted circular badge used for field kinds and section rows. */
 @Composable
@@ -71,6 +81,8 @@ fun IconBadge(icon: ImageVector, size: Dp = 40.dp, container: Color = MaterialTh
 /** The brand's icon when the record is a well-known site or app, otherwise a letter avatar with a stable per-name color. */
 @Composable
 fun RecordAvatar(record: VaultRecord, size: Dp = 44.dp) {
+    if (record.type == RecordType.card) return IconBadge(Icons.Outlined.CreditCard, size, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+    if (record.type == RecordType.note) return IconBadge(Icons.AutoMirrored.Outlined.StickyNote2, size, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
     val brand = remember(record.website, record.name) { if (record.type != RecordType.seed) findBrand(record.website, record.name) else null }
     if (brand != null) Image(painterResource(brand.drawable), brand.title, Modifier.size(size).clip(RoundedCornerShape(size * 0.23f)))
     else RecordAvatar(record.name, size)
@@ -101,6 +113,7 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
 }
 
+fun formatDate(date: java.time.LocalDate): String = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).format(date)
 fun formatEpoch(seconds: Long): String? = runCatching { formatUpdated(Instant.ofEpochSecond(seconds).toString()) }.getOrNull()
 fun formatUpdated(value: String): String? = runCatching {
     DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT).withZone(ZoneId.systemDefault()).format(Instant.parse(value))
@@ -139,4 +152,44 @@ fun GeneratorDialog(defaults: GeneratorOptions, onDismiss: () -> Unit, onUse: (S
         },
         confirmButton = { TextButton(onClick = { onUse(candidate) }) { Text(stringResource(R.string.seed_gen_use)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.seed_cancel)) } })
+}
+
+/** "Expired" or "Expires soon" beside a list row; nothing for records without a date or with one further away. */
+@Composable
+fun ExpiryBadge(record: VaultRecord) {
+    val state = record.expiryState()
+    if (state != ExpiryState.expired && state != ExpiryState.soon) return
+    Surface(Modifier.padding(start = 8.dp), shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.errorContainer) {
+        Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Event, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
+            Text(stringResource(if (state == ExpiryState.expired) R.string.rec_expired else R.string.rec_expires_soon), Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+        }
+    }
+}
+
+/** Optional reminder date for a record (ISO `yyyy-MM-dd`, empty for none), picked from a calendar. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExpiryField(value: String, change: (String) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    val date = Expiry.parseDate(value)
+    OutlinedCard(onClick = { picking = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Event, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(stringResource(R.string.rec_expiry_reminder), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(date?.let(::formatDate) ?: stringResource(R.string.rec_expiry_none), style = MaterialTheme.typography.bodyLarge)
+            }
+            if (date != null) IconButton(onClick = { change("") }) { Icon(Icons.Outlined.Close, stringResource(R.string.rec_expiry_clear)) }
+        }
+    }
+    if (picking) {
+        // The picker works in UTC milliseconds; only the calendar day is kept.
+        val state = rememberDatePickerState(initialSelectedDateMillis = date?.atStartOfDay(java.time.ZoneOffset.UTC)?.toInstant()?.toEpochMilli())
+        DatePickerDialog(onDismissRequest = { picking = false },
+            confirmButton = { TextButton(onClick = { state.selectedDateMillis?.let { change(Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()) }; picking = false }, enabled = state.selectedDateMillis != null) { Text(stringResource(R.string.main_ok)) } },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text(stringResource(R.string.main_cancel)) } }) {
+            DatePicker(state, title = { Text(stringResource(R.string.rec_expiry_reminder), Modifier.padding(start = 24.dp, top = 16.dp)) })
+        }
+    }
 }

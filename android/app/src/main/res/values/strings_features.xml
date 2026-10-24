@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cards, secure notes and expiry reminders -->
+    <string name="app_label_cardholder">Cardholder</string>
+    <string name="app_label_card_number">Card number</string>
+    <string name="app_label_card_expiry">Expiry date</string>
+    <string name="app_label_card_code">Security code</string>
+    <string name="app_label_card_pin">PIN</string>
+    <string name="rec_new_login">Login</string>
+    <string name="rec_new_card">Payment card</string>
+    <string name="rec_new_note">Secure note</string>
+    <string name="rec_new_card_title">New card</string>
+    <string name="rec_edit_card">Edit card</string>
+    <string name="rec_new_note_title">New secure note</string>
+    <string name="rec_edit_note">Edit secure note</string>
+    <string name="rec_filter_cards">Cards</string>
+    <string name="rec_filter_notes">Notes</string>
+    <string name="rec_expiry_reminder">Expiry reminder</string>
+    <string name="rec_expiry_none">None</string>
+    <string name="rec_expiry_clear">Remove reminder</string>
+    <string name="rec_expiry_placeholder">MM/YY</string>
+    <string name="rec_expires_on">Expires %1$s</string>
+    <string name="rec_expired_on">Expired %1$s</string>
+    <string name="rec_expires_soon">Expires soon</string>
+    <string name="rec_expired">Expired</string>
+</resources>

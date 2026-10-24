@@ -40,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -143,6 +144,8 @@ class MainActivity : FragmentActivity() {
     private var query by mutableStateOf("")
     private var favorites by mutableStateOf(false)
     private var group by mutableStateOf<String?>(null)
+    /** Cards or secure notes only, within the passwords tab; null shows every type. */
+    private var kind by mutableStateOf<RecordType?>(null)
     private var viewing by mutableStateOf<VaultRecord?>(null)
     private var editing by mutableStateOf(false)
     private var importBytes by mutableStateOf<ByteArray?>(null)
@@ -324,7 +327,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun lockVault(clearClipboard: Boolean = true) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; viewing = null; editing = false; settings = false; scannedImport = null; cameraGranted = null; imageRead = null
+        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -411,14 +414,15 @@ class MainActivity : FragmentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun VaultScreen() {
-        var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }
+        var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }; var creating by remember { mutableStateOf(false) }
         val selecting = selected.isNotEmpty(); val haptics = LocalHapticFeedback.current
         val type = tab; val seedTab = tab == RecordType.seed; val totpTab = tab == RecordType.totp
-        val ofType = records.filter { it.type == type }
-        val groups = remember(records) { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
+        val ofType = records.filter { it.type.tab == type }
+        val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
         // A group filter whose last entry was moved or deleted has no chip left to clear it.
         LaunchedEffect(groups) { if (group != null && group !in groups) group = null }
-        val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() }))
+        LaunchedEffect(ofType) { if (kind != null && ofType.none { it.type == kind }) kind = null }
+        val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) && (kind == null || it.type == kind) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() }))
         // Bulk actions apply only to entries the user can see: narrowing the filters drops hidden entries from the selection.
         LaunchedEffect(visible) { val ids = visible.map { it.id }.toSet(); if (!ids.containsAll(selected)) selected = selected intersect ids }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
@@ -431,11 +435,19 @@ class MainActivity : FragmentActivity() {
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
                 else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
-            floatingActionButton = { if (!selecting) ExtendedFloatingActionButton(onClick = { viewing = if (tab == RecordType.login) VaultRecord() else VaultRecord(type = tab, fields = emptyList()); editing = true }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) }) }) { padding ->
+            floatingActionButton = { if (!selecting) Box {
+                ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
+                // Logins, cards and secure notes share this tab, so the button asks which one.
+                DropdownMenu(creating, { creating = false }) {
+                    listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.rec_new_login), Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_new_card), Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_new_note)).forEach { (t, icon, label) ->
+                        DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null) }, onClick = { creating = false; viewing = VaultRecord(type = t, fields = defaultFields(t)); editing = true })
+                    }
+                }
+            } }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                     listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
-                        SegmentedButton(tab == t, { tab = t; group = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        SegmentedButton(tab == t, { tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
                 TextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(stringResource(R.string.main_search)) }, leadingIcon = { Icon(Icons.Default.Search, null) },
@@ -443,6 +455,8 @@ class MainActivity : FragmentActivity() {
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
                 LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { FilterChip(favorites, { favorites = !favorites }, label = { Text(stringResource(R.string.main_favorites)) }, leadingIcon = { Icon(if (favorites) Icons.Default.Star else Icons.Outlined.StarOutline, null, Modifier.size(18.dp)) }) }
+                    if (tab == RecordType.login) for ((t, icon, label) in listOf(Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_filter_cards), Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_filter_notes))) if (ofType.any { it.type == t })
+                        item { FilterChip(kind == t, { kind = if (kind == t) null else t }, label = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null, Modifier.size(18.dp)) }) }
                     if (tab == RecordType.login) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) },
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(groupColorArgb(name)).copy(alpha = 0.28f), selectedLabelColor = MaterialTheme.colorScheme.onSurface),
                         border = FilterChipDefaults.filterChipBorder(true, group == name, borderColor = Color(groupColorArgb(name)), selectedBorderColor = Color(groupColorArgb(name)), borderWidth = 1.dp, selectedBorderWidth = 2.dp)) }
@@ -457,7 +471,13 @@ class MainActivity : FragmentActivity() {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(visible, key = { it.id }) { record ->
                         val totp = if (record.type == RecordType.totp) remember(record) { record.totp } else null
-                        val subtitle = if (record.type == RecordType.totp) totp?.account.orEmpty() else if (record.type == RecordType.seed) (if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)) else record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
+                        val subtitle = when (record.type) {
+                            RecordType.totp -> totp?.account.orEmpty()
+                            RecordType.seed -> if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)
+                            RecordType.card -> record.cardSummary
+                            RecordType.note -> record.fields.firstOrNull { it.kind == FieldKind.note && it.value.isNotBlank() }?.value?.lineSequence()?.first().orEmpty()
+                            RecordType.login -> record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
+                        }
                         val isSelected = record.id in selected
                         fun toggle() { selected = if (isSelected) selected - record.id else selected + record.id }
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -473,8 +493,9 @@ class MainActivity : FragmentActivity() {
                                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                                     Text(record.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (record.type == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
+                                    if (record.type.tab == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
                                 }
+                                ExpiryBadge(record)
                                 if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 if (record.type == RecordType.totp) { if (!selecting) TotpRowCode(totp, now, if (allowCopy) ::copySecret else null) }
                                 else if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -505,9 +526,9 @@ class MainActivity : FragmentActivity() {
 
     /** Assigns the selected entries to a group. Each row shows whether all (ticked), some (solid) or none (empty) of them are in that group; tapping assigns or clears them all. */
     @Composable private fun GroupDialog(dismiss: () -> Unit) {
-        val targets = remember { records.filter { it.id in selected && it.type == RecordType.login } }
+        val targets = remember { records.filter { it.id in selected && it.type.tab == RecordType.login } }
         var pending by remember { mutableStateOf(targets.associate { it.id to it.group.trim() }) }
-        val allGroups = remember { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() } }
+        val allGroups = remember { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() } }
         var added by remember { mutableStateOf(emptyList<String>()) }
         var newName by remember { mutableStateOf("") }
         val names = (allGroups + added).distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
@@ -582,7 +603,13 @@ class MainActivity : FragmentActivity() {
                         RecordAvatar(record, 72.dp)
                         Text(record.name, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.headlineSmall)
                         if (record.website.isNotBlank()) Text(record.website, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                        if (record.type == RecordType.card && record.cardSummary.isNotEmpty()) Text(record.cardSummary, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                         if (record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 8.dp), large = true)
+                        record.expiryDate?.let { date ->
+                            val expired = record.expiryState() == ExpiryState.expired
+                            Text(stringResource(if (expired) R.string.rec_expired_on else R.string.rec_expires_on, formatDate(date)), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium,
+                                color = if (record.expiryState() in setOf(ExpiryState.expired, ExpiryState.soon)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
                 item {
@@ -592,13 +619,13 @@ class MainActivity : FragmentActivity() {
                             if (index > 0) HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
                             val shown = !field.secret || field.id in revealed
                             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                IconBadge(field.kind.icon)
+                                IconBadge(field.icon)
                                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                                     Text(field.displayName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (field.kind == FieldKind.question && field.question.isNotBlank()) Text(field.question, style = MaterialTheme.typography.bodyMedium)
                                     when {
                                         field.value.isEmpty() -> Text("—", color = MaterialTheme.colorScheme.outline)
-                                        shown -> Text(field.value, style = MaterialTheme.typography.bodyLarge, fontFamily = if (field.kind == FieldKind.password) FontFamily.Monospace else null)
+                                        shown -> Text(if (field.label == CARD_NUMBER_LABEL) Cards.formatted(field.value) else field.value, style = MaterialTheme.typography.bodyLarge, fontFamily = if (field.kind == FieldKind.password) FontFamily.Monospace else null)
                                         else -> Text("••••••••••", style = MaterialTheme.typography.bodyLarge)
                                     }
                                 }
@@ -670,7 +697,11 @@ class MainActivity : FragmentActivity() {
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
-            topBar = { TopAppBar(title = { Text(if (isNew) stringResource(R.string.main_new_entry) else stringResource(R.string.main_edit_entry)) }, navigationIcon = { IconButton(onClick = { cancel() }) { Icon(Icons.Default.Close, stringResource(R.string.main_discard_changes)) } },
+            topBar = { TopAppBar(title = { Text(stringResource(when (record.type) {
+                RecordType.card -> if (isNew) R.string.rec_new_card_title else R.string.rec_edit_card
+                RecordType.note -> if (isNew) R.string.rec_new_note_title else R.string.rec_edit_note
+                else -> if (isNew) R.string.main_new_entry else R.string.main_edit_entry
+            })) }, navigationIcon = { IconButton(onClick = { cancel() }) { Icon(Icons.Default.Close, stringResource(R.string.main_discard_changes)) } },
                 actions = {
                     IconButton(onClick = { record = record.copy(favorite = !record.favorite) }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
                     Button(onClick = { val saved = record.copy(name = record.name.trim(), updatedAt = Instant.now().toString()).recordingPasswordChanges(records.firstOrNull { it.id == record.id }); saveRecord(saved) { viewing = saved; editing = false } }, enabled = record.name.isNotBlank(), modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.main_save)) }
@@ -680,8 +711,10 @@ class MainActivity : FragmentActivity() {
                     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             EditorField(record.name, { record = record.copy(name = it) }, stringResource(R.string.main_name), Icons.Outlined.Badge)
-                            EditorField(record.website, { record = record.copy(website = it) }, stringResource(R.string.main_website), Icons.Outlined.Language, KeyboardType.Uri)
+                            if (record.type != RecordType.note) EditorField(record.website, { record = record.copy(website = it) }, stringResource(R.string.main_website), Icons.Outlined.Language, KeyboardType.Uri)
                             GroupField(record.group) { record = record.copy(group = it) }
+                            // A card's own expiry date is its reminder.
+                            if (record.type != RecordType.card) ExpiryField(record.expires) { record = record.copy(expires = it) }
                         }
                     }
                 }
@@ -709,7 +742,7 @@ class MainActivity : FragmentActivity() {
                         border = if (dragging) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                     ) {
                         Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.Top) {
-                            Box(Modifier.padding(top = 8.dp)) { IconBadge(field.kind.icon, 36.dp) }
+                            Box(Modifier.padding(top = 8.dp)) { IconBadge(field.icon, 36.dp) }
                             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(field.displayName, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -717,12 +750,12 @@ class MainActivity : FragmentActivity() {
                                 }
                                 if (field.kind == FieldKind.question) { EditorField(field.question, { update(field.copy(question = it)) }, stringResource(R.string.main_question)); Spacer(Modifier.height(8.dp)) }
                                 val hidden = field.secret && field.id !in revealed
-                                OutlinedTextField(field.value, { update(field.copy(value = it)) }, Modifier.fillMaxWidth(), placeholder = { Text(if (field.kind == FieldKind.question) stringResource(R.string.main_answer) else field.displayName) },
+                                OutlinedTextField(field.value, { update(field.copy(value = it)) }, Modifier.fillMaxWidth(), placeholder = { Text(when { field.kind == FieldKind.question -> stringResource(R.string.main_answer); field.label == CARD_EXPIRY_LABEL -> stringResource(R.string.rec_expiry_placeholder); else -> field.displayName }) },
                                     singleLine = field.kind != FieldKind.note, shape = RoundedCornerShape(12.dp), textStyle = if (field.kind == FieldKind.password && !hidden) LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace) else LocalTextStyle.current,
-                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Text),
+                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = when { field.label in CARD_NUMERIC_LABELS -> KeyboardType.NumberPassword; field.secret -> KeyboardType.Password; else -> KeyboardType.Text }),
                                     visualTransformation = if (hidden) PasswordVisualTransformation() else VisualTransformation.None,
                                     trailingIcon = { if (field.secret) Row {
-                                        if (field.kind == FieldKind.password) IconButton(onClick = { generatingFor = field.id }) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.main_generate_password)) }
+                                        if (field.kind == FieldKind.password && field.label !in CARD_NUMERIC_LABELS) IconButton(onClick = { generatingFor = field.id }) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.main_generate_password)) }
                                         IconButton(onClick = { revealed = if (field.id in revealed) revealed - field.id else revealed + field.id }) { Icon(if (hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff, if (hidden) stringResource(R.string.main_reveal) else stringResource(R.string.main_hide)) }
                                     } })
                             }
@@ -748,7 +781,7 @@ class MainActivity : FragmentActivity() {
     }
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun GroupField(value: String, change: (String) -> Unit) {
-        val groups = remember(records) { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
+        val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
         var expanded by remember { mutableStateOf(false) }
         val typed = value.trim()
         val options = if (typed.isEmpty()) groups else groups.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true) }

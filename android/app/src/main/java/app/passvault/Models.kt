@@ -7,8 +7,13 @@ import java.time.Instant
 import java.util.UUID
 
 enum class FieldKind { username, password, note, question }
-/** `login` records are passwords; `seed` records hold a BIP-39 mnemonic and `totp` records an authenticator key. Neither leaves the app in plaintext CSV. */
-enum class RecordType { login, seed, totp }
+/**
+ * `login` records are passwords; `seed` records hold a BIP-39 mnemonic and `totp` records an authenticator key. `card` (payment card) and
+ * `note` (secure note) records are listed with the passwords. Only `login` records are written to plaintext CSV.
+ */
+enum class RecordType { login, seed, totp, card, note }
+/** The list tab a record appears under: cards and secure notes share the passwords tab. */
+val RecordType.tab get() = if (this == RecordType.card || this == RecordType.note) RecordType.login else this
 const val SEED_LABEL = "Seed phrase"
 const val PRIVATE_KEY_LABEL = "Private key"
 const val SEED_PASSPHRASE_LABEL = "BIP-39 passphrase"
@@ -33,16 +38,19 @@ data class VaultRecord(
     val fields: List<VaultField> = listOf(VaultField(kind = FieldKind.username, label = "Username"), VaultField(kind = FieldKind.password, label = "Password"), VaultField(kind = FieldKind.note, label = "Notes")),
     val legacy: Map<String, String> = emptyMap(),
     val type: RecordType = RecordType.login,
+    /** Optional reminder date, ISO `yyyy-MM-dd`; empty for none. Cards also expire on their own expiry date (see [expiryDate]). */
+    val expires: String = "",
 ) {
     val seedWords: List<String> get() = fields.firstOrNull { it.label == SEED_LABEL }?.value?.let(Bip39::split).orEmpty()
     /** A seed-type record that holds a bare private key instead of a mnemonic. */
     val privateKey: String? get() = fields.firstOrNull { it.label == PRIVATE_KEY_LABEL }?.value
     fun matches(query: String) = (listOf(name, website, group) + fields.filter { !it.secret }.map { it.value } + listOfNotNull(totp?.account)).any { it.contains(query, ignoreCase = true) }
-    fun json() = JSONObject().put("id", id).put("name", name).put("website", website).put("group", group).put("favorite", favorite).put("updatedAt", updatedAt).put("fields", JSONArray(fields.map { it.json() })).put("legacy", JSONObject(legacy)).apply { if (type != RecordType.login) put("type", type.name) }
+    fun json() = JSONObject().put("id", id).put("name", name).put("website", website).put("group", group).put("favorite", favorite).put("updatedAt", updatedAt).put("fields", JSONArray(fields.map { it.json() })).put("legacy", JSONObject(legacy)).apply { if (type != RecordType.login) put("type", type.name); if (expires.isNotEmpty()) put("expires", expires) }
     companion object {
         fun from(j: JSONObject): VaultRecord {
             val fields = j.getJSONArray("fields"); val legacy = j.getJSONObject("legacy")
-            return VaultRecord(j.getString("id"), j.getString("name"), j.getString("website"), j.getString("group"), j.getBoolean("favorite"), j.getString("updatedAt"), (0 until fields.length()).map { VaultField.from(fields.getJSONObject(it)) }, legacy.keys().asSequence().associateWith { legacy.getString(it) }, RecordType.valueOf(j.optString("type", RecordType.login.name)))
+            return VaultRecord(j.getString("id"), j.getString("name"), j.getString("website"), j.getString("group"), j.getBoolean("favorite"), j.getString("updatedAt"), (0 until fields.length()).map { VaultField.from(fields.getJSONObject(it)) }, legacy.keys().asSequence().associateWith { legacy.getString(it) }, RecordType.valueOf(j.optString("type", RecordType.login.name)),
+                j.optString("expires", "").also { require(it.isEmpty() || Expiry.parseDate(it) != null) { "Invalid expiry date." } })
         }
     }
 }
@@ -71,7 +79,7 @@ const val PASSWORD_HISTORY_LIMIT = 10
  * [PASSWORD_HISTORY_LIMIT] entries per field. Seed phrases are not tracked.
  */
 fun VaultRecord.recordingPasswordChanges(previous: VaultRecord?, changedAt: Instant = Instant.now()): VaultRecord {
-    if (previous == null || type != RecordType.login) return this
+    if (previous == null || type == RecordType.seed || type == RecordType.totp) return this
     val before = previous.fields.associateBy { it.id }
     return copy(fields = fields.map { field ->
         val old = before[field.id]

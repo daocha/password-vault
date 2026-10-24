@@ -150,6 +150,18 @@ struct UnlockView: View {
     }
 }
 
+/// "Expired" or "Expires soon" beside a list row; nothing for records without a date or with one further away.
+struct ExpiryBadge: View {
+    let record: VaultRecord
+    var body: some View {
+        switch record.expiryState() {
+        case .expired: Label("Expired", systemImage: "calendar.badge.exclamationmark").font(.caption2).foregroundStyle(.red)
+        case .soon: Label("Expires soon", systemImage: "calendar.badge.clock").font(.caption2).foregroundStyle(.orange)
+        default: EmptyView()
+        }
+    }
+}
+
 func groupColor(_ name: String) -> Color { let c = groupColorRGB(name); return Color(red: c.r, green: c.g, blue: c.b) }
 
 /// A group's name in its own color: colored border, a light tint behind the text, and the normal text color so contrast holds in light and dark mode.
@@ -181,7 +193,7 @@ struct RecordIcon: View {
                 .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
                 .frame(width: 38)
         } else {
-            Image(systemName: record.favorite ? "star.fill" : "key.fill").foregroundStyle(.tint).frame(width: 30)
+            Image(systemName: record.favorite ? "star.fill" : record.isCard ? "creditcard.fill" : record.isNote ? "note.text" : "key.fill").foregroundStyle(.tint).frame(width: 30)
         }
     }
 }
@@ -210,9 +222,12 @@ struct RecordList: View {
                                 RecordIcon(record: record)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(record.name.isEmpty ? "Untitled record" : record.name).font(.headline).foregroundStyle(.primary)
-                                    if !record.website.isEmpty { Text(record.website).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                    if record.isCard, !record.cardSummary.isEmpty { Text(record.cardSummary).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                    else if !record.website.isEmpty { Text(record.website).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                                     if !record.group.trimmingCharacters(in: .whitespaces).isEmpty { GroupTag(name: record.group) }
                                 }
+                                Spacer()
+                                ExpiryBadge(record: record)
                             }.padding(.vertical, 5)
                         }
                         }
@@ -232,8 +247,14 @@ struct RecordList: View {
                 ToolbarItem(placement: .topBarLeading) { Button("Lock", systemImage: "lock") { model.lock() } }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("Import, export & security", systemImage: "gearshape") { transfer = true }
-                    Button(showTotp ? "Add 2FA code" : "Add record", systemImage: "plus") {
-                        if showTotp { var record = VaultRecord(); record.type = "totp"; record.fields = []; editingTotp = record } else { editing = VaultRecord() }
+                    if showTotp {
+                        Button("Add 2FA code", systemImage: "plus") { var record = VaultRecord(); record.type = "totp"; record.fields = []; editingTotp = record }
+                    } else {
+                        Menu("Add record", systemImage: "plus") {
+                            Button("Login", systemImage: "key") { editing = VaultRecord() }
+                            Button("Payment card", systemImage: "creditcard") { editing = VaultRecord.new(type: "card") }
+                            Button("Secure note", systemImage: "note.text") { editing = VaultRecord.new(type: "note") }
+                        }
                     }
                 }
             }
@@ -259,11 +280,20 @@ struct RecordEditor: View {
                     Stepper("Length: \(generatorLength)", value: $generatorLength, in: 12...128)
                     Toggle("Include symbols", isOn: $generatorSymbols)
                 }
-                Section("Website or app") {
+                Section(record.isCard ? "Card" : record.isNote ? "Secure note" : "Website or app") {
                     TextField("Name", text: $record.name)
-                    TextField("Website/App name", text: $record.website).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    if !record.isNote { TextField("Website/App name", text: $record.website).textInputAutocapitalization(.never).autocorrectionDisabled() }
                     TextField("Group", text: $record.group)
                     Toggle("Favorite", isOn: $record.favorite)
+                    // A card's own expiry date is its reminder.
+                    if !record.isCard {
+                        Toggle("Expiry reminder", isOn: Binding(get: { record.expires != nil }, set: { record.expires = $0 ? Expiry.format(Expiry.components(Date().addingTimeInterval(86400 * 365))) : nil }))
+                        if let expires = record.expires, let date = Expiry.parseDate(expires).flatMap(Expiry.localDate) {
+                            DatePicker("Remind on", selection: Binding(get: { date }, set: { record.expires = Expiry.format(Expiry.components($0)) }), displayedComponents: .date)
+                        }
+                    } else if let date = record.expiryDate.flatMap(Expiry.localDate) {
+                        Text("Card expires \(date.formatted(date: .abbreviated, time: .omitted))").font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
                 Section("Fields · drag the handles to reorder") {
                     ForEach($record.fields) { $field in
@@ -271,14 +301,14 @@ struct RecordEditor: View {
                             TextField("Field label", text: $field.label).font(.caption).foregroundStyle(.secondary)
                             if field.kind == .question { TextField("Security question", text: $field.question) }
                             HStack {
-                                if field.secret && !revealed.contains(field.id) { SecureField(field.kind == .question ? "Answer" : "Password", text: $field.value) }
-                                else { TextField("Value", text: $field.value, axis: .vertical) }
+                                if field.secret && !revealed.contains(field.id) { SecureField(field.kind == .question ? "Answer" : cardNumericLabels.contains(field.label) ? field.label : "Password", text: $field.value).keyboardType(cardNumericLabels.contains(field.label) ? .numberPad : .default) }
+                                else { TextField(field.label == cardExpiryLabel ? "MM/YY" : "Value", text: $field.value, axis: .vertical).keyboardType(cardNumericLabels.contains(field.label) ? .numberPad : .default) }
                                 if field.secret {
                                     Button { if !revealed.insert(field.id).inserted { revealed.remove(field.id) } } label: { Image(systemName: revealed.contains(field.id) ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(revealed.contains(field.id) ? "Hide secret" : "Reveal secret")
                                 }
                             }.textInputAutocapitalization(.never).autocorrectionDisabled()
                             HStack {
-                                if field.kind == .password { Button("Generate strong password") { do { field.value = try VaultCrypto.generatePassword(length: generatorLength, symbols: generatorSymbols) } catch { model.message = error.localizedDescription } }.font(.caption).buttonStyle(.borderless) }
+                                if field.kind == .password && !cardNumericLabels.contains(field.label) { Button("Generate strong password") { do { field.value = try VaultCrypto.generatePassword(length: generatorLength, symbols: generatorSymbols) } catch { model.message = error.localizedDescription } }.font(.caption).buttonStyle(.borderless) }
                                 Spacer()
                                 if !field.historyNewestFirst.isEmpty { Button("History", systemImage: "clock.arrow.circlepath") { historyField = field }.font(.caption).buttonStyle(.borderless) }
                                 Button("Copy", systemImage: "doc.on.doc") {
@@ -295,7 +325,7 @@ struct RecordEditor: View {
                 }
             }.environment(\.editMode, .constant(.active))
                 .sheet(item: $historyField) { PasswordHistoryView(field: $0) }
-                .navigationTitle(record.name.isEmpty ? "New record" : record.name)
+                .navigationTitle(record.name.isEmpty ? (record.isCard ? "New card" : record.isNote ? "New secure note" : "New record") : record.name)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                     ToolbarItem(placement: .confirmationAction) { Button("Save") {
