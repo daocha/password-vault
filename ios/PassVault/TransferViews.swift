@@ -10,8 +10,8 @@ struct TransferPayload: Identifiable {
     static let keep: TimeInterval = 600
     let id = UUID(); let code: String; let data: Data; let decoy: Bool; let expiresAt = Date().addingTimeInterval(keep)
     /// Built once: the receiver starts over whenever the session id changes, so every frame must come from the same split.
-    let frames: [String]
-    init(code: String, data: Data, decoy: Bool) { self.code = code; self.data = data; self.decoy = decoy; frames = (try? TransferFrames.frames(data)) ?? [] }
+    let frames: TransferFrames.Sender?
+    init(code: String, data: Data, decoy: Bool) { self.code = code; self.data = data; self.decoy = decoy; frames = try? TransferFrames.Sender(data) }
 }
 
 /// A QR code, one point per module scaled without smoothing.
@@ -22,8 +22,8 @@ func qrImage(_ text: String) -> UIImage? {
     return UIImage(cgImage: cg)
 }
 
-/// The old phone: a looping animated QR code of the encrypted transfer. The one-time code is shown only on request, and the QR code is
-/// hidden while it is, so one photo never holds both.
+/// The old phone: an animated QR code of the encrypted transfer, every chunk once and then fresh mixes of them (see `TransferFrames`).
+/// The one-time code is shown only on request, and the QR code is hidden while it is, so one photo never holds both.
 struct TransferSendView: View {
     let payload: TransferPayload
     @Environment(\.dismiss) var dismiss
@@ -43,7 +43,7 @@ struct TransferSendView: View {
                         Text(Transfer.display(payload.code)).font(.system(size: 30, weight: .bold, design: .monospaced))
                         Text("Type this code on the new phone when it asks. The QR codes hold only encrypted data; without this code they are useless, so don't let anyone photograph it.").font(.footnote).multilineTextAlignment(.center)
                     }.padding(24).frame(maxWidth: .infinity).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
-                } else if !frames.isEmpty, let image = qrImage(frames[index % frames.count]) {
+                } else if let frames, let image = qrImage(frames.frame(index)) {
                     Image(uiImage: image).interpolation(.none).resizable().scaledToFit().padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
                     Text("Code \(index % frames.count + 1) of \(frames.count)").font(.caption).foregroundStyle(.secondary)
                 } else {
@@ -58,7 +58,8 @@ struct TransferSendView: View {
             .padding()
             .navigationTitle("Send to another phone").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
-            .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in if !showCode && !frames.isEmpty { index = (index + 1) % frames.count } }
+            // As on Android: any frame helps the receiver, so one it skips costs nothing, and a fast camera reads more.
+            .onReceive(Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()) { _ in if !showCode && frames != nil { index += 1 } }
             .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
@@ -80,12 +81,14 @@ struct TransferReceiveView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                Text("Point the camera at the moving QR code on the old phone. Codes can arrive in any order; missed ones come round again.").font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("Point the camera at the moving QR code on the old phone. It does not need every code: ones it misses are made up by later ones.").font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 QRScannerView(onCode: { text in
                     guard !finished, collector.add(text) else { return }
                     received = collector.received; total = collector.total
                     if let data = collector.result() { finished = true; done(data) }
                 }, continuous: true).aspectRatio(1, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 12))
+                Text("Hold this phone about 20–30 cm (8–12 in) away, so the code fills about half of the square. Up close, many cameras cannot focus.")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 if total == 0 { Text("Waiting for the first code…") } else {
                     ProgressView(value: Double(received), total: Double(total))
                     Text("Received \(received) of \(total)")

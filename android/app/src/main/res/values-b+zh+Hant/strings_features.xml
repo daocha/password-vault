@@ -99,7 +99,8 @@
     <string name="transfer_save_file">改為儲存為檔案</string>
     <string name="transfer_saved">傳輸檔案已儲存。在新手機上匯入它並輸入傳輸碼。</string>
     <string name="transfer_too_large">此密碼庫太大，無法用 QR 碼傳輸。請改為儲存傳輸檔案。</string>
-    <string name="transfer_receive_body">將相機對準舊手機上的動態 QR 碼。碼的順序不限，漏掉的會再次出現。</string>
+    <string name="transfer_receive_body">將相機對準舊手機上的動態 QR 碼。不需要讀到每一個碼，漏掉的會由後面的碼補上。</string>
+    <string name="transfer_distance_hint">請將本機放在約 20–30 公分外，讓 QR 碼大約佔方框的一半。距離太近時，很多相機無法對焦。</string>
     <string name="transfer_waiting">正在等待第一個碼…</string>
     <string name="transfer_received">已接收 %1$d / %2$d</string>
     <string name="transfer_import_title">從另一部手機傳輸</string>

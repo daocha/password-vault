@@ -99,7 +99,8 @@
     <string name="transfer_save_file">改为保存为文件</string>
     <string name="transfer_saved">传输文件已保存。在新手机上导入它并输入传输码。</string>
     <string name="transfer_too_large">此密码库太大，无法用二维码传输。请改为保存传输文件。</string>
-    <string name="transfer_receive_body">将摄像头对准旧手机上的动态二维码。码的顺序不限，漏掉的会再次出现。</string>
+    <string name="transfer_receive_body">将摄像头对准旧手机上的动态二维码。不需要读到每一个码，漏掉的会由后面的码补上。</string>
+    <string name="transfer_distance_hint">请将本机放在约 20–30 厘米外，让二维码大约占方框的一半。距离太近时，很多摄像头无法对焦。</string>
     <string name="transfer_waiting">正在等待第一个码…</string>
     <string name="transfer_received">已接收 %1$d / %2$d</string>
     <string name="transfer_import_title">从另一部手机传输</string>
