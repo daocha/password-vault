@@ -73,7 +73,10 @@ func healthChecks() throws {
     try check(VaultHealth.check([firstSpotify, secondSpotify, matchingCode]).noTwoFactor.map(\.id) == [secondSpotify.id], "2FA covers only the matching account")
     let unnamedCode = try TotpAccount(secret: Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer: "Spotify").record()
     try check(VaultHealth.check([firstSpotify, secondSpotify, unnamedCode]).noTwoFactor.count == 2, "2FA without an account does not cover every login")
-    try check(report.checked == 7 && report.score == Int((100.0 * (7 - 3 - 0.5) / 7).rounded()), "health score")
+    // Typed in steps: as one expression the literals made older Swift compilers give up type-checking it.
+    let expectedRatio: Double = (7.0 - 3.0 - 0.5) / 7.0
+    let expectedScore: Int = Int((100.0 * expectedRatio).rounded())
+    try check(report.checked == 7 && report.score == expectedScore, "health score")
     var twice = VaultRecord(); twice.fields = [.init(kind: .password, label: "Password", value: "Kf8#pW2!zQ7mVx"), .init(kind: .password, label: "PIN", value: "Kf8#pW2!zQ7mVx")]
     try check(VaultHealth.check([twice]).reused.isEmpty && VaultHealth.check([twice]).score == 100 && VaultHealth.check([]).score == nil, "one record twice is not reuse; empty vault has no score")
     var keeper = login("Keeper", "Kf8#pW2!zQ7mVx"); keeper.legacy = ["passwordSetDate": "1500000000"]
