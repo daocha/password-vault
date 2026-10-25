@@ -101,7 +101,7 @@ public enum Cards {
         return out.joined(separator: " ")
     }
     public static func lastFour(_ number: String) -> String { String(number.filter(\.isNumber).suffix(4)) }
-    /// Reads `MM/YY`, `MM/YYYY`, `MM-YY`, `YYYY-MM` or `MMYY`, as printed on cards and exported by other managers.
+    /// Reads `MM/YY`, `MM/YYYY`, `MM-YY`, `YYYY-MM`, `MMYY` or `MMYYYY`, as printed on cards and exported by other managers.
     public static func parseExpiry(_ text: String) -> (year: Int, month: Int)? {
         let t = text.trimmingCharacters(in: .whitespaces)
         func make(_ year: Int, _ month: Int) -> (year: Int, month: Int)? { (1...12).contains(month) && (1900...2999).contains(year) ? (year, month) : nil }
@@ -113,7 +113,55 @@ public enum Cards {
             if parts[0].count <= 2, [2, 4].contains(parts[1].count), let m = Int(parts[0]), let y = year(Substring(parts[1])) { return make(y, m) }
             return nil
         }
-        if t.count == 4, t.allSatisfy({ $0.isASCII && $0.isNumber }), let m = Int(t.prefix(2)), let y = year(t.suffix(2)) { return make(y, m) }
+        if [4, 6].contains(t.count), t.allSatisfy({ $0.isASCII && $0.isNumber }), let m = Int(t.prefix(2)), let y = year(t.dropFirst(2)) { return make(y, m) }
         return nil
+    }
+    /// An expiry as stored: `MMYY` for years 2000–2099, `MMYYYY` for any other (see `CardInput`).
+    public static func expiryDigits(_ month: (year: Int, month: Int)) -> String {
+        String(format: "%02d", month.month) + ((2000...2099).contains(month.year) ? String(format: "%02d", month.year % 100) : String(month.year))
+    }
+    /// `MM/YY` for a stored expiry; anything else is shown as stored.
+    public static func formattedExpiry(_ value: String) -> String {
+        guard let digits = CardInput.expiry.digits(value), [4, 6].contains(digits.count) else { return value }
+        return CardInput.expiry.formatted(digits)
+    }
+}
+
+/// How a card's number and expiry date are typed; mirrors Android's `CardInput`. Only the digits are stored ("5241000212345678", "0226");
+/// the editor shows the spaces or the slash as the user types, so they are never part of the value.
+public enum CardInput: Sendable {
+    case number, expiry
+    public static func of(_ label: String) -> CardInput? { label == cardNumberLabel ? .number : label == cardExpiryLabel ? .expiry : nil }
+    var maxDigits: Int { self == .number ? 19 : 6 }
+    var separator: Character { self == .number ? " " : "/" }
+    private static func isDigit(_ c: Character) -> Bool { c.isASCII && c.isNumber }
+    /// The digits the editor starts from, or nil when the stored value holds something else, which is then edited as plain text.
+    public func digits(_ value: String) -> String? {
+        switch self {
+        case .number: return value.allSatisfy { Self.isDigit($0) || $0 == " " || $0 == "-" } ? value.filter(Self.isDigit) : nil
+        case .expiry: return value.allSatisfy(Self.isDigit) ? value : Cards.parseExpiry(value).map(Cards.expiryDigits)
+        }
+    }
+    /// What to store for `typed`: its digits, at most `maxDigits`. An expiry starting with 2–9 is a one-digit month, so 3 becomes 03.
+    public func clean(_ typed: String) -> String {
+        let digits = String(typed.filter(Self.isDigit).prefix(maxDigits))
+        if self == .expiry, digits.count == 1, let first = digits.first, ("2"..."9").contains(first) { return "0" + digits }
+        return digits
+    }
+    /// What to store when the shown text became `typed`. Deleting a separator deletes the digit before it, so backspace on "02/" leaves "0".
+    public func edited(_ typed: String, from stored: String) -> String {
+        let value = clean(typed)
+        return value == stored && typed.count < formatted(stored).count ? String(stored.dropLast()) : value
+    }
+    /// The digit counts followed by a separator. One shows as soon as its group is typed ("5241" reads "5241 ", "02" reads "02/"), except
+    /// after a complete 16-digit number.
+    public func breaks(_ digits: String) -> [Int] {
+        let all = self == .expiry ? [2] : Cards.brand(digits) == "American Express" ? [4, 10] : [4, 8, 12, 16]
+        return all.filter { $0 < digits.count || ($0 == digits.count && $0 != 16) }
+    }
+    public func formatted(_ digits: String) -> String {
+        let breaks = Set(breaks(digits)); var out = ""
+        for (i, c) in digits.enumerated() { out.append(c); if breaks.contains(i + 1) { out.append(separator) } }
+        return out
     }
 }
