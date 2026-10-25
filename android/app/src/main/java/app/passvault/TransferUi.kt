@@ -120,6 +120,7 @@ fun TransferReceiveScreen(owner: LifecycleOwner, onComplete: (ByteArray) -> Unit
                 received = collector.received; total = collector.total
                 collector.result()?.let { finished = true; onComplete(it) }
             }, Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black, RoundedCornerShape(12.dp)), continuous = true, analyzed = analyzed)
+            Text(stringResource(R.string.transfer_distance_hint), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             if (total == 0) Text(stringResource(R.string.transfer_waiting))
             else {

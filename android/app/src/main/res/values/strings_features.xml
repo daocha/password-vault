@@ -105,7 +105,8 @@
     <string name="transfer_save_file">Save as file instead</string>
     <string name="transfer_saved">Transfer file saved. On the new phone, import it and type the transfer code.</string>
     <string name="transfer_too_large">This vault is too large for QR codes. Save a transfer file instead.</string>
-    <string name="transfer_receive_body">Point the camera at the moving QR code on the old phone. Codes can arrive in any order; missed ones come round again.</string>
+    <string name="transfer_receive_body">Point the camera at the moving QR code on the old phone. It does not need every code: ones it misses are made up by later ones.</string>
+    <string name="transfer_distance_hint">Hold this phone about 20–30 cm (8–12 in) away, so the code fills about half of the square. Up close, many cameras cannot focus.</string>
     <string name="transfer_waiting">Waiting for the first code…</string>
     <string name="transfer_received">Received %1$d of %2$d</string>
     <string name="transfer_import_title">Transfer from another phone</string>

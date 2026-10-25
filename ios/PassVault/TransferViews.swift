@@ -81,12 +81,14 @@ struct TransferReceiveView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                Text("Point the camera at the moving QR code on the old phone. Codes can arrive in any order; missed ones come round again.").font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("Point the camera at the moving QR code on the old phone. It does not need every code: ones it misses are made up by later ones.").font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 QRScannerView(onCode: { text in
                     guard !finished, collector.add(text) else { return }
                     received = collector.received; total = collector.total
                     if let data = collector.result() { finished = true; done(data) }
                 }, continuous: true).aspectRatio(1, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 12))
+                Text("Hold this phone about 20–30 cm (8–12 in) away, so the code fills about half of the square. Up close, many cameras cannot focus.")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 if total == 0 { Text("Waiting for the first code…") } else {
                     ProgressView(value: Double(received), total: Double(total))
                     Text("Received \(received) of \(total)")
