@@ -75,7 +75,10 @@ public struct HealthReport: Sendable {
         func key(_ p: CheckedPassword) -> String { p.record.id + "/" + p.field.id }
         let bad = Set(reused.flatMap { $0 }.map(key) + weak.map { key($0.password) })
         let aged = Set(old.map { key($0.password) }).subtracting(bad)
-        return Int((100.0 * (Double(checked - bad.count) - Double(aged.count) * 0.5) / Double(checked)).rounded())
+        let healthyCount = Double(checked - bad.count)
+        let agedPenalty = Double(aged.count) * 0.5
+        let percentage = 100.0 * (healthyCount - agedPenalty) / Double(checked)
+        return Int(percentage.rounded())
     }
     public var problemCount: Int { reused.reduce(0) { $0 + $1.count } + weak.count + old.count + expiring.count }
 }
