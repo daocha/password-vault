@@ -2,13 +2,17 @@ import SwiftUI
 import VaultCore
 
 /// The vault health report. Everything is computed from the unlocked records in memory; nothing is sent anywhere.
+/// Every group starts collapsed, as a header with its count; `focus` opens one group and scrolls to it (the expiry banner opens "expiring").
 struct HealthView: View {
+    var focus: String? = nil
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
     @State private var editing: VaultRecord?
+    /// Open groups, and open "shared by" sets of reused passwords ("reused:<field id>").
+    @State private var open: Set<String> = []
     var body: some View {
         let report = VaultHealth.check(model.records)
-        NavigationStack {
+        NavigationStack { ScrollViewReader { proxy in
             List {
                 Section {
                     Label {
@@ -34,34 +38,58 @@ struct HealthView: View {
                     if report.checked > 0 && report.problemCount == 0 && report.noTwoFactor.isEmpty { Label("No problems found.", systemImage: "checkmark.circle") }
                 }
                 if !report.reused.isEmpty {
-                    Section { ForEach(Array(report.reused.enumerated()), id: \.offset) { _, group in
-                        Text("Shared by \(group.count) entries").font(.caption).foregroundStyle(.red)
-                        ForEach(group, id: \.field.id) { row($0.record, $0.field.label) }
-                    } } header: { header("Reused passwords", "The same password on several sites: one leak exposes them all.") }
+                    Section { if open.contains("reused") { ForEach(Array(report.reused.enumerated()), id: \.offset) { _, group in
+                        // Each password shared by several entries is its own set, one line until opened.
+                        let key = "reused:" + group[0].field.id
+                        Button { toggle(key) } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text("Shared by \(group.count) entries").font(.caption).foregroundStyle(.red)
+                                    if !open.contains(key) { Text(group.map(\.record.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                }
+                                Spacer()
+                                Image(systemName: open.contains(key) ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.accessibilityHint(open.contains(key) ? "Hide" : "Show")
+                        if open.contains(key) { ForEach(group, id: \.field.id) { row($0.record, $0.field.label) } }
+                    } } } header: { header("reused", "Reused passwords", report.reused.count, "The same password on several sites: one leak exposes them all.") }
                 }
                 if !report.weak.isEmpty {
-                    Section { ForEach(report.weak, id: \.password.field.id) { row($0.password.record, "\($0.password.field.label) · \($0.score == 0 ? "Very weak" : "Weak")") } }
-                        header: { header("Weak passwords", "Easy to guess. Replace them with generated ones.") }
+                    Section { if open.contains("weak") { ForEach(report.weak, id: \.password.field.id) { row($0.password.record, "\($0.password.field.label) · \($0.score == 0 ? "Very weak" : "Weak")") } } }
+                        header: { header("weak", "Weak passwords", report.weak.count, "Easy to guess. Replace them with generated ones.") }
                 }
                 if !report.old.isEmpty {
-                    Section { ForEach(report.old, id: \.password.field.id) { row($0.password.record, "\($0.password.field.label) · Unchanged since \(Self.format($0.since))") } }
-                        header: { header("Old passwords", "Not changed for over a year.") }
+                    Section { if open.contains("old") { ForEach(report.old, id: \.password.field.id) { row($0.password.record, "\($0.password.field.label) · Unchanged since \(Self.format($0.since))") } } }
+                        header: { header("old", "Old passwords", report.old.count, "Not changed for over a year.") }
                 }
                 if !report.expiring.isEmpty {
-                    Section { ForEach(report.expiring) { r in row(r, "\(r.expiryState() == .expired ? "Expired" : "Expires") \(r.expiryDate.map(Self.format) ?? "")") } }
-                        header: { header("Expired or expiring soon", "Expired, or expiring within the next 30 days.") }
+                    Section { if open.contains("expiring") { ForEach(report.expiring) { r in row(r, "\(r.expiryState() == .expired ? "Expired" : "Expires") \(r.expiryDate.map(Self.format) ?? "")") } } }
+                        header: { header("expiring", "Expired or expiring soon", report.expiring.count, "Expired, or expiring within the next 30 days.") }
                 }
                 if !report.noTwoFactor.isEmpty {
-                    Section { ForEach(report.noTwoFactor) { row($0, $0.website) } }
-                        header: { header("Consider two-factor codes", "Well-known services with no 2FA code saved in PassVault. If you already use another authenticator or text messages for them, ignore this.") }
+                    Section { if open.contains("twoFactor") { ForEach(report.noTwoFactor) { row($0, $0.website) } } }
+                        header: { header("twoFactor", "Consider two-factor codes", report.noTwoFactor.count, "Well-known services with no 2FA code saved in PassVault. If you already use another authenticator or text messages for them, ignore this.") }
                 }
             }
             .navigationTitle("Vault health").navigationBarTitleDisplayMode(.inline).toolbar { Button("Done") { dismiss() } }
             .sheet(item: $editing) { RecordEditor(record: $0) }
-        }
+            .onAppear {
+                guard let focus else { return }
+                open = [focus]
+                DispatchQueue.main.async { withAnimation { proxy.scrollTo(focus, anchor: .top) } }
+            }
+        } }
     }
-    private func header(_ title: String, _ body: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) { Text(title); Text(body).font(.caption).textCase(nil) }
+    private func toggle(_ key: String) { if !open.insert(key).inserted { open.remove(key) } }
+    /// A group's header: tap it to open or close the group.
+    private func header(_ key: String, _ title: String, _ count: Int, _ body: String) -> some View {
+        Button { withAnimation { toggle(key) } } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) { Text("\(title) (\(count))"); Text(body).font(.caption).textCase(nil) }
+                Spacer()
+                Image(systemName: open.contains(key) ? "chevron.up" : "chevron.down")
+            }
+        }.foregroundStyle(.secondary).accessibilityHint(open.contains(key) ? "Hide" : "Show").id(key)
     }
     private func row(_ record: VaultRecord, _ detail: String) -> some View {
         Button { editing = record } label: {

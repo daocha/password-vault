@@ -155,6 +155,14 @@ class MainActivity : FragmentActivity() {
     private var settings by mutableStateOf(false)
     /** The vault health report; entries opened from it come back to it. */
     private var health by mutableStateOf(false)
+    /** The report's open groups and scroll position, kept while an entry opened from it is shown; [healthFocus] is a group to scroll to. */
+    private var healthOpen by mutableStateOf(emptySet<String>())
+    private var healthList by mutableStateOf(androidx.compose.foundation.lazy.LazyListState())
+    private var healthFocus by mutableStateOf<HealthSection?>(null)
+    /** Opens the report with every group collapsed, or only [focus] open and scrolled to (e.g. from the expiry banner). */
+    private fun openHealth(focus: HealthSection? = null) {
+        healthOpen = setOfNotNull(focus?.name); healthList = androidx.compose.foundation.lazy.LazyListState(); healthFocus = focus; health = true
+    }
     /** The open settings dialog; kept here so the backup reminder can open the export dialog directly. */
     private var settingsDialog by mutableStateOf<SettingsDialog?>(null)
     /** Phone-to-phone transfer: the one-time code and sealed payload being shown, or the scanner collecting one. */
@@ -350,7 +358,8 @@ class MainActivity : FragmentActivity() {
                                 sending != null -> sending?.let { t -> TransferSendScreen(t.frames, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
                                 receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
                                 record != null -> RecordScreen(record, editing)
-                                health -> HealthScreen(records, onBack = { health = false }, onOpen = { viewing = it; editing = false })
+                                health -> HealthScreen(records, healthOpen, onToggle = { key -> healthOpen = if (key in healthOpen) healthOpen - key else healthOpen + key }, healthList, healthFocus,
+                                    onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { viewing = it; editing = false })
                                 settings -> SettingsScreen()
                                 else -> VaultScreen()
                             }
@@ -512,7 +521,7 @@ class MainActivity : FragmentActivity() {
                         if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { health = true }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { openHealth() }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
             floatingActionButton = { if (!selecting) Box {
                 ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
@@ -546,7 +555,7 @@ class MainActivity : FragmentActivity() {
                         stringResource(R.string.backup_now), onDismiss = { backups.snooze(); loadBackupStatus() }) { settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }
                 }
                 val expiring = remember(records) { records.count { it.expiryState() == ExpiryState.expired || it.expiryState() == ExpiryState.soon } }
-                if (expiring > 0 && !selecting) AttentionBanner(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { health = true }
+                if (expiring > 0 && !selecting) AttentionBanner(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { openHealth(HealthSection.expiring) }
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconBadge(when (tab) { RecordType.seed -> Icons.Outlined.AccountBalanceWallet; RecordType.totp -> Icons.Outlined.Pin; else -> Icons.Outlined.Key }, 72.dp); Spacer(Modifier.height(16.dp))
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_no_seed_phrases; RecordType.totp -> R.string.totp_empty_title; else -> R.string.main_peace_of_mind }), style = MaterialTheme.typography.titleLarge)
@@ -920,7 +929,7 @@ class MainActivity : FragmentActivity() {
                 SectionTitle(stringResource(R.string.main_security))
                 Group {
                     val report = remember(records) { VaultHealth.check(records) }
-                    Row(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title), report.score?.let { stringResource(R.string.health_summary, it, report.problemCount) } ?: stringResource(R.string.health_nothing)) { health = true }
+                    Row(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title), report.score?.let { stringResource(R.string.health_summary, it, report.problemCount) } ?: stringResource(R.string.health_nothing)) { openHealth() }
                     Row(Icons.Outlined.Timer, stringResource(R.string.main_auto_lock), stringResource(autoLock.labelRes)) { dialog = SettingsDialog.AutoLockChoice }
                     // Biometrics always open the real vault, so the decoy vault neither shows nor changes them.
                     if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } }) }) {

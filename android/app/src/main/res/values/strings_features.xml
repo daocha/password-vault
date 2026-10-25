@@ -52,6 +52,8 @@
     <string name="health_2fa_body">Well-known services with no 2FA code saved in PassVault. If you already use another authenticator or text messages for them, ignore this.</string>
     <string name="health_banner_expiring">Expired or expiring soon: %1$d</string>
     <string name="health_review">Review</string>
+    <string name="health_expand">Show</string>
+    <string name="health_collapse">Hide</string>
     <!-- Backup status and reminders -->
     <string name="backup_last_title">Last encrypted backup</string>
     <string name="backup_never">Never</string>
