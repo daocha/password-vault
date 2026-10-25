@@ -329,7 +329,7 @@ class VaultStorageInstrumentedTest {
         val (code, sealed) = engine.exportTransfer(password)
         assertFalse("no plaintext", String(sealed, Charsets.ISO_8859_1).contains("Mail"))
         val collector = TransferFrames.Collector()
-        TransferFrames.frames(sealed).let { frames -> (frames.reversed() + frames).forEach { collector.add(it) } }
+        TransferFrames.Sender(sealed).let { sender -> (0 until sender.count).map(sender::frame).let { frames -> (frames.reversed() + frames).forEach { collector.add(it) } } }
         assertEquals(records, Transfer.open(collector.result()!!, Transfer.display(code).lowercase()))
         val wrong = if (code == "222222222222") "333333333333" else "222222222222"
         assertThrows(AuthenticationFailure::class.java) { Transfer.open(sealed, wrong) }

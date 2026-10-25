@@ -17,7 +17,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,10 +35,27 @@ import kotlinx.coroutines.delay
 
 /** A QR code one pixel per module (with a 4-module quiet zone); drawn scaled up without smoothing. */
 private fun qrBitmap(text: String): ImageBitmap {
+    // ZXing picks the mask pattern that is easiest to read; forcing each of the 8 in turn made a camera read under a quarter of the frames.
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 4))
     val pixels = IntArray(matrix.width * matrix.height) { if (matrix.get(it % matrix.width, it / matrix.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
     return android.graphics.Bitmap.createBitmap(pixels, matrix.width, matrix.height, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
 }
+
+/** Shows a transfer code being typed in groups of four, as the old phone shows it; the dashes are not part of the text. */
+object TransferCodeTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val typed = text.text; val breaks = Transfer.typingBreaks(typed)
+        val shown = buildString { typed.forEachIndexed { i, c -> append(c); if (i + 1 in breaks) append('-') } }
+        return TransformedText(AnnotatedString(shown), object : OffsetMapping {
+            override fun originalToTransformed(offset: Int) = offset + breaks.count { it <= offset }
+            // The dash after `breaks[i]` characters sits at `breaks[i] + i` in the shown text.
+            override fun transformedToOriginal(offset: Int) = (offset - breaks.withIndex().count { (i, b) -> b + i < offset }).coerceIn(0, typed.length)
+        })
+    }
+}
+
+/** How long each transfer frame is shown. Any frame helps the receiver, so one it skips costs nothing, and a fast camera reads more. */
+private const val FRAME_MILLIS = 150L
 
 /** Keeps the screen on while it is shown. */
 @Composable private fun KeepScreenOn() {
@@ -43,16 +64,16 @@ private fun qrBitmap(text: String): ImageBitmap {
 }
 
 /**
- * The old phone: a looping animated QR code of the encrypted transfer. The one-time code is shown only on request, and the QR code is
- * hidden while it is, so one photo never holds both.
+ * The old phone: an animated QR code of the encrypted transfer, every chunk once and then fresh mixes of them (see [TransferFrames]).
+ * The one-time code is shown only on request, and the QR code is hidden while it is, so one photo never holds both.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransferSendScreen(frames: List<String>?, code: String, onSaveFile: () -> Unit, onDone: () -> Unit) {
+fun TransferSendScreen(frames: TransferFrames.Sender?, code: String, onSaveFile: () -> Unit, onDone: () -> Unit) {
     KeepScreenOn()
     var index by remember { mutableIntStateOf(0) }
     var showCode by remember { mutableStateOf(false) }
-    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(250); index = (index + 1) % frames.size } }
+    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(FRAME_MILLIS); index++ } }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.transfer_send)) }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
@@ -68,11 +89,11 @@ fun TransferSendScreen(frames: List<String>?, code: String, onSaveFile: () -> Un
                     }
                 }
             } else if (frames != null) {
-                val bitmap = remember(frames, index) { qrBitmap(frames[index]) }
+                val bitmap = remember(frames, index) { qrBitmap(frames.frame(index)) }
                 Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
                     Image(bitmap, null, Modifier.fillMaxSize(), filterQuality = FilterQuality.None)
                 }
-                Text(stringResource(R.string.transfer_frame, index + 1, frames.size), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.transfer_frame, index % frames.count + 1, frames.count), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else Text(stringResource(R.string.transfer_too_large), textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             Button(onClick = { showCode = !showCode }, Modifier.fillMaxWidth().height(52.dp)) {
@@ -92,6 +113,18 @@ fun TransferReceiveScreen(owner: LifecycleOwner, onComplete: (ByteArray) -> Unit
     KeepScreenOn()
     val collector = remember { TransferFrames.Collector() }
     var received by remember { mutableIntStateOf(0) }; var total by remember { mutableIntStateOf(0) }; var finished by remember { mutableStateOf(false) }
+    // Debug builds only: how fast the camera works, to tell a camera that reads nothing from frames that bring nothing new.
+    val analyzed = remember { java.util.concurrent.atomic.AtomicInteger() }
+    var reads by remember { mutableIntStateOf(0) }; var lastRead by remember { mutableLongStateOf(0L) }; var stats by remember { mutableStateOf("") }
+    if (BuildConfig.DEBUG) LaunchedEffect(Unit) {
+        var seenAnalyzed = 0; var seenReads = 0; var seenReceived = 0
+        while (true) {
+            delay(2000)
+            val idle = if (lastRead == 0L) "—" else "%.1f s".format((System.currentTimeMillis() - lastRead) / 1000.0)
+            stats = "Camera ${(analyzed.get() - seenAnalyzed) / 2}/s · codes read ${(reads - seenReads) / 2.0}/s · new ${(received - seenReceived) / 2.0}/s · last read $idle ago"
+            seenAnalyzed = analyzed.get(); seenReads = reads; seenReceived = received
+        }
+    }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.transfer_receive)) }, navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
@@ -99,16 +132,19 @@ fun TransferReceiveScreen(owner: LifecycleOwner, onComplete: (ByteArray) -> Unit
             Text(stringResource(R.string.transfer_receive_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             QrScanner(owner, onCode = { text ->
+                if (BuildConfig.DEBUG && TransferFrames.isFrame(text)) { reads++; lastRead = System.currentTimeMillis() }
                 if (finished || !collector.add(text)) return@QrScanner
                 received = collector.received; total = collector.total
                 collector.result()?.let { finished = true; onComplete(it) }
-            }, Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black, RoundedCornerShape(12.dp)), continuous = true)
+            }, Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black, RoundedCornerShape(12.dp)), continuous = true, analyzed = analyzed)
+            Text(stringResource(R.string.transfer_distance_hint), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             if (total == 0) Text(stringResource(R.string.transfer_waiting))
             else {
                 LinearProgressIndicator(progress = { received / total.toFloat() }, Modifier.fillMaxWidth())
                 Text(stringResource(R.string.transfer_received, received, total), Modifier.padding(top = 8.dp))
             }
+            if (stats.isNotEmpty()) Text(stats, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             TextButton(onClick = onCancel, Modifier.padding(top = 16.dp)) { Text(stringResource(R.string.main_cancel)) }
         }
     }
