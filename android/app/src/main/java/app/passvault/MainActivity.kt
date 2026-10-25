@@ -174,6 +174,8 @@ class MainActivity : FragmentActivity() {
     /** The decoy vault is open: settings that would reveal or touch the real vault are not shown. */
     private var decoySession by mutableStateOf(false)
     private var decoyEnabled by mutableStateOf(false)
+    /** Read at unlock, not when the dialog opens: the engine may be busy deriving a key and would block the main thread. */
+    private var decoyResettable by mutableStateOf(false)
     // Each vault keeps its own backup history, so the decoy shows only its own.
     private val backups get() = BackupStatus(prefs, if (decoySession) "decoy." else "")
     private var lastBackup by mutableStateOf<Instant?>(null)
@@ -394,7 +396,7 @@ class MainActivity : FragmentActivity() {
     /** [keepTransfer]: the lock comes from leaving the app (perhaps to share the transfer file), not from turning the screen off. */
     private fun lockVault(clearClipboard: Boolean = true, keepTransfer: Boolean = false) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
+        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; decoyResettable = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
         // A transfer outlives the lock for a while, so its code is still there after sharing the file from another app.
         if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
         scannedImport = null; cameraGranted = null; imageRead = null
@@ -426,7 +428,7 @@ class MainActivity : FragmentActivity() {
                 }
                 if (result != null) {
                     records = result; unlocked = true; exists = true
-                    decoySession = runCatching { engine.isDecoy() }.getOrDefault(false); decoyEnabled = runCatching { engine.hasDecoy() }.getOrDefault(false); loadBackupStatus()
+                    decoySession = runCatching { engine.isDecoy() }.getOrDefault(false); decoyEnabled = runCatching { engine.hasDecoy() }.getOrDefault(false); decoyResettable = runCatching { engine.canResetDecoy() }.getOrDefault(false); loadBackupStatus()
                     // Only the vault that made a pending transfer may see it again.
                     sending?.let { if (it.decoy != decoySession || SystemClock.elapsedRealtime() >= it.expiresAt) discardTransfer() }
                 }
@@ -974,7 +976,7 @@ class MainActivity : FragmentActivity() {
             SettingsDialog.DecoySetup -> DecoySetupDialog(reset = false) { dialog = null }
             SettingsDialog.DecoyReset -> DecoySetupDialog(reset = true) { dialog = null }
             SettingsDialog.DecoyManage -> {
-                val canReset = remember { runCatching { engine.canResetDecoy() }.getOrDefault(false) }
+                val canReset = decoyResettable
                 AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(R.string.decoy_title)) },
                     text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(stringResource(R.string.decoy_manage_body), style = MaterialTheme.typography.bodyMedium)
@@ -989,7 +991,7 @@ class MainActivity : FragmentActivity() {
                 work({ sealed = engine.exportTransfer(pass); null }) { sealed?.let { (code, bytes) -> sending = PendingTransfer(code, bytes, decoySession, SystemClock.elapsedRealtime() + TRANSFER_KEEP_MILLIS) } }
             }
             SettingsDialog.DecoyRemove -> PasswordDialog(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_remove), stringResource(R.string.decoy_remove_body), stringResource(R.string.main_delete), { dialog = null }) { pass ->
-                work({ engine.removeDecoy(pass); null }) { decoyEnabled = false; prefs.edit().remove("decoy.lastBackupAt").remove("decoy.backupReminder").remove("decoy.backupSnoozeUntil").apply(); message = getString(R.string.decoy_removed) }
+                work({ engine.removeDecoy(pass); null }) { decoyEnabled = false; decoyResettable = false; prefs.edit().remove("decoy.lastBackupAt").remove("decoy.backupReminder").remove("decoy.backupSnoozeUntil").apply(); message = getString(R.string.decoy_removed) }
             }
             is SettingsDialog.Exporting -> {
                 var consent by remember { mutableStateOf(false) }
@@ -1068,7 +1070,7 @@ class MainActivity : FragmentActivity() {
             } },
             confirmButton = { TextButton(onClick = { val c = current; val d = decoy; current = ""; decoy = ""; repeat = ""; dismiss()
                 if (reset) work({ engine.resetDecoyPassword(c, d); null }) { message = getString(R.string.decoy_password_changed) }
-                else work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; message = getString(R.string.decoy_created) } },
+                else work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; decoyResettable = true; message = getString(R.string.decoy_created) } },
                 enabled = current.isNotEmpty() && PasswordPolicy.problem(decoy) == null && decoy == repeat) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }

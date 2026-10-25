@@ -209,14 +209,16 @@ public final class VaultEngine: @unchecked Sendable {
         var proven = try authenticate(current).key; proven.resetBytes(in: 0..<proven.count) // the vault is unlocked, so the old data key is not needed again
         guard var value = try state() else { throw VaultError.locked }
         if activeDecoy {
-            guard (value.decoyChanges ?? 0) < Self.decoyChanges else { throw VaultError.invalid("The password was changed too many times. Try again later.") }
+            let changes = value.decoyChanges ?? 0
+            guard changes < Self.decoyChanges else { throw VaultError.invalid("The password was changed too many times. Try again later.") }
+            // Reserved before the check, as an attempt is: stopping the app mid-change must not give a free test.
+            value.decoyChanges = changes + 1; try write(value)
             if var real = try unwrap(new, salt: value.salt, secret: value.secret, wrapped: value.wrappedKey) {
                 real.resetBytes(in: 0..<real.count)
-                value.attempts += 1; try write(value)
+                value.decoyChanges = changes == 0 ? nil : changes; value.attempts += 1; try write(value)
                 if value.attempts >= 10 { try erase(value); throw VaultError.erased }
                 throw VaultError.invalid("Choose a different password.")
             }
-            value.decoyChanges = (value.decoyChanges ?? 0) + 1
         }
         if !activeDecoy, let d = value.decoy, try unwrap(new, salt: d.salt, secret: d.secret, wrapped: d.wrappedKey) != nil {
             throw VaultError.invalid("Choose a password different from your decoy vault's.")

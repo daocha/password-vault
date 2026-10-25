@@ -203,12 +203,13 @@ class VaultEngine(private val storage: ProtectedStorage) {
         val value = state() ?: error("Vault is locked.")
         if (activeDecoy) {
             check(value.decoyChanges < DECOY_CHANGES) { "The password was changed too many times. Try again later." }
+            // Reserved before the check, as an attempt is: stopping the app mid-change must not give a free test.
+            value.decoyChanges++; storage.writeState(value.encode())
             unwrap(new, value.salt, value.secret, value.wrapped)?.let {
-                it.fill(0); value.attempts++; storage.writeState(value.encode())
+                it.fill(0); value.decoyChanges--; value.attempts++; storage.writeState(value.encode())
                 if (value.attempts >= 10) { erase(value); error("The local vault was erased after 10 failed attempts.") }
                 throw IllegalArgumentException("Choose a different password.")
             }
-            value.decoyChanges++
         }
         value.decoy?.let { d -> if (!activeDecoy) unwrap(new, d.salt, d.secret, d.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a password different from your decoy vault's.") } }
         val previous = liveBlobs(value); val blob = UUID.randomUUID().toString()

@@ -10,7 +10,8 @@ final class MemoryStorage: VaultStorage {
     func deleteState() throws { state = nil }
     func writeState(_ data: Data) throws { if failWrite { throw VaultError.invalid("Simulated write failure") }; state = data }
     func readBlob(_ id: String) throws -> Data { guard let data = blobs[id] else { throw VaultError.invalid("Missing blob") }; return data }
-    func writeBlob(_ data: Data, id: String) throws { blobs[id] = data }
+    var failBlobWrite = false
+    func writeBlob(_ data: Data, id: String) throws { if failBlobWrite { throw VaultError.invalid("Simulated write failure") }; blobs[id] = data }
     func removeBlobs(keeping ids: Set<String>) throws { blobs = blobs.filter { ids.contains($0.key) } }
     func hasBlobs() throws -> Bool { !blobs.isEmpty }
     func saveBiometricKey(_ data: Data) throws { biometric = data }
