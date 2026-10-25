@@ -26,13 +26,14 @@ import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /** QR decoding runs entirely on the device (ZXing); nothing is sent anywhere and the app has no network permission. */
 object QrDecoder {
     private fun reader() = MultiFormatReader().apply { setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE), DecodeHintType.TRY_HARDER to true)) }
-    /** Tries the image as is, then inverted (light-on-dark codes, e.g. a site in dark mode). */
-    fun decode(source: LuminanceSource, reader: MultiFormatReader = reader()): String? {
-        for (candidate in listOf(source, source.invert())) {
+    /** Tries the image as is, then with [invert] inverted (light-on-dark codes, e.g. a site in dark mode). */
+    fun decode(source: LuminanceSource, reader: MultiFormatReader = reader(), invert: Boolean = true): String? {
+        for (candidate in if (invert) listOf(source, source.invert()) else listOf(source)) {
             try { return reader.decodeWithState(BinaryBitmap(HybridBinarizer(candidate))).text } catch (_: Exception) { } finally { reader.reset() }
         }
         return null
@@ -50,11 +51,12 @@ object QrDecoder {
 }
 
 /**
- * Live camera preview that reports the first QR code it reads, once, or with [continuous] every code it reads (a transfer's loop of
- * frames). The camera is released when this leaves the composition.
+ * Live camera preview that reports the first QR code it reads, once, or with [continuous] every code it reads (a transfer's stream of
+ * frames, always dark on light, so a failed picture is not tried again inverted). [analyzed] counts the camera pictures decoded.
+ * The camera is released when this leaves the composition.
  */
 @Composable
-fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifier = Modifier, continuous: Boolean = false) {
+fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifier = Modifier, continuous: Boolean = false, analyzed: AtomicInteger? = null) {
     val executor = remember { Executors.newSingleThreadExecutor() }
     val done = remember { AtomicBoolean(false) }
     val bound = remember { arrayOfNulls<Pair<ProcessCameraProvider, Array<androidx.camera.core.UseCase>>>(1) }
@@ -73,8 +75,8 @@ fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifie
                         val plane = image.planes[0]; val buffer = plane.buffer
                         val data = ByteArray(buffer.remaining()).also { buffer.get(it) }
                         val rows = minOf(image.height, (data.size + plane.rowStride - 1) / plane.rowStride)
-                        val text = QrDecoder.decode(PlanarYUVLuminanceSource(data, plane.rowStride, rows, 0, 0, image.width, rows, false), reader)
-                        data.fill(0)
+                        val text = QrDecoder.decode(PlanarYUVLuminanceSource(data, plane.rowStride, rows, 0, 0, image.width, rows, false), reader, invert = !continuous)
+                        data.fill(0); analyzed?.incrementAndGet()
                         if (text != null && (continuous || done.compareAndSet(false, true))) ContextCompat.getMainExecutor(context).execute { if (!continuous || !done.get()) onCode(text) }
                     } finally { image.close() }
                 }

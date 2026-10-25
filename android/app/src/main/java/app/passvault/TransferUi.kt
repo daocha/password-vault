@@ -93,6 +93,18 @@ fun TransferReceiveScreen(owner: LifecycleOwner, onComplete: (ByteArray) -> Unit
     KeepScreenOn()
     val collector = remember { TransferFrames.Collector() }
     var received by remember { mutableIntStateOf(0) }; var total by remember { mutableIntStateOf(0) }; var finished by remember { mutableStateOf(false) }
+    // Debug builds only: how fast the camera works, to tell a camera that reads nothing from frames that bring nothing new.
+    val analyzed = remember { java.util.concurrent.atomic.AtomicInteger() }
+    var reads by remember { mutableIntStateOf(0) }; var lastRead by remember { mutableLongStateOf(0L) }; var stats by remember { mutableStateOf("") }
+    if (BuildConfig.DEBUG) LaunchedEffect(Unit) {
+        var seenAnalyzed = 0; var seenReads = 0; var seenReceived = 0
+        while (true) {
+            delay(2000)
+            val idle = if (lastRead == 0L) "—" else "%.1f s".format((System.currentTimeMillis() - lastRead) / 1000.0)
+            stats = "Camera ${(analyzed.get() - seenAnalyzed) / 2}/s · codes read ${(reads - seenReads) / 2.0}/s · new ${(received - seenReceived) / 2.0}/s · last read $idle ago"
+            seenAnalyzed = analyzed.get(); seenReads = reads; seenReceived = received
+        }
+    }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.transfer_receive)) }, navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
@@ -100,16 +112,18 @@ fun TransferReceiveScreen(owner: LifecycleOwner, onComplete: (ByteArray) -> Unit
             Text(stringResource(R.string.transfer_receive_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             QrScanner(owner, onCode = { text ->
+                if (TransferFrames.isFrame(text)) { reads++; lastRead = System.currentTimeMillis() }
                 if (finished || !collector.add(text)) return@QrScanner
                 received = collector.received; total = collector.total
                 collector.result()?.let { finished = true; onComplete(it) }
-            }, Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black, RoundedCornerShape(12.dp)), continuous = true)
+            }, Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black, RoundedCornerShape(12.dp)), continuous = true, analyzed = analyzed)
             Spacer(Modifier.height(16.dp))
             if (total == 0) Text(stringResource(R.string.transfer_waiting))
             else {
                 LinearProgressIndicator(progress = { received / total.toFloat() }, Modifier.fillMaxWidth())
                 Text(stringResource(R.string.transfer_received, received, total), Modifier.padding(top = 8.dp))
             }
+            if (stats.isNotEmpty()) Text(stats, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             TextButton(onClick = onCancel, Modifier.padding(top = 16.dp)) { Text(stringResource(R.string.main_cancel)) }
         }
     }
