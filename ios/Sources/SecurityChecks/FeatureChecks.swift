@@ -7,9 +7,16 @@ func cardChecks() throws {
     try check(Cards.brand("4111 1111 1111 1111") == "Visa" && Cards.brand("2221000000000009") == "Mastercard" && Cards.brand("378282246310005") == "American Express"
               && Cards.brand("6011111111111117") == "Discover" && Cards.brand("3530111333300000") == "JCB" && Cards.brand("6200000000000005") == "UnionPay" && Cards.brand("9999") == nil, "card networks")
     try check(Cards.formatted("4111111111111111") == "4111 1111 1111 1111" && Cards.formatted("378282246310005") == "3782 822463 10005" && Cards.formatted("not a number") == "not a number", "card number grouping")
-    for (text, year, month) in [("03/27", 2027, 3), ("3/2027", 2027, 3), ("2027-03", 2027, 3), ("0327", 2027, 3), (" 12 / 27 ", 2027, 12)] {
+    for (text, year, month) in [("03/27", 2027, 3), ("3/2027", 2027, 3), ("2027-03", 2027, 3), ("0327", 2027, 3), ("121999", 1999, 12), (" 12 / 27 ", 2027, 12)] {
         try check(Cards.parseExpiry(text).map { $0.year == year && $0.month == month } == true, "card expiry \(text)")
     }
+    let number = CardInput.number, expiry = CardInput.expiry
+    try check(number.formatted("5241") == "5241 " && number.formatted(number.clean("5241 0002 1")) == "5241 0002 1" && number.formatted("4111111111111111") == "4111 1111 1111 1111"
+              && number.formatted(number.clean("4111-1111-1111-1111-1119")) == "4111 1111 1111 1111 111" && number.formatted("378282246310005") == "3782 822463 10005", "card number typed as digits, shown grouped")
+    try check(expiry.formatted(expiry.clean("02")) == "02/" && expiry.formatted(expiry.clean("02/26")) == "02/26" && expiry.clean("1") == "1" && expiry.clean("3") == "03"
+              && expiry.formatted(expiry.clean("12/1999")) == "12/1999" && expiry.edited("02", from: "02") == "0" && expiry.edited("02/2", from: "02") == "022", "card expiry typed as digits, shown with a slash")
+    try check(number.digits("4111 1111 1111 1234") == "4111111111111234" && number.digits("ask the bank") == nil && expiry.digits("03/27") == "0327" && expiry.digits("2027-03") == "0327"
+              && expiry.digits("soon") == nil && Cards.formattedExpiry("0327") == "03/27" && Cards.formattedExpiry("03/27") == "03/27" && Cards.formattedExpiry("soon") == "soon" && Cards.formattedExpiry("202712") == "202712", "card values saved before, or imported, edit as digits")
     try check(Cards.parseExpiry("13/27") == nil && Cards.parseExpiry("soon") == nil, "invalid card expiry")
     let today = DateComponents(year: 2026, month: 10, day: 25)
     func reminder(_ date: String) -> VaultRecord { var r = VaultRecord(); r.expires = date; return r }
@@ -34,6 +41,9 @@ func cardChecks() throws {
     let before = card("01/28")
     var after = before; after.fields = after.fields.map { var f = $0; if f.label == cardNumberLabel { f.value = "4000056655665556" }; return f }
     try check(after.recordingPasswordChanges(previous: before).fields.first { $0.label == cardNumberLabel }?.history?.map(\.value) == ["4111 1111 1111 1234"], "card number changes kept in history")
+    var digitsOnly = before; digitsOnly.fields = digitsOnly.fields.map { var f = $0; if f.label == cardNumberLabel { f.value = "4111111111111234" }; return f }
+    try check(card("0226").matches("02/26") && card("0226").matches("0226"), "a card's expiry is found as shown")
+    try check(digitsOnly.recordingPasswordChanges(previous: before).fields.first { $0.label == cardNumberLabel }?.history == nil, "a card number kept as digits is not a change")
     // Android's JSON writes the same keys, so the two apps read each other's records.
     let android = #"[{"id":"c","name":"Bank","website":"","group":"","favorite":false,"updatedAt":"2026-10-25T00:00:00Z","fields":[],"legacy":{},"type":"card","expires":"2027-01-31"}]"#
     try check(try Records.decode(Data(android.utf8)).first.map { $0.isCard && $0.expires == "2027-01-31" } == true, "reads Android card JSON")
@@ -219,9 +229,9 @@ func importChecks() throws {
     try check(bwMail.group == "Personal" && bwMail.favorite && bwMail.fields[1].history?.map(\.value) == ["older"] && bwMail.fields.first { $0.label == "PIN" }?.secret == true
               && bwMail.fields.first { $0.label == "Plan" }?.secret == false && records.contains { $0.isTotp && $0.name == "Mail" }, "Bitwarden JSON login")
     let card = records.first(where: \.isCard)!
-    try check(card.cardSummary == "Visa •••• 1111" && value(card, cardExpiryLabel) == "03/27" && value(card, cardCodeLabel) == "123", "Bitwarden JSON card")
+    try check(card.cardSummary == "Visa •••• 1111" && value(card, cardExpiryLabel) == "0327" && value(card, cardCodeLabel) == "123", "Bitwarden JSON card")
     let oldCard = #"{"encrypted":false,"items":[{"id":"9","type":3,"name":"Old card","card":{"number":"4111111111111111","expMonth":"12","expYear":"1999"}}]}"#
-    try check(value(try Importers.importPlain(Data(oldCard.utf8)).first(where: \.isCard)!, cardExpiryLabel) == "12/1999", "a card year outside 2000-2099 keeps four digits")
+    try check(value(try Importers.importPlain(Data(oldCard.utf8)).first(where: \.isCard)!, cardExpiryLabel) == "121999", "a card year outside 2000-2099 keeps four digits")
     let identity = records.first { $0.name == "Me" }!
     try check(value(records.first { $0.name == "Door code" }!, "Notes") == "4321" && identity.isNote && value(identity, "First name") == "Ann"
               && identity.fields.first { $0.label == "Passport number" }?.secret == true && !records.contains { $0.name == "Gone" }, "Bitwarden JSON notes, identities and trash")
@@ -237,7 +247,7 @@ func onePuxChecks() throws {
     try check(mail.group == "Work" && mail.favorite && mail.fields.prefix(3).map(\.value) == ["me", "test-only-10", "n"] && mail.fields[1].history?.map(\.value) == ["older"]
               && mail.fields.first { $0.label == "recovery" }?.secret == true && records.contains(where: \.isTotp), "1PUX login")
     let card = records.first(where: \.isCard)!
-    try check(card.cardSummary == "Mastercard •••• 0004" && value(card, cardExpiryLabel) == "12/27" && value(card, cardCodeLabel) == "999" && value(card, "bank") == "Big Bank"
+    try check(card.cardSummary == "Mastercard •••• 0004" && value(card, cardExpiryLabel) == "1227" && value(card, cardCodeLabel) == "999" && value(card, "bank") == "Big Bank"
               && card.fields.filter { $0.value == "999" }.count == 1, "1PUX card")
     try check(!records.contains { $0.name == "Old" } && value(records.first { $0.name == "Note" }!, "Notes") == "keep me", "1PUX trashed and archived items")
 }

@@ -54,7 +54,7 @@ enum ImportBuilder {
     }
     static func card(_ name: String, holder: String, number: String, expiry: String, code: String, pin: String = "", notes: String = "", group: String = "", favorite: Bool = false, updatedAt: Date? = nil, extra: [VaultField] = []) -> VaultRecord {
         var record = VaultRecord.new(type: "card")
-        let values = [cardHolderLabel: holder, cardNumberLabel: number, cardExpiryLabel: expiry, cardCodeLabel: code, cardPinLabel: pin, "Notes": notes]
+        let values = [cardHolderLabel: holder, cardNumberLabel: CardInput.number.digits(number) ?? number, cardExpiryLabel: CardInput.expiry.digits(expiry) ?? expiry, cardCodeLabel: code, cardPinLabel: pin, "Notes": notes]
         record.name = name; record.group = group.trimmingCharacters(in: .whitespacesAndNewlines); record.favorite = favorite
         record.updatedAt = ISO8601DateFormatter().string(from: updatedAt ?? Date())
         record.fields = record.fields.map { var f = $0; f.value = values[f.label] ?? ""; return f } + extra

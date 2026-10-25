@@ -44,7 +44,9 @@ data class VaultRecord(
     val seedWords: List<String> get() = fields.firstOrNull { it.label == SEED_LABEL }?.value?.let(Bip39::split).orEmpty()
     /** A seed-type record that holds a bare private key instead of a mnemonic. */
     val privateKey: String? get() = fields.firstOrNull { it.label == PRIVATE_KEY_LABEL }?.value
-    fun matches(query: String) = (listOf(name, website, group) + fields.filter { !it.secret }.map { it.value } + listOfNotNull(totp?.account)).any { it.contains(query, ignoreCase = true) }
+    /** A card's expiry is stored as digits ("0226") but found as shown, too ("02/26"). */
+    fun matches(query: String) = (listOf(name, website, group) + fields.filter { !it.secret }.flatMap { if (it.label == CARD_EXPIRY_LABEL) listOf(it.value, Cards.formattedExpiry(it.value)) else listOf(it.value) }
+        + listOfNotNull(totp?.account)).any { it.contains(query, ignoreCase = true) }
     fun json() = JSONObject().put("id", id).put("name", name).put("website", website).put("group", group).put("favorite", favorite).put("updatedAt", updatedAt).put("fields", JSONArray(fields.map { it.json() })).put("legacy", JSONObject(legacy)).apply { if (type != RecordType.login) put("type", type.name); if (expires.isNotEmpty()) put("expires", expires) }
     companion object {
         fun from(j: JSONObject): VaultRecord {
@@ -83,7 +85,8 @@ fun VaultRecord.recordingPasswordChanges(previous: VaultRecord?, changedAt: Inst
     val before = previous.fields.associateBy { it.id }
     return copy(fields = fields.map { field ->
         val old = before[field.id]
-        if (old != null && field.secret && old.value.isNotEmpty() && old.value != field.value)
+        // A card number saved with spaces and now kept as digits ("4111 1111 …" → "41111111…") is the same number, not a change.
+        if (old != null && field.secret && old.value.isNotEmpty() && old.value != field.value && CardInput.of(field.label)?.digits(old.value) != field.value)
             field.copy(history = (field.history + PasswordChange(old.value, changedAt.epochSecond)).sortedByDescending { it.changedAtEpochSeconds }.take(PASSWORD_HISTORY_LIMIT))
         else field
     })

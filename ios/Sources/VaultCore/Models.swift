@@ -58,7 +58,8 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
     public var isNote: Bool { type == "note" }
     public init() {}
     public func matches(_ query: String) -> Bool {
-        let searchable = [name, website, group] + fields.filter { !$0.secret }.map(\.value) + [totp?.account].compactMap { $0 }
+        // A card's expiry is stored as digits ("0226") but found as shown, too ("02/26").
+        let searchable = [name, website, group] + fields.filter { !$0.secret }.flatMap { $0.label == cardExpiryLabel ? [$0.value, Cards.formattedExpiry($0.value)] : [$0.value] } + [totp?.account].compactMap { $0 }
         return query.isEmpty || searchable.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }
@@ -83,7 +84,8 @@ extension VaultRecord {
         let before = Dictionary(previous.fields.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var updated = self
         updated.fields = fields.map { field in
-            guard let old = before[field.id], field.secret, !old.value.isEmpty, old.value != field.value else { return field }
+            // A card number saved with spaces and now kept as digits ("4111 1111 …" → "41111111…") is the same number, not a change.
+            guard let old = before[field.id], field.secret, !old.value.isEmpty, old.value != field.value, CardInput.of(field.label)?.digits(old.value) != field.value else { return field }
             var changed = field
             let all = ((field.history ?? []) + [PasswordChange(value: old.value, changedAt: Int64(date.timeIntervalSince1970))]).sorted { $0.changedAt > $1.changedAt }
             changed.history = Array(all.prefix(passwordHistoryLimit))
