@@ -25,7 +25,7 @@ import org.json.JSONObject
 import java.io.File
 
 internal enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, PERMISSION, INSTALLING, ERROR }
-internal enum class UpdateSource { GITHUB, PLAY }
+internal enum class UpdateSource { GITHUB, LAN, PLAY }
 internal data class UpdateUi(
     val source: UpdateSource,
     val phase: UpdatePhase = UpdatePhase.IDLE,
@@ -36,7 +36,7 @@ internal data class UpdateUi(
     val hasUpdate: Boolean get() = version != null && phase != UpdatePhase.CURRENT
 }
 
-/** Only release builds create this object. Nothing is checked, downloaded or displayed in debug or QA builds. */
+/** Release builds, and debug builds given a LAN update server, create this object. Other debug builds never check. */
 internal class AppUpdates(
     private val activity: MainActivity,
     private val playLauncher: ActivityResultLauncher<IntentSenderRequest>,
@@ -48,14 +48,18 @@ internal class AppUpdates(
     private var checking = false
     private var playFlowStarted = false
     private var pendingApk: File? = null
-    val source: UpdateSource = if (BuildConfig.UPDATE_CHANNEL == "play" || installedViaPlay()) UpdateSource.PLAY else UpdateSource.GITHUB
+    val source: UpdateSource = when {
+        BuildConfig.UPDATE_CHANNEL == "lan" -> UpdateSource.LAN
+        BuildConfig.UPDATE_CHANNEL == "play" || installedViaPlay() -> UpdateSource.PLAY
+        else -> UpdateSource.GITHUB
+    }
     var ui by androidx.compose.runtime.mutableStateOf(UpdateUi(source))
         private set
 
     init {
-        if (source == UpdateSource.GITHUB) {
+        if (source != UpdateSource.PLAY) {
             release = prefs.getString("latest_json", null)?.let { text ->
-                runCatching { ReleaseUpdates.select(JSONObject(text), BuildConfig.VERSION_CODE.toLong()) }.getOrNull()
+                runCatching { ReleaseUpdates.selectCached(JSONObject(text), BuildConfig.VERSION_CODE.toLong()) }.getOrNull()
             }
             if (release != null) ui = UpdateUi(source, UpdatePhase.AVAILABLE, release!!.version)
             pendingApk = prefs.getString("pending_apk", null)?.takeIf { it.matches(Regex("PassVault-[0-9]+\\.apk")) }
@@ -65,7 +69,7 @@ internal class AppUpdates(
 
     fun onResume() {
         if (ui.phase == UpdatePhase.INSTALLING) ui = ui.copy(phase = UpdatePhase.AVAILABLE)
-        if (source == UpdateSource.GITHUB && pendingApk != null && activity.packageManager.canRequestPackageInstalls()) {
+        if (source != UpdateSource.PLAY && pendingApk != null && activity.packageManager.canRequestPackageInstalls()) {
             installPending()
         }
         check(false)
@@ -77,7 +81,8 @@ internal class AppUpdates(
         if (checking) return
         if (source == UpdateSource.PLAY) { checkPlay(manual); return }
         val last = prefs.getLong("last_check", 0)
-        if (!manual && System.currentTimeMillis() - last in 0 until 6 * 60 * 60 * 1000L) return
+        // The LAN server is checked on every resume; GitHub at most every six hours.
+        if (!manual && source == UpdateSource.GITHUB && System.currentTimeMillis() - last in 0 until 6 * 60 * 60 * 1000L) return
         checking = true
         if (manual) ui = ui.copy(phase = UpdatePhase.CHECKING, error = null)
         scope.launch {
@@ -98,12 +103,30 @@ internal class AppUpdates(
 
     fun update() {
         if (source == UpdateSource.PLAY) { startPlay(); return }
-        if (pendingApk != null) { installPending(); return }
-        val candidate = release ?: run { check(true); return }
         if (ui.phase == UpdatePhase.DOWNLOADING) return
         scope.launch {
             ui = ui.copy(phase = UpdatePhase.DOWNLOADING, percent = 0, error = null)
             try {
+                // Ask again first: a newer build may have replaced the one the last check found (the LAN server keeps
+                // only the newest). Offline, fall back to what that check found.
+                runCatching { withContext(Dispatchers.IO) { ReleaseUpdates.fetchLatest(BuildConfig.VERSION_CODE.toLong()) } }
+                    .getOrNull()?.let { (latest, json) ->
+                        release = latest
+                        prefs.edit().putLong("last_check", System.currentTimeMillis()).putString("latest_json", json).apply()
+                    }
+                val candidate = release
+                // A leftover download that is not newer than this build (installed some other way since) is dropped, not installed.
+                val pending = pendingApk?.takeIf(File::isFile)?.let { file ->
+                    val code = file.name.removePrefix("PassVault-").removeSuffix(".apk").toLongOrNull()
+                    if (code != null && code <= BuildConfig.VERSION_CODE) { file.delete(); pendingApk = null; prefs.edit().remove("pending_apk").apply(); null } else file
+                }
+                if (pending != null && (candidate == null || pending.name == "PassVault-${candidate.versionCode}.apk")) {
+                    installPending(); return@launch
+                }
+                if (candidate == null) { ui = UpdateUi(source, UpdatePhase.CURRENT); return@launch }
+                pending?.delete()
+                pendingApk = null
+                prefs.edit().remove("pending_apk").apply()
                 val directory = File(activity.cacheDir, "updates").apply { mkdirs() }
                 val apk = File(directory, "PassVault-${candidate.versionCode}.apk")
                 withContext(Dispatchers.IO) {

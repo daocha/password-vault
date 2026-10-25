@@ -135,15 +135,15 @@ class ProtectedStorage(private val context: Context) {
         deleteBiometric()
         deleteStateKeys()
         AtomicFile(File(directory, "state")).delete()
-        removeBlobs(null)
+        removeBlobs(emptySet())
     }
     private fun blob(id: String): File { require(java.util.UUID.fromString(id).toString().equals(id, true)); return File(directory, "$id.vault") }
     fun readBlob(id: String) = read(blob(id), Records.MAX_BYTES + 40)
     fun writeBlob(id: String, bytes: ByteArray) = write(blob(id), bytes)
     fun hasBlobs() = directory.listFiles()?.any { it.name.endsWith(".vault") || it.name.endsWith(".vault.bak") } ?: false
-    // Also removes AtomicFile leftovers (<id>.vault.new from an interrupted write, legacy <id>.vault.bak).
-    fun removeBlobs(except: String?) {
-        directory.listFiles()?.filter { f -> listOf(".vault", ".vault.new", ".vault.bak").any { f.name.endsWith(it) } && f.name.substringBefore('.') != except }
+    /** Deletes every vault file except those named in [keep]; also AtomicFile leftovers (<id>.vault.new from an interrupted write, legacy <id>.vault.bak). */
+    fun removeBlobs(keep: Set<String>) {
+        directory.listFiles()?.filter { f -> listOf(".vault", ".vault.new", ".vault.bak").any { f.name.endsWith(it) } && f.name.substringBefore('.') !in keep }
             ?.forEach { check(it.delete() || !it.exists()) { "Could not remove old ciphertext." } }
     }
     fun biometricCipher(encrypt: Boolean): Cipher {

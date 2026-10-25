@@ -148,7 +148,7 @@
     <string name="main_clear_on_lock">鎖定時清除已複製的文字</string>
     <string name="main_clear_on_lock_summary">從最近使用的應用程式中滑掉本應用程式時也會清除</string>
     <string name="main_backup_migration">備份與遷移</string>
-    <string name="main_import_row_summary">Password Keeper（.pkb2 或 CSV）或 PassVault 備份</string>
+    <string name="main_import_row_summary">PassVault 備份、KeePass、Bitwarden、1Password、Password Keeper，或瀏覽器等匯出的 CSV</string>
     <string name="main_export_encrypted">匯出加密備份</string>
     <string name="main_export_encrypted_summary">密碼、助記詞和兩步驟驗證金鑰，以你的主密碼保護</string>
     <string name="main_export_csv">匯出純文字 CSV</string>

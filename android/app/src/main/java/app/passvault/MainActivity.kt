@@ -40,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -83,16 +84,30 @@ private sealed interface SettingsDialog {
     data object Generator : SettingsDialog
     data object EnableBiometrics : SettingsDialog
     data object ChangePassword : SettingsDialog
+    data object BackupReminderChoice : SettingsDialog
+    data object DecoySetup : SettingsDialog
+    data object TransferSend : SettingsDialog
+    data object DecoyRemove : SettingsDialog
+    data object DecoyManage : SettingsDialog
+    data object DecoyReset : SettingsDialog
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
+/**
+ * A transfer being sent: kept through a lock for [MainActivity.TRANSFER_KEEP_MILLIS] (leaving the app to share the file locks it), and
+ * shown again only after unlocking the same vault it was made from.
+ */
+private class PendingTransfer(val code: String, val bytes: ByteArray, val decoy: Boolean, val expiresAt: Long) {
+    /** Built once: the receiver starts over whenever the session id changes, so the frames must survive the screen coming back. */
+    val frames: List<String>? = runCatching { TransferFrames.frames(bytes) }.getOrNull()
+}
 private class ScannedImport(val records: List<VaultRecord>, val hotp: Int, val duplicates: Int)
 
 private val LANGUAGES = listOf("", "en", "zh-Hans", "zh-Hant")
 private fun languageName(tag: String) = when (tag) { "en" -> R.string.main_language_english; "zh-Hans" -> R.string.main_language_zh_hans; "zh-Hant" -> R.string.main_language_zh_hant; else -> R.string.main_language_system }
 
 class MainActivity : FragmentActivity() {
-    private companion object { const val PICKER_GRACE_MILLIS = 120_000L }
+    private companion object { const val PICKER_GRACE_MILLIS = 120_000L; const val TRANSFER_KEEP_MILLIS = 10 * 60_000L }
     private lateinit var engine: VaultEngine
     // Every engine call runs on this one queue, so a lock can never interleave with the next unlock or save.
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -131,11 +146,42 @@ class MainActivity : FragmentActivity() {
     private var biometricAutoPrompted = false
     private var enablingBiometric = false
     private var importPreview by mutableStateOf<List<VaultRecord>?>(null)
-    private val screenOff = object : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { if (unlocked) lockVault() else discardPendingUnlock() } }
+    private val screenOff = object : BroadcastReceiver() { override fun onReceive(context: Context, intent: Intent) { if (unlocked) lockVault() else { discardPendingUnlock(); discardTransfer() } } }
     /** An unlock still deriving its key when the app leaves the foreground must not complete unattended: its result is dropped and the engine re-locked. */
     private fun discardPendingUnlock() { if (busy && !unlocked) generation++ }
     private var generation by mutableIntStateOf(0)
     private var settings by mutableStateOf(false)
+    /** The vault health report; entries opened from it come back to it. */
+    private var health by mutableStateOf(false)
+    /** The open settings dialog; kept here so the backup reminder can open the export dialog directly. */
+    private var settingsDialog by mutableStateOf<SettingsDialog?>(null)
+    /** Phone-to-phone transfer: the one-time code and sealed payload being shown, or the scanner collecting one. */
+    private var sending by mutableStateOf<PendingTransfer?>(null)
+    private fun discardTransfer() { sending?.bytes?.fill(0); sending = null }
+    private var receiving by mutableStateOf(false)
+    private val transferFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        systemPickerOpen = false
+        if (uri == null) return@registerForActivityResult
+        // A copy: turning the screen off mid-write zeroes the pending transfer's own bytes.
+        val bytes = sending?.bytes?.copyOf() ?: return@registerForActivityResult
+        lifecycleScope.launch {
+            // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
+            try { withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }; message = getString(R.string.transfer_saved) }
+            catch (e: Exception) { messageError = true; message = e.message ?: getString(R.string.main_export_failed) }
+            finally { bytes.fill(0) }
+        }
+    }
+    /** The decoy vault is open: settings that would reveal or touch the real vault are not shown. */
+    private var decoySession by mutableStateOf(false)
+    private var decoyEnabled by mutableStateOf(false)
+    /** Read at unlock, not when the dialog opens: the engine may be busy deriving a key and would block the main thread. */
+    private var decoyResettable by mutableStateOf(false)
+    // Each vault keeps its own backup history, so the decoy shows only its own.
+    private val backups get() = BackupStatus(prefs, if (decoySession) "decoy." else "")
+    private var lastBackup by mutableStateOf<Instant?>(null)
+    private var backupInterval by mutableStateOf(BackupInterval.month)
+    private var backupSnoozedUntil by mutableStateOf<Instant?>(null)
+    private fun loadBackupStatus() { val b = backups; lastBackup = b.lastBackup; backupInterval = b.interval; backupSnoozedUntil = b.snoozedUntil }
     private var tab by mutableStateOf(RecordType.login)
     /** Accounts read from a Google Authenticator export QR, waiting for the user to confirm adding them. */
     private var scannedImport by mutableStateOf<ScannedImport?>(null)
@@ -143,9 +189,27 @@ class MainActivity : FragmentActivity() {
     private var query by mutableStateOf("")
     private var favorites by mutableStateOf(false)
     private var group by mutableStateOf<String?>(null)
+    /** Cards or secure notes only, within the passwords tab; null shows every type. */
+    private var kind by mutableStateOf<RecordType?>(null)
     private var viewing by mutableStateOf<VaultRecord?>(null)
     private var editing by mutableStateOf(false)
     private var importBytes by mutableStateOf<ByteArray?>(null)
+    /** A KeePass key file chosen in the import password dialog. */
+    private var importKeyFile by mutableStateOf<ByteArray?>(null)
+    private val keyFilePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        systemPickerOpen = false
+        if (uri != null && unlocked) lifecycleScope.launch {
+            val epoch = generation
+            val bytes = runCatching { withContext(Dispatchers.IO) { contentResolver.openInputStream(uri)?.use { input ->
+                val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
+                while (out.size() <= 1024 * 1024) { val n = input.read(buffer); if (n < 0) break; out.write(buffer, 0, n) }
+                out.toByteArray()
+            } } }.getOrNull()
+            if (bytes == null || bytes.size > 1024 * 1024) { messageError = true; message = getString(R.string.main_cannot_open_file); return@launch }
+            if (epoch != generation || !unlocked) { bytes.fill(0); return@launch }
+            importKeyFile?.fill(0); importKeyFile = bytes
+        }
+    }
     private var exportBytes: ByteArray? = null
     private var exportIsCSV = false
     private lateinit var biometricPrompt: BiometricPrompt
@@ -155,8 +219,11 @@ class MainActivity : FragmentActivity() {
             val record = viewing
             when {
                 selected.isNotEmpty() -> selected = emptySet()
+                sending != null -> discardTransfer()
+                receiving -> receiving = false
                 record != null && editing && records.any { it.id == record.id } -> editing = false
                 record != null -> { viewing = null; editing = false }
+                health -> health = false
                 settings -> settings = false
             }
         }
@@ -165,7 +232,7 @@ class MainActivity : FragmentActivity() {
     private val playUpdateLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         updates?.onPlayResult(result.resultCode)
     }
-    /** Null in debug and QA builds: they never check for, download or offer updates. */
+    /** Null in QA builds and in debug builds without a LAN update server: they never check for, download or offer updates. */
     internal val updates: AppUpdates? by lazy {
         if (BuildConfig.UPDATE_CHANNEL == "none") null else AppUpdates(this, playUpdateLauncher)
     }
@@ -185,8 +252,8 @@ class MainActivity : FragmentActivity() {
                 if (epoch != generation || !unlocked) { bytes.fill(0); return@launch } // Locked while the file was read.
                 importBytes?.fill(0); importBytes = null
                 if (BackupFormat.isNewer(bytes)) { bytes.fill(0); throw NewerVersionException(backup = true) } // Not a CSV: say so before asking for a password.
-                if (VaultCrypto.isBackup(bytes) || Pkb2.isPkb2(bytes)) importBytes = bytes // Password dialog decrypts it.
-                else readImport({ try { VaultCSV.importRecords(bytes.toString(Charsets.UTF_8)) } finally { bytes.fill(0) } })
+                if (Importers.needsPassword(bytes)) importBytes = bytes // Password dialog decrypts it.
+                else readImport({ try { Importers.importPlain(bytes) } finally { bytes.fill(0) } })
             } catch (e: Exception) { messageError = true; message = errorText(e, R.string.main_import_failed) }
         }
     }
@@ -249,6 +316,7 @@ class MainActivity : FragmentActivity() {
         clipboardClear = runCatching { ClipboardClear.valueOf(prefs.getString("clipboardClear", null) ?: "") }.getOrDefault(ClipboardClear.m1)
         generatorOptions = GeneratorOptions(prefs.getInt("genLength", 10).coerceIn(GeneratorOptions.MIN_LENGTH, GeneratorOptions.MAX_LENGTH), prefs.getBoolean("genLetters", true), prefs.getBoolean("genNumbers", true), prefs.getBoolean("genSymbols", true)).let { if (it.sets.isEmpty()) GeneratorOptions() else it }
         allowCopy = prefs.getBoolean("allowCopy", true); clearClipOnLock = prefs.getBoolean("clearClipOnLock", true)
+        loadBackupStatus()
         biometricPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 val enable = enablingBiometric; enablingBiometric = false
@@ -265,7 +333,7 @@ class MainActivity : FragmentActivity() {
             }
         })
         onBackPressedDispatcher.addCallback(this, backCallback)
-        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
+        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || health || sending != null || receiving || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         try { engine = VaultEngine(ProtectedStorage(this)); exists = engine.exists(); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric(); ready = true }
         catch (e: Exception) { message = errorText(e, R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
@@ -277,7 +345,10 @@ class MainActivity : FragmentActivity() {
                             val record = viewing
                             when {
                                 !unlocked -> UnlockScreen()
+                                sending != null -> sending?.let { t -> TransferSendScreen(t.frames, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
+                                receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
                                 record != null -> RecordScreen(record, editing)
+                                health -> HealthScreen(records, onBack = { health = false }, onOpen = { viewing = it; editing = false })
                                 settings -> SettingsScreen()
                                 else -> VaultScreen()
                             }
@@ -320,20 +391,24 @@ class MainActivity : FragmentActivity() {
         // The app's own system pickers get a bounded grace period instead of suspending auto-lock, so leaving from inside a picker still locks.
         val timeout = if (systemPickerOpen) PICKER_GRACE_MILLIS else autoLock.millis ?: return // deviceLock: the screen-off receiver locks.
         lockTimeout = timeout
-        if (timeout == 0L) lockVault(clearClipboard = false) else { backgroundLock?.cancel(); backgroundLock = lifecycleScope.launch { delay(timeout); lockVault() } }
+        if (timeout == 0L) lockVault(clearClipboard = false, keepTransfer = true) else { backgroundLock?.cancel(); backgroundLock = lifecycleScope.launch { delay(timeout); lockVault(keepTransfer = true) } }
     }
-    private fun lockVault(clearClipboard: Boolean = true) {
+    /** [keepTransfer]: the lock comes from leaving the app (perhaps to share the transfer file), not from turning the screen off. */
+    private fun lockVault(clearClipboard: Boolean = true, keepTransfer: Boolean = false) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); selected = emptySet(); query = ""; favorites = false; group = null; viewing = null; editing = false; settings = false; scannedImport = null; cameraGranted = null; imageRead = null
+        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; decoyResettable = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
+        // A transfer outlives the lock for a while, so its code is still there after sharing the file from another app.
+        if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
+        scannedImport = null; cameraGranted = null; imageRead = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
-        importPreview = null; importBytes?.fill(0); importBytes = null; exportBytes?.fill(0); exportBytes = null
+        importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
         if (::engine.isInitialized) lifecycleScope.launch(vaultQueue) { engine.lock() }
     }
     override fun onDestroy() {
         updates?.close()
-        unregisterReceiver(screenOff); exportBytes?.fill(0); importBytes?.fill(0); biometricCandidate?.fill(0)
+        unregisterReceiver(screenOff); discardTransfer(); exportBytes?.fill(0); importBytes?.fill(0); biometricCandidate?.fill(0)
         // The auto-lock coroutine dies with this activity, so zero the data key now (off the main thread: the engine may be mid-Argon2).
         if (::engine.isInitialized) { val e = engine; Thread { e.lock() }.start() }
         super.onDestroy()
@@ -351,7 +426,12 @@ class MainActivity : FragmentActivity() {
                     remaining = runCatching { engine.remainingAttempts() }.getOrDefault(remaining)
                     return@launch
                 }
-                if (result != null) { records = result; unlocked = true; exists = true }
+                if (result != null) {
+                    records = result; unlocked = true; exists = true
+                    decoySession = runCatching { engine.isDecoy() }.getOrDefault(false); decoyEnabled = runCatching { engine.hasDecoy() }.getOrDefault(false); decoyResettable = runCatching { engine.canResetDecoy() }.getOrDefault(false); loadBackupStatus()
+                    // Only the vault that made a pending transfer may see it again.
+                    sending?.let { if (it.decoy != decoySession || SystemClock.elapsedRealtime() >= it.expiresAt) discardTransfer() }
+                }
                 remaining = engine.remainingAttempts(); done()
             } catch (e: Exception) {
                 if (!runCatching { engine.isUnlocked() }.getOrDefault(false)) lockVault()
@@ -411,14 +491,15 @@ class MainActivity : FragmentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun VaultScreen() {
-        var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }
+        var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }; var creating by remember { mutableStateOf(false) }
         val selecting = selected.isNotEmpty(); val haptics = LocalHapticFeedback.current
         val type = tab; val seedTab = tab == RecordType.seed; val totpTab = tab == RecordType.totp
-        val ofType = records.filter { it.type == type }
-        val groups = remember(records) { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
+        val ofType = records.filter { it.type.tab == type }
+        val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
         // A group filter whose last entry was moved or deleted has no chip left to clear it.
         LaunchedEffect(groups) { if (group != null && group !in groups) group = null }
-        val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() }))
+        LaunchedEffect(ofType) { if (kind != null && ofType.none { it.type == kind }) kind = null }
+        val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) && (kind == null || it.type == kind) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() }))
         // Bulk actions apply only to entries the user can see: narrowing the filters drops hidden entries from the selection.
         LaunchedEffect(visible) { val ids = visible.map { it.id }.toSet(); if (!ids.containsAll(selected)) selected = selected intersect ids }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
@@ -429,13 +510,21 @@ class MainActivity : FragmentActivity() {
                         if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { health = true }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
-            floatingActionButton = { if (!selecting) ExtendedFloatingActionButton(onClick = { viewing = if (tab == RecordType.login) VaultRecord() else VaultRecord(type = tab, fields = emptyList()); editing = true }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) }) }) { padding ->
+            floatingActionButton = { if (!selecting) Box {
+                ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
+                // Logins, cards and secure notes share this tab, so the button asks which one.
+                DropdownMenu(creating, { creating = false }) {
+                    listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.rec_new_login), Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_new_card), Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_new_note)).forEach { (t, icon, label) ->
+                        DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null) }, onClick = { creating = false; viewing = VaultRecord(type = t, fields = defaultFields(t)); editing = true })
+                    }
+                }
+            } }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                     listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
-                        SegmentedButton(tab == t, { tab = t; group = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        SegmentedButton(tab == t, { tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
                 TextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(stringResource(R.string.main_search)) }, leadingIcon = { Icon(Icons.Default.Search, null) },
@@ -443,10 +532,19 @@ class MainActivity : FragmentActivity() {
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
                 LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { FilterChip(favorites, { favorites = !favorites }, label = { Text(stringResource(R.string.main_favorites)) }, leadingIcon = { Icon(if (favorites) Icons.Default.Star else Icons.Outlined.StarOutline, null, Modifier.size(18.dp)) }) }
+                    if (tab == RecordType.login) for ((t, icon, label) in listOf(Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_filter_cards), Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_filter_notes))) if (ofType.any { it.type == t })
+                        item { FilterChip(kind == t, { kind = if (kind == t) null else t }, label = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null, Modifier.size(18.dp)) }) }
                     if (tab == RecordType.login) items(groups) { name -> FilterChip(group == name, { group = if (group == name) null else name }, label = { Text(name) },
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(groupColorArgb(name)).copy(alpha = 0.28f), selectedLabelColor = MaterialTheme.colorScheme.onSurface),
                         border = FilterChipDefaults.filterChipBorder(true, group == name, borderColor = Color(groupColorArgb(name)), selectedBorderColor = Color(groupColorArgb(name)), borderWidth = 1.dp, selectedBorderWidth = 2.dp)) }
                 }
+                if (!selecting && remember(records, lastBackup, backupInterval, backupSnoozedUntil) { BackupReminder.due(records, lastBackup, backupInterval, backupSnoozedUntil) }) {
+                    val last = lastBackup
+                    AttentionBanner(Icons.Outlined.SaveAlt, if (last == null) stringResource(R.string.backup_banner_never) else stringResource(R.string.backup_banner_due, backupAge(last), BackupReminder.changedSince(records, last)),
+                        stringResource(R.string.backup_now), onDismiss = { backups.snooze(); loadBackupStatus() }) { settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }
+                }
+                val expiring = remember(records) { records.count { it.expiryState() == ExpiryState.expired || it.expiryState() == ExpiryState.soon } }
+                if (expiring > 0 && !selecting) AttentionBanner(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { health = true }
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconBadge(when (tab) { RecordType.seed -> Icons.Outlined.AccountBalanceWallet; RecordType.totp -> Icons.Outlined.Pin; else -> Icons.Outlined.Key }, 72.dp); Spacer(Modifier.height(16.dp))
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_no_seed_phrases; RecordType.totp -> R.string.totp_empty_title; else -> R.string.main_peace_of_mind }), style = MaterialTheme.typography.titleLarge)
@@ -457,7 +555,13 @@ class MainActivity : FragmentActivity() {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(visible, key = { it.id }) { record ->
                         val totp = if (record.type == RecordType.totp) remember(record) { record.totp } else null
-                        val subtitle = if (record.type == RecordType.totp) totp?.account.orEmpty() else if (record.type == RecordType.seed) (if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)) else record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
+                        val subtitle = when (record.type) {
+                            RecordType.totp -> totp?.account.orEmpty()
+                            RecordType.seed -> if (record.privateKey != null) stringResource(R.string.main_private_key) else stringResource(R.string.main_word_count, record.seedWords.size)
+                            RecordType.card -> record.cardSummary
+                            RecordType.note -> record.fields.firstOrNull { it.kind == FieldKind.note && it.value.isNotBlank() }?.value?.lineSequence()?.first().orEmpty()
+                            RecordType.login -> record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
+                        }
                         val isSelected = record.id in selected
                         fun toggle() { selected = if (isSelected) selected - record.id else selected + record.id }
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -473,8 +577,9 @@ class MainActivity : FragmentActivity() {
                                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                                     Text(record.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (record.type == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
+                                    if (record.type.tab == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
                                 }
+                                ExpiryBadge(record)
                                 if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 if (record.type == RecordType.totp) { if (!selecting) TotpRowCode(totp, now, if (allowCopy) ::copySecret else null) }
                                 else if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -505,9 +610,9 @@ class MainActivity : FragmentActivity() {
 
     /** Assigns the selected entries to a group. Each row shows whether all (ticked), some (solid) or none (empty) of them are in that group; tapping assigns or clears them all. */
     @Composable private fun GroupDialog(dismiss: () -> Unit) {
-        val targets = remember { records.filter { it.id in selected && it.type == RecordType.login } }
+        val targets = remember { records.filter { it.id in selected && it.type.tab == RecordType.login } }
         var pending by remember { mutableStateOf(targets.associate { it.id to it.group.trim() }) }
-        val allGroups = remember { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() } }
+        val allGroups = remember { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() } }
         var added by remember { mutableStateOf(emptyList<String>()) }
         var newName by remember { mutableStateOf("") }
         val names = (allGroups + added).distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
@@ -582,7 +687,13 @@ class MainActivity : FragmentActivity() {
                         RecordAvatar(record, 72.dp)
                         Text(record.name, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.headlineSmall)
                         if (record.website.isNotBlank()) Text(record.website, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                        if (record.type == RecordType.card && record.cardSummary.isNotEmpty()) Text(record.cardSummary, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                         if (record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 8.dp), large = true)
+                        record.expiryDate?.let { date ->
+                            val expired = record.expiryState() == ExpiryState.expired
+                            Text(stringResource(if (expired) R.string.rec_expired_on else R.string.rec_expires_on, formatDate(date)), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium,
+                                color = if (record.expiryState() in setOf(ExpiryState.expired, ExpiryState.soon)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
                 item {
@@ -592,13 +703,13 @@ class MainActivity : FragmentActivity() {
                             if (index > 0) HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
                             val shown = !field.secret || field.id in revealed
                             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                IconBadge(field.kind.icon)
+                                IconBadge(field.icon)
                                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                                     Text(field.displayName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (field.kind == FieldKind.question && field.question.isNotBlank()) Text(field.question, style = MaterialTheme.typography.bodyMedium)
                                     when {
                                         field.value.isEmpty() -> Text("—", color = MaterialTheme.colorScheme.outline)
-                                        shown -> Text(field.value, style = MaterialTheme.typography.bodyLarge, fontFamily = if (field.kind == FieldKind.password) FontFamily.Monospace else null)
+                                        shown -> Text(if (field.label == CARD_NUMBER_LABEL) Cards.formatted(field.value) else field.value, style = MaterialTheme.typography.bodyLarge, fontFamily = if (field.kind == FieldKind.password) FontFamily.Monospace else null)
                                         else -> Text("••••••••••", style = MaterialTheme.typography.bodyLarge)
                                     }
                                 }
@@ -670,7 +781,11 @@ class MainActivity : FragmentActivity() {
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
-            topBar = { TopAppBar(title = { Text(if (isNew) stringResource(R.string.main_new_entry) else stringResource(R.string.main_edit_entry)) }, navigationIcon = { IconButton(onClick = { cancel() }) { Icon(Icons.Default.Close, stringResource(R.string.main_discard_changes)) } },
+            topBar = { TopAppBar(title = { Text(stringResource(when (record.type) {
+                RecordType.card -> if (isNew) R.string.rec_new_card_title else R.string.rec_edit_card
+                RecordType.note -> if (isNew) R.string.rec_new_note_title else R.string.rec_edit_note
+                else -> if (isNew) R.string.main_new_entry else R.string.main_edit_entry
+            })) }, navigationIcon = { IconButton(onClick = { cancel() }) { Icon(Icons.Default.Close, stringResource(R.string.main_discard_changes)) } },
                 actions = {
                     IconButton(onClick = { record = record.copy(favorite = !record.favorite) }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
                     Button(onClick = { val saved = record.copy(name = record.name.trim(), updatedAt = Instant.now().toString()).recordingPasswordChanges(records.firstOrNull { it.id == record.id }); saveRecord(saved) { viewing = saved; editing = false } }, enabled = record.name.isNotBlank(), modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.main_save)) }
@@ -680,8 +795,10 @@ class MainActivity : FragmentActivity() {
                     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             EditorField(record.name, { record = record.copy(name = it) }, stringResource(R.string.main_name), Icons.Outlined.Badge)
-                            EditorField(record.website, { record = record.copy(website = it) }, stringResource(R.string.main_website), Icons.Outlined.Language, KeyboardType.Uri)
+                            if (record.type != RecordType.note) EditorField(record.website, { record = record.copy(website = it) }, stringResource(R.string.main_website), Icons.Outlined.Language, KeyboardType.Uri)
                             GroupField(record.group) { record = record.copy(group = it) }
+                            // A card's own expiry date is its reminder.
+                            if (record.type != RecordType.card) ExpiryField(record.expires) { record = record.copy(expires = it) }
                         }
                     }
                 }
@@ -709,7 +826,7 @@ class MainActivity : FragmentActivity() {
                         border = if (dragging) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                     ) {
                         Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.Top) {
-                            Box(Modifier.padding(top = 8.dp)) { IconBadge(field.kind.icon, 36.dp) }
+                            Box(Modifier.padding(top = 8.dp)) { IconBadge(field.icon, 36.dp) }
                             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(field.displayName, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -717,12 +834,12 @@ class MainActivity : FragmentActivity() {
                                 }
                                 if (field.kind == FieldKind.question) { EditorField(field.question, { update(field.copy(question = it)) }, stringResource(R.string.main_question)); Spacer(Modifier.height(8.dp)) }
                                 val hidden = field.secret && field.id !in revealed
-                                OutlinedTextField(field.value, { update(field.copy(value = it)) }, Modifier.fillMaxWidth(), placeholder = { Text(if (field.kind == FieldKind.question) stringResource(R.string.main_answer) else field.displayName) },
+                                OutlinedTextField(field.value, { update(field.copy(value = it)) }, Modifier.fillMaxWidth(), placeholder = { Text(when { field.kind == FieldKind.question -> stringResource(R.string.main_answer); field.label == CARD_EXPIRY_LABEL -> stringResource(R.string.rec_expiry_placeholder); else -> field.displayName }) },
                                     singleLine = field.kind != FieldKind.note, shape = RoundedCornerShape(12.dp), textStyle = if (field.kind == FieldKind.password && !hidden) LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace) else LocalTextStyle.current,
-                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Text),
+                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = when { field.label in CARD_NUMERIC_LABELS -> KeyboardType.NumberPassword; field.secret -> KeyboardType.Password; else -> KeyboardType.Text }),
                                     visualTransformation = if (hidden) PasswordVisualTransformation() else VisualTransformation.None,
                                     trailingIcon = { if (field.secret) Row {
-                                        if (field.kind == FieldKind.password) IconButton(onClick = { generatingFor = field.id }) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.main_generate_password)) }
+                                        if (field.kind == FieldKind.password && field.label !in CARD_NUMERIC_LABELS) IconButton(onClick = { generatingFor = field.id }) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.main_generate_password)) }
                                         IconButton(onClick = { revealed = if (field.id in revealed) revealed - field.id else revealed + field.id }) { Icon(if (hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff, if (hidden) stringResource(R.string.main_reveal) else stringResource(R.string.main_hide)) }
                                     } })
                             }
@@ -748,7 +865,7 @@ class MainActivity : FragmentActivity() {
     }
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun GroupField(value: String, change: (String) -> Unit) {
-        val groups = remember(records) { records.filter { it.type == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
+        val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
         var expanded by remember { mutableStateOf(false) }
         val typed = value.trim()
         val options = if (typed.isEmpty()) groups else groups.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true) }
@@ -768,7 +885,7 @@ class MainActivity : FragmentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun SettingsScreen() {
-        var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
+        var dialog by this::settingsDialog
         @Composable fun Row(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String? = null, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) =
             ListItem(headlineContent = { Text(title) }, supportingContent = subtitle?.let { { Text(it) } }, leadingContent = { IconBadge(icon) }, trailingContent = trailing,
                 modifier = Modifier.clickable(onClick = onClick), colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
@@ -790,11 +907,15 @@ class MainActivity : FragmentActivity() {
                 }
                 SectionTitle(stringResource(R.string.main_security))
                 Group {
+                    val report = remember(records) { VaultHealth.check(records) }
+                    Row(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title), report.score?.let { stringResource(R.string.health_summary, it, report.problemCount) } ?: stringResource(R.string.health_nothing)) { health = true }
                     Row(Icons.Outlined.Timer, stringResource(R.string.main_auto_lock), stringResource(autoLock.labelRes)) { dialog = SettingsDialog.AutoLockChoice }
-                    Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } }) }) {
+                    // Biometrics always open the real vault, so the decoy vault neither shows nor changes them.
+                    if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } }) }) {
                         if (biometricEnabled) { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } else dialog = SettingsDialog.EnableBiometrics
                     }
                     Row(Icons.Outlined.Password, stringResource(R.string.main_change_app_password)) { dialog = SettingsDialog.ChangePassword }
+                    if (!decoySession) Row(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_title), if (decoyEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off)) { dialog = if (decoyEnabled) SettingsDialog.DecoyManage else SettingsDialog.DecoySetup }
                 }
                 SectionTitle(stringResource(R.string.main_random_password))
                 Group {
@@ -811,13 +932,17 @@ class MainActivity : FragmentActivity() {
                 }
                 SectionTitle(stringResource(R.string.main_backup_migration))
                 Group {
+                    Row(Icons.Outlined.History, stringResource(R.string.backup_last_title), lastBackup?.let { stringResource(R.string.backup_last_value, formatUpdated(it.toString()).orEmpty(), backupAge(it)) } ?: stringResource(R.string.backup_never)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
+                    Row(Icons.Outlined.NotificationsActive, stringResource(R.string.backup_reminder_title), stringResource(backupInterval.labelRes)) { dialog = SettingsDialog.BackupReminderChoice }
                     Row(Icons.Outlined.FileOpen, stringResource(R.string.main_import_action), stringResource(R.string.main_import_row_summary)) { launchPicker { importPicker.launch(arrayOf("*/*")) } }
+                    Row(Icons.Outlined.SendToMobile, stringResource(R.string.transfer_send), stringResource(R.string.transfer_send_summary)) { dialog = SettingsDialog.TransferSend }
+                    Row(Icons.Outlined.QrCodeScanner, stringResource(R.string.transfer_receive), stringResource(R.string.transfer_receive_summary)) { withCamera { receiving = true } }
                     Row(Icons.Outlined.EnhancedEncryption, stringResource(R.string.main_export_encrypted), stringResource(R.string.main_export_encrypted_summary)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
                     Row(Icons.Outlined.Description, stringResource(R.string.main_export_csv), stringResource(R.string.main_export_csv_summary)) { dialog = SettingsDialog.Exporting(Export.csv) }
                 }
                 updates?.ui?.let { update ->
                     SectionTitle(stringResource(R.string.update_title))
-                    Group { UpdateRow(update) }
+                    UpdateRow(update)
                 }
                 Text(stringResource(R.string.main_attempts_note), Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -833,6 +958,11 @@ class MainActivity : FragmentActivity() {
                     Text(stringResource(R.string.main_autolock_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(8.dp))
                     AutoLock.entries.forEach { option -> androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(autoLock == option, onClick = { autoLock = option; prefs.edit().putString("autoLock", option.name).apply(); dialog = null }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(autoLock == option, null); Text("  " + stringResource(option.labelRes)) } }
                 } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
+            SettingsDialog.BackupReminderChoice -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.NotificationsActive, null) }, title = { Text(stringResource(R.string.backup_reminder_title)) },
+                text = { Column {
+                    Text(stringResource(R.string.backup_reminder_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(8.dp))
+                    BackupInterval.entries.forEach { option -> androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(backupInterval == option, onClick = { backups.interval = option; loadBackupStatus(); dialog = null }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(backupInterval == option, null); Text("  " + stringResource(option.labelRes)) } }
+                } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
             SettingsDialog.ClipboardChoice -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.AvTimer, null) }, title = { Text(stringResource(R.string.main_clear_copied_text)) },
                 text = { Column(Modifier.verticalScroll(rememberScrollState())) {
                     ClipboardClear.entries.forEach { option -> androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(clipboardClear == option, onClick = { clipboardClear = option; prefs.edit().putString("clipboardClear", option.name).apply(); dialog = null }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(clipboardClear == option, null); Text("  " + stringResource(option.labelRes)) } }
@@ -843,6 +973,26 @@ class MainActivity : FragmentActivity() {
                 confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_done)) } })
             SettingsDialog.EnableBiometrics -> PasswordDialog(Icons.Outlined.Fingerprint, stringResource(R.string.main_enable_biometric_unlock), stringResource(R.string.main_enable_biometric_body), stringResource(R.string.main_continue_action), { dialog = null }) { biometrics(it) }
             SettingsDialog.ChangePassword -> ChangePasswordDialog { dialog = null }
+            SettingsDialog.DecoySetup -> DecoySetupDialog(reset = false) { dialog = null }
+            SettingsDialog.DecoyReset -> DecoySetupDialog(reset = true) { dialog = null }
+            SettingsDialog.DecoyManage -> {
+                val canReset = decoyResettable
+                AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(R.string.decoy_title)) },
+                    text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.decoy_manage_body), style = MaterialTheme.typography.bodyMedium)
+                        OutlinedButton(onClick = { dialog = SettingsDialog.DecoyReset }, Modifier.fillMaxWidth(), enabled = canReset) { Icon(Icons.Outlined.Password, null); Text("  " + stringResource(R.string.decoy_change_password)) }
+                        if (!canReset) Text(stringResource(R.string.decoy_change_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = { dialog = SettingsDialog.DecoyRemove }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Delete, null); Text("  " + stringResource(R.string.decoy_remove)) }
+                    } },
+                    confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
+            }
+            SettingsDialog.TransferSend -> PasswordDialog(Icons.Outlined.SendToMobile, stringResource(R.string.transfer_send), stringResource(R.string.transfer_send_body), stringResource(R.string.main_continue_action), { dialog = null }) { pass ->
+                var sealed: Pair<String, ByteArray>? = null
+                work({ sealed = engine.exportTransfer(pass); null }) { sealed?.let { (code, bytes) -> sending = PendingTransfer(code, bytes, decoySession, SystemClock.elapsedRealtime() + TRANSFER_KEEP_MILLIS) } }
+            }
+            SettingsDialog.DecoyRemove -> PasswordDialog(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_remove), stringResource(R.string.decoy_remove_body), stringResource(R.string.main_delete), { dialog = null }) { pass ->
+                work({ engine.removeDecoy(pass); null }) { decoyEnabled = false; decoyResettable = false; prefs.edit().remove("decoy.lastBackupAt").remove("decoy.backupReminder").remove("decoy.backupSnoozeUntil").apply(); message = getString(R.string.decoy_removed) }
+            }
             is SettingsDialog.Exporting -> {
                 var consent by remember { mutableStateOf(false) }
                 val csv = d.kind == Export.csv
@@ -873,7 +1023,7 @@ class MainActivity : FragmentActivity() {
         val install = update.phase in setOf(UpdatePhase.AVAILABLE, UpdatePhase.PERMISSION) || (update.phase == UpdatePhase.ERROR && update.version != null)
         val enabled = update.phase !in setOf(UpdatePhase.CHECKING, UpdatePhase.DOWNLOADING, UpdatePhase.INSTALLING)
         Column(Modifier.padding(16.dp)) {
-            Text(stringResource(R.string.update_version, BuildConfig.VERSION_NAME, if (update.source == UpdateSource.PLAY) "Google Play" else "GitHub"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.update_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE, when (update.source) { UpdateSource.PLAY -> "Google Play"; UpdateSource.LAN -> stringResource(R.string.update_source_lan); UpdateSource.GITHUB -> "GitHub" }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(4.dp)); Text(status, style = MaterialTheme.typography.bodyLarge)
             if (update.phase == UpdatePhase.DOWNLOADING) { Spacer(Modifier.height(8.dp)); LinearProgressIndicator(progress = { update.percent / 100f }, Modifier.fillMaxWidth()) }
             Spacer(Modifier.height(12.dp))
@@ -903,7 +1053,25 @@ class MainActivity : FragmentActivity() {
                 if (repeat.isNotEmpty() && repeat != next) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 Text(stringResource(R.string.main_existing_backups_keep), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } },
-            confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; current = ""; next = ""; repeat = ""; dismiss(); work({ engine.changePassword(c, n); null }) { biometricEnabled = false; message = getString(if (hadBiometric) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && next == repeat) { Text(stringResource(R.string.main_change)) } },
+            confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; val decoy = decoySession; current = ""; next = ""; repeat = ""; dismiss()
+                // The decoy's password change leaves the real vault's biometric key alone, and must not mention it.
+                work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && next == repeat) { Text(stringResource(R.string.main_change)) } },
+            dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
+    }
+    /** Sets up the decoy vault, or with [reset] gives the existing one a new password (its contents are kept). */
+    @Composable private fun DecoySetupDialog(reset: Boolean, dismiss: () -> Unit) {
+        var current by remember { mutableStateOf("") }; var decoy by remember { mutableStateOf("") }; var repeat by remember { mutableStateOf("") }
+        AlertDialog(onDismissRequest = dismiss, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(if (reset) R.string.decoy_change_password else R.string.decoy_title)) },
+            text = { HardenWindow(); Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(if (reset) R.string.decoy_change_body else R.string.decoy_body), style = MaterialTheme.typography.bodyMedium)
+                SecretInput(stringResource(R.string.main_app_password), current, { current = it }); SecretInput(stringResource(if (reset) R.string.decoy_new_password else R.string.decoy_password), decoy, { decoy = it }); SecretInput(stringResource(R.string.decoy_repeat), repeat, { repeat = it })
+                PasswordHint(decoy)
+                if (repeat.isNotEmpty() && repeat != decoy) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            } },
+            confirmButton = { TextButton(onClick = { val c = current; val d = decoy; current = ""; decoy = ""; repeat = ""; dismiss()
+                if (reset) work({ engine.resetDecoyPassword(c, d); null }) { message = getString(R.string.decoy_password_changed) }
+                else work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; decoyResettable = true; message = getString(R.string.decoy_created) } },
+                enabled = current.isNotEmpty() && PasswordPolicy.problem(decoy) == null && decoy == repeat) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun ImportDialogs() {
@@ -921,11 +1089,28 @@ class MainActivity : FragmentActivity() {
         }
         if (importBytes != null) {
             var backupPassword by remember { mutableStateOf("") }
-            val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true
-            AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(if (keeper) stringResource(R.string.main_keeper_backup_title) else stringResource(R.string.main_encrypted_backup_title)) },
-                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(if (keeper) stringResource(R.string.main_keeper_backup_body) else stringResource(R.string.main_encrypted_backup_body)); SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it }) } },
-                confirmButton = { TextButton(onClick = { val bytes = importBytes ?: return@TextButton; val pass = backupPassword; backupPassword = ""; readImport({ if (Pkb2.isPkb2(bytes)) Pkb2.import(bytes, pass) else VaultCrypto.importBackup(bytes, pass) }) { bytes.fill(0); if (importBytes === bytes) importBytes = null } }, enabled = backupPassword.isNotEmpty()) { Text(stringResource(R.string.main_decrypt)) } },
-                dismissButton = { TextButton(onClick = { importBytes?.fill(0); importBytes = null }) { Text(stringResource(R.string.main_cancel)) } })
+            val keeper = importBytes?.let { Pkb2.isPkb2(it) } == true; val keepass = importBytes?.let { Kdbx.isKdbx(it) } == true; val transfer = importBytes?.let { Transfer.isTransfer(it) } == true
+            fun discard() { importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null }
+            AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(stringResource(when { transfer -> R.string.transfer_import_title; keepass -> R.string.import_kdbx_title; keeper -> R.string.main_keeper_backup_title; else -> R.string.main_encrypted_backup_title })) },
+                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(when { transfer -> R.string.transfer_import_body; keepass -> R.string.import_kdbx_body; keeper -> R.string.main_keeper_backup_body; else -> R.string.main_encrypted_backup_body }))
+                    // The transfer code is read off another screen, so it is typed in the clear.
+                    if (transfer) OutlinedTextField(backupPassword, { backupPassword = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.transfer_code_label)) }, singleLine = true, shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters, keyboardType = KeyboardType.Ascii), textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
+                    else SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it })
+                    if (keepass) {
+                        if (importKeyFile == null) OutlinedButton(onClick = { launchPicker { keyFilePicker.launch(arrayOf("*/*")) } }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Key, null); Text("  " + stringResource(R.string.import_keyfile_choose)) }
+                        else Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Key, null, tint = MaterialTheme.colorScheme.primary); Text(stringResource(R.string.import_keyfile_chosen), Modifier.weight(1f).padding(start = 8.dp))
+                            IconButton(onClick = { importKeyFile?.fill(0); importKeyFile = null }) { Icon(Icons.Default.Close, stringResource(R.string.import_keyfile_remove)) }
+                        }
+                    }
+                } },
+                // A KeePass database may have an empty password, or only a key file.
+                confirmButton = { TextButton(onClick = { val bytes = importBytes ?: return@TextButton; val pass = backupPassword; val key = importKeyFile; backupPassword = ""
+                    readImport({ when { Transfer.isTransfer(bytes) -> Transfer.open(bytes, pass); Kdbx.isKdbx(bytes) -> Kdbx.importTyped(bytes, pass, key); Pkb2.isPkb2(bytes) -> Pkb2.import(bytes, pass); else -> VaultCrypto.importBackup(bytes, pass) } }) { bytes.fill(0); key?.fill(0); if (importBytes === bytes) { importBytes = null; importKeyFile = null } } },
+                    enabled = backupPassword.isNotEmpty() || keepass) { Text(stringResource(R.string.main_decrypt)) } },
+                dismissButton = { TextButton(onClick = { discard() }) { Text(stringResource(R.string.main_cancel)) } })
         }
         importPreview?.let { imported -> AlertDialog(onDismissRequest = { importPreview = null }, icon = { Icon(Icons.Outlined.FileOpen, null) }, title = { Text(stringResource(R.string.main_import_title, imported.size)) }, text = { HardenWindow(); val seeds = imported.count { it.type == RecordType.seed }; Text(when { seeds == 0 -> stringResource(R.string.main_import_body); seeds == 1 -> stringResource(R.string.main_import_body_seed_one, seeds); else -> stringResource(R.string.main_import_body_seed_many, seeds) }) }, confirmButton = { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 fun start(replace: Boolean) { importPreview = null; work({ if (replace) engine.replaceAll(imported) else engine.merge(imported) }) { settings = false; message = getString(R.string.main_imported_count, imported.size) } }
@@ -945,10 +1130,19 @@ class MainActivity : FragmentActivity() {
         systemPickerOpen = false
         val bytes = exportBytes ?: return; exportBytes = null
         lifecycleScope.launch {
-            try { if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }; message = if (uri == null) getString(R.string.main_export_cancelled) else if (exportIsCSV) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done) }
+            try {
+                if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }
+                // Only a saved encrypted backup counts: CSV leaves out 2FA keys, seed phrases, cards and notes.
+                if (uri != null && !exportIsCSV) { backups.lastBackup = Instant.now(); loadBackupStatus() }
+                message = if (uri == null) getString(R.string.main_export_cancelled) else if (exportIsCSV) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done) }
             catch (e: Exception) { message = e.message ?: getString(R.string.main_export_failed) }
             finally { bytes.fill(0) }
         }
+    }
+    /** "today", "yesterday" or "12 days ago". */
+    @Composable private fun backupAge(at: Instant): String {
+        val days = java.time.Duration.between(at, Instant.now()).toDays().coerceAtLeast(0)
+        return when (days) { 0L -> stringResource(R.string.backup_today); 1L -> stringResource(R.string.backup_yesterday); else -> stringResource(R.string.backup_days_ago, days.toInt()) }
     }
     @Composable private fun PasswordHint(value: String) {
         val problem = if (value.isEmpty()) null else PasswordPolicy.problem(value)

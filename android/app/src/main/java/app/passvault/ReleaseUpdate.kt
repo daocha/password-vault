@@ -17,9 +17,13 @@ internal data class ReleaseUpdate(
     val size: Long,
 )
 
-/** The release script publishes exactly one versioned APK and a matching SHA256SUMS asset. */
+/**
+ * The release script publishes exactly one versioned APK and a matching SHA256SUMS asset. Debug builds
+ * with a LAN server instead read latest.json, which the debug build writes next to its APK.
+ */
 internal object ReleaseUpdates {
     const val API = "https://api.github.com/repos/daocha/password-vault/releases/latest"
+    private val lanBase = BuildConfig.DEV_UPDATE_URL
     private const val MAX_APK_BYTES = 300_000_000L
     private val apkPattern = Regex("^PassVault-(.+)-([1-9][0-9]*)\\.apk$")
     private val shaPattern = Regex("^[0-9a-fA-F]{64}$")
@@ -49,6 +53,22 @@ internal object ReleaseUpdates {
         return null
     }
 
+    fun selectLan(json: JSONObject, installedCode: Long, base: String): ReleaseUpdate? {
+        val code = json.optLong("versionCode", -1)
+        if (code <= installedCode) return null
+        val name = "PassVault-debug-$code.apk"
+        if (json.optString("apk") != name) return null
+        val size = json.optLong("size", -1)
+        if (size !in 1..MAX_APK_BYTES) return null
+        // Debug builds of one day share a version name, so the build number tells them apart.
+        val version = json.optString("versionName").let { if (it.isEmpty()) code.toString() else "$it ($code)" }
+        return ReleaseUpdate(version, code, name, base + name, "${base}PassVault-debug-$code.SHA256SUMS", size)
+    }
+
+    /** Reads a response cached by [fetchLatest]. */
+    fun selectCached(json: JSONObject, installedCode: Long): ReleaseUpdate? =
+        if (lanBase.isEmpty()) select(json, installedCode) else selectLan(json, installedCode, lanBase)
+
     private fun isReleaseUrl(value: String): Boolean = try {
         val url = URL(value)
         url.protocol == "https" && url.host.equals("github.com", ignoreCase = true) &&
@@ -62,9 +82,9 @@ internal object ReleaseUpdates {
     }.firstOrNull()
 
     fun fetchLatest(installedCode: Long): Pair<ReleaseUpdate?, String?> {
-        val response = read(API, 1_000_000)
+        val response = read(if (lanBase.isEmpty()) API else "${lanBase}latest.json", 1_000_000)
         if (response == null) return null to null // No published release yet.
-        val release = select(JSONObject(response), installedCode)
+        val release = selectCached(JSONObject(response), installedCode)
         return release to if (release == null) null else response
     }
 
@@ -126,9 +146,11 @@ internal object ReleaseUpdates {
     private fun connect(value: String, allow404: Boolean = false): HttpURLConnection {
         var next = URL(value)
         repeat(6) {
-            if (next.protocol != "https") throw IOException("Insecure update URL")
+            // Plain HTTP only to the LAN server; Android installs an update only if its signing key matches.
+            val lan = lanBase.isNotEmpty() && next.toString().startsWith(lanBase)
+            if (next.protocol != "https" && !lan) throw IOException("Insecure update URL")
             val connection = (next.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 10_000
+                connectTimeout = if (lan) 3_000 else 10_000
                 readTimeout = 30_000
                 instanceFollowRedirects = false
                 setRequestProperty("Accept", "application/vnd.github+json")

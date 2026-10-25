@@ -10,8 +10,9 @@ final class MemoryStorage: VaultStorage {
     func deleteState() throws { state = nil }
     func writeState(_ data: Data) throws { if failWrite { throw VaultError.invalid("Simulated write failure") }; state = data }
     func readBlob(_ id: String) throws -> Data { guard let data = blobs[id] else { throw VaultError.invalid("Missing blob") }; return data }
-    func writeBlob(_ data: Data, id: String) throws { blobs[id] = data }
-    func removeBlobs(except id: String?) throws { blobs = blobs.filter { $0.key == id } }
+    var failBlobWrite = false
+    func writeBlob(_ data: Data, id: String) throws { if failBlobWrite { throw VaultError.invalid("Simulated write failure") }; blobs[id] = data }
+    func removeBlobs(keeping ids: Set<String>) throws { blobs = blobs.filter { ids.contains($0.key) } }
     func hasBlobs() throws -> Bool { !blobs.isEmpty }
     func saveBiometricKey(_ data: Data) throws { biometric = data }
     func readBiometricKey() throws -> Data { guard let biometric else { throw VaultError.locked }; return biometric }
@@ -58,7 +59,8 @@ do {
         try check(VaultEngine(storage: store).remainingAttempts() == 10 - attempt, "durable counter")
     }
     _ = try engine.unlockBiometric()
-    try check(engine.remainingAttempts() == 1, "biometrics cannot reset password counter")
+    try check(engine.remainingAttempts() == 10, "biometrics clear the password counter, as on Android"); engine.lock()
+    for _ in 1...9 { try rejects("wrong app password") { _ = try engine.unlock(password: "wrong") } }
     try rejects("tenth failure") { _ = try engine.unlock(password: "wrong") }
     try check(store.blobs.isEmpty && store.biometric == nil, "cryptographic erasure cleanup")
     try rejects("biometric after erasure") { _ = try engine.unlockBiometric() }
@@ -253,6 +255,15 @@ do {
                   && migration.accounts[1].algorithm == "SHA256" && migration.accounts[1].digits == 8, "Google Authenticator export")
         try rejects("truncated export") { _ = try Totp.parseMigration("otpauth-migration://offline?data=" + Data([10, 50, 1]).base64EncodedString()) }
     }
+    try cardChecks()
+    try healthChecks()
+    try backupChecks()
+    try argon2Checks()
+    try importChecks()
+    try onePuxChecks()
+    try decoyChecks()
+    try transferChecks()
+    try reviewFixChecks()
     if let path = ProcessInfo.processInfo.environment["PASSVAULT_TEST_CSV"] {
         let migrated = try VaultCSV.importRecords(String(contentsOfFile: path, encoding: .utf8))
         try check(!migrated.isEmpty, "local migration fixture has records")

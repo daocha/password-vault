@@ -247,13 +247,16 @@ struct QRScannerSheet: View {
 
 struct QRScannerView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
-    func makeUIViewController(context: Context) -> QRScannerController { let controller = QRScannerController(); controller.onCode = onCode; return controller }
+    /// Report every code read (a transfer's loop of frames) instead of only the first.
+    var continuous = false
+    func makeUIViewController(context: Context) -> QRScannerController { let controller = QRScannerController(); controller.onCode = onCode; controller.continuous = continuous; return controller }
     func updateUIViewController(_ controller: QRScannerController, context: Context) { controller.onCode = onCode }
 }
 
-/// Live camera preview that reports the first QR code it reads, once. Detection is done by AVFoundation on the device.
+/// Live camera preview that reports the first QR code it reads, once, or with `continuous` every one. Detection is done by AVFoundation on the device.
 final class QRScannerController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onCode: ((String) -> Void)?
+    var continuous = false
     private let session = AVCaptureSession()
     private var preview: AVCaptureVideoPreviewLayer?
     private var delivered = false
@@ -286,6 +289,7 @@ final class QRScannerController: UIViewController, AVCaptureMetadataOutputObject
     }
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard !delivered, let text = metadataObjects.compactMap({ ($0 as? AVMetadataMachineReadableCodeObject)?.stringValue }).first else { return }
+        if continuous { onCode?(text); return }
         delivered = true
         let session = session
         DispatchQueue.global(qos: .userInitiated).async { session.stopRunning() }

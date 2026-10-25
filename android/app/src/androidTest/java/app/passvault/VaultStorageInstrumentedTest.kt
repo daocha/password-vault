@@ -225,4 +225,123 @@ class VaultStorageInstrumentedTest {
         val error = assertThrows(NewerVersionException::class.java) { VaultCrypto.importBackup("QVAULT03".toByteArray() + ByteArray(80), password) }
         assertTrue(error.backup)
     }
+
+    @Test fun decoyVaultOpensSeparatelyAndCannotResetTheCounter() {
+        val decoyPassword = "Another decoy phrase 2?"
+        engine.create(password); engine.save(listOf(record("Real bank")))
+        assertFalse(engine.hasDecoy())
+        assertThrows(IllegalArgumentException::class.java) { engine.createDecoy(password, password) }
+        engine.createDecoy(password, decoyPassword)
+        assertTrue(engine.hasDecoy()); assertEquals(2, blobs().size)
+        engine.lock()
+
+        assertTrue(engine.unlock(decoyPassword).isEmpty()); assertTrue(engine.isDecoy()); assertFalse(engine.hasDecoy())
+        engine.save(listOf(record("Shopping")))
+        assertThrows(IllegalStateException::class.java) { engine.biometricKey(decoyPassword) }
+        assertThrows(IllegalStateException::class.java) { engine.removeDecoy(decoyPassword) }
+        assertThrows(AuthenticationFailure::class.java) { engine.export(password, csv = true) } // the main password is not accepted in the decoy vault
+        val csv = engine.export(decoyPassword, csv = true).toString(Charsets.UTF_8)
+        assertTrue(csv.contains("Shopping")); assertFalse(csv.contains("Real bank"))
+        engine.lock()
+
+        assertEquals(listOf("Real bank"), engine.unlock(password).map { it.name }); assertFalse(engine.isDecoy())
+        engine.lock(); fresh()
+        assertEquals(listOf("Shopping"), engine.unlock(decoyPassword).map { it.name })
+        engine.lock()
+
+        // Failed guesses are not cleared by decoy sign-ins, only by the real password.
+        repeat(3) { assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong passphrase 9!") } }
+        assertEquals(7, engine.remainingAttempts())
+        engine.unlock(decoyPassword); engine.lock()
+        assertEquals(7, engine.remainingAttempts())
+        engine.unlock(password); assertEquals(10, engine.remainingAttempts())
+
+        assertThrows(IllegalArgumentException::class.java) { engine.changePassword(password, decoyPassword) }
+        engine.lock(); engine.unlock(decoyPassword)
+        assertThrows(IllegalArgumentException::class.java) { engine.changePassword(decoyPassword, password) }
+        engine.lock(); assertEquals(listOf("Shopping"), engine.unlock(decoyPassword).map { it.name })
+        engine.changePassword(decoyPassword, "Fresh decoy phrase 4\$"); engine.lock()
+        assertEquals(listOf("Shopping"), engine.unlock("Fresh decoy phrase 4\$").map { it.name }); engine.lock()
+        assertEquals(listOf("Real bank"), engine.unlock(password).map { it.name }); assertEquals(2, blobs().size)
+
+        engine.removeDecoy(password)
+        assertFalse(engine.hasDecoy()); assertEquals(1, blobs().size); engine.lock()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Fresh decoy phrase 4\$") }
+    }
+
+    @Test fun decoyPasswordChangesCountOnlyWhenTheyFailAndAreLimited() {
+        val decoyPassword = "Another decoy phrase 2?"
+        engine.create(password); engine.createDecoy(password, decoyPassword); engine.lock()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong passphrase 9!") }
+        assertEquals(9, engine.remainingAttempts())
+        engine.unlock(decoyPassword); assertEquals(9, engine.remainingAttempts()) // the decoy password does not reset the count
+        assertThrows(AuthenticationFailure::class.java) { engine.changePassword("Wrong passphrase 9!", "Fresh decoy phrase 4\$") }
+        assertEquals(8, engine.remainingAttempts())
+        assertThrows(IllegalArgumentException::class.java) { engine.changePassword(decoyPassword, password) } // the real password is refused and counted
+        assertEquals(7, engine.remainingAttempts())
+        // Successful changes cost no attempt, but only three are allowed until the real password opens the vault.
+        var current = decoyPassword
+        for (i in 1..VaultEngine.DECOY_CHANGES) { val next = "Fresh decoy phrase $i\$"; engine.changePassword(current, next); current = next }
+        assertEquals(7, engine.remainingAttempts())
+        assertThrows(IllegalStateException::class.java) { engine.changePassword(current, "Fresh decoy phrase 9\$") }
+        assertThrows(IllegalStateException::class.java) { engine.changePassword(current, password) } // refused before the real password is tested
+        assertEquals(7, engine.remainingAttempts()); assertTrue(engine.exists())
+        engine.lock(); engine.unlock(current); engine.lock() // a decoy sign-in does not renew the allowance
+        engine.unlock(current); assertThrows(IllegalStateException::class.java) { engine.changePassword(current, "Fresh decoy phrase 9\$") }
+        engine.lock(); engine.unlock(password); assertEquals(10, engine.remainingAttempts()); engine.lock()
+        engine.unlock(current); engine.changePassword(current, "Fresh decoy phrase 9\$")
+    }
+
+    @Test fun theRealVaultCanGiveTheDecoyANewPasswordAndKeepItsEntries() {
+        val decoyPassword = "Another decoy phrase 2?"
+        engine.create(password); engine.save(listOf(record("Real bank"))); engine.createDecoy(password, decoyPassword); engine.lock()
+        engine.unlock(decoyPassword); engine.save(listOf(record("Shopping")))
+        engine.changePassword(decoyPassword, "Forgotten decoy 3#") // the decoy's own change keeps the real vault's way back in
+        engine.lock(); engine.unlock(password)
+        assertTrue(engine.canResetDecoy())
+        // The real vault's own password change moves the way back in to its new data key.
+        val newPassword = "Another long passphrase 2@"
+        engine.changePassword(password, newPassword); engine.lock(); fresh(); engine.unlock(newPassword)
+        assertThrows(AuthenticationFailure::class.java) { engine.resetDecoyPassword("Wrong passphrase 9!", "Remembered decoy 5%") }
+        assertThrows(IllegalArgumentException::class.java) { engine.resetDecoyPassword(newPassword, newPassword) }
+        val oldDecoyBlob = blobs().map { it.name }.toSet()
+        engine.resetDecoyPassword(newPassword, "Remembered decoy 5%")
+        assertEquals(2, blobs().size); assertNotEquals(oldDecoyBlob, blobs().map { it.name }.toSet())
+        engine.lock()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Forgotten decoy 3#") }
+        assertEquals(listOf("Shopping"), engine.unlock("Remembered decoy 5%").map { it.name }); assertTrue(engine.isDecoy())
+        assertFalse(engine.canResetDecoy()) // only the real vault can do this
+        assertThrows(IllegalStateException::class.java) { engine.resetDecoyPassword("Remembered decoy 5%", "Another decoy 6&") }
+        engine.lock(); assertEquals(listOf("Real bank"), engine.unlock(newPassword).map { it.name })
+    }
+
+    @Test fun erasureRemovesTheDecoyToo() {
+        engine.create(password); engine.createDecoy(password, "Another decoy phrase 2?"); engine.lock()
+        repeat(9) { assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong passphrase 9!") } }
+        assertThrows(IllegalStateException::class.java) { engine.unlock("Wrong passphrase 9!") }
+        assertTrue(blobs().isEmpty())
+        assertThrows(IllegalStateException::class.java) { VaultEngine(ProtectedStorage(context)).unlock("Another decoy phrase 2?") }
+    }
+
+    @Test fun transferRoundTripThroughQrFramesAndWrongCodes() {
+        val records = listOf(record("Mail"), VaultRecord(name = "Visa", type = RecordType.card, fields = defaultFields(RecordType.card)))
+        engine.create(password); engine.save(records)
+        val (code, sealed) = engine.exportTransfer(password)
+        assertFalse("no plaintext", String(sealed, Charsets.ISO_8859_1).contains("Mail"))
+        val collector = TransferFrames.Collector()
+        TransferFrames.frames(sealed).let { frames -> (frames.reversed() + frames).forEach { collector.add(it) } }
+        assertEquals(records, Transfer.open(collector.result()!!, Transfer.display(code).lowercase()))
+        val wrong = if (code == "222222222222") "333333333333" else "222222222222"
+        assertThrows(AuthenticationFailure::class.java) { Transfer.open(sealed, wrong) }
+        assertThrows(AuthenticationFailure::class.java) { engine.exportTransfer("Wrong passphrase 9!") }
+        assertEquals(9, engine.remainingAttempts())
+    }
+
+    @Test fun transfersOpenAcrossPlatforms() {
+        val ios = InstrumentationRegistry.getInstrumentation().context.assets.open("ios.pvtransfer").use { it.readBytes() }
+        assertEquals(listOf("From iOS", "iOS note"), Transfer.open(ios, "PHNE-2C3D-E4FG").map { it.name })
+        // Written for the iOS checks (fixtures/transfer/android.pvtransfer); see fixtures/transfer/README.md.
+        val fromAndroid = Transfer.seal(listOf(record("From Android"), VaultRecord(name = "Android card", type = RecordType.card, fields = defaultFields(RecordType.card))), "ANDRD2CDE3FG")
+        android.util.Log.i("PassVaultFixture", "android.pvtransfer " + Base64.getEncoder().encodeToString(fromAndroid))
+    }
 }

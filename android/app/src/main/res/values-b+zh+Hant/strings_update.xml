@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="update_title">更新</string>
-    <string name="update_version">PassVault %1$s · %2$s</string>
+    <string name="update_version">PassVault %1$s (%2$d) · %3$s</string>
+    <string name="update_source_lan">區域網路</string>
     <string name="update_idle">檢查是否有新版本</string>
     <string name="update_checking">正在檢查更新…</string>
     <string name="update_current">已是最新版本</string>

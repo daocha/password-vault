@@ -11,7 +11,7 @@ final class MemoryStorage: VaultStorage {
     func writeState(_ data: Data) throws { if failWrite { throw VaultError.invalid("Simulated write failure") }; state = data }
     func readBlob(_ id: String) throws -> Data { guard let data = blobs[id] else { throw VaultError.invalid("Missing blob") }; return data }
     func writeBlob(_ data: Data, id: String) throws { blobs[id] = data }
-    func removeBlobs(except id: String?) throws { blobs = blobs.filter { $0.key == id } }
+    func removeBlobs(keeping ids: Set<String>) throws { blobs = blobs.filter { ids.contains($0.key) } }
     func hasBlobs() throws -> Bool { !blobs.isEmpty }
     func saveBiometricKey(_ data: Data) throws { biometric = data }
     func readBiometricKey() throws -> Data { guard let biometric else { throw VaultError.locked }; return biometric }
@@ -51,8 +51,9 @@ final class VaultCoreTests: XCTestCase {
             XCTAssertEqual(try engine.remainingAttempts(), 10 - attempt)
         }
         _ = try engine.unlockBiometric()
-        XCTAssertEqual(try engine.remainingAttempts(), 1)
-        XCTAssertThrowsError(try engine.unlock(password: "wrong"))
+        XCTAssertEqual(try engine.remainingAttempts(), 10) // biometrics clear the counter, as on Android
+        engine.lock()
+        for _ in 1...10 { XCTAssertThrowsError(try engine.unlock(password: "wrong")) }
         XCTAssertTrue(store.blobs.isEmpty); XCTAssertNil(store.biometric)
         XCTAssertThrowsError(try engine.unlockBiometric())
         XCTAssertThrowsError(try engine.unlock(password: password))
@@ -134,6 +135,19 @@ final class VaultCoreTests: XCTestCase {
         engine.lock()
         XCTAssertThrowsError(try VaultEngine(storage: store).unlock(password: password))
         XCTAssertEqual(try VaultEngine(storage: store).unlock(password: next), [record])
+    }
+    func testDecoyPasswordCannotBecomeTheMainPassword() throws {
+        let store = MemoryStorage(), engine = VaultEngine(storage: store), decoy = "Another decoy phrase 2?", record = fixture()
+        _ = try engine.create(password: password)
+        try engine.save([record])
+        try engine.createDecoy(password: password, decoyPassword: decoy)
+        engine.lock()
+        _ = try engine.unlock(password: decoy)
+        XCTAssertThrowsError(try engine.changePassword(current: decoy, new: password))
+        engine.lock()
+        XCTAssertTrue(try engine.unlock(password: decoy).isEmpty)
+        engine.lock()
+        XCTAssertEqual(try engine.unlock(password: password), [record])
     }
     func testNewerVersionsAreReportedAsNewer() throws {
         do { _ = try VaultCrypto.importBackup(Data("QVAULT03".utf8) + Data(repeating: 0, count: 80), password: password); XCTFail("accepted") }

@@ -7,6 +7,6 @@ let package = Package(
     targets: [
         .target(name: "VaultCore", dependencies: [.product(name: "Clibsodium", package: "swift-sodium")]),
         .testTarget(name: "VaultCoreTests", dependencies: ["VaultCore"]),
-        .executableTarget(name: "SecurityChecks", dependencies: ["VaultCore"])
+        .executableTarget(name: "SecurityChecks", dependencies: ["VaultCore", .product(name: "Clibsodium", package: "swift-sodium")])
     ]
 )

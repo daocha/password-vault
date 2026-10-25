@@ -148,7 +148,7 @@
     <string name="main_clear_on_lock">Clear copied text on lock</string>
     <string name="main_clear_on_lock_summary">Also when the app is swiped away from recent apps</string>
     <string name="main_backup_migration">Backup &amp; migration</string>
-    <string name="main_import_row_summary">Password Keeper (.pkb2 or CSV) or PassVault backup</string>
+    <string name="main_import_row_summary">PassVault backup, KeePass, Bitwarden, 1Password, Password Keeper, or a browser or other CSV</string>
     <string name="main_export_encrypted">Export encrypted backup</string>
     <string name="main_export_encrypted_summary">Passwords, seed phrases and 2FA keys, protected with your app password</string>
     <string name="main_export_csv">Export plaintext CSV</string>

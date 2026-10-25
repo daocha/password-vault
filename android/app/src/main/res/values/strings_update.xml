@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="update_title">Updates</string>
-    <string name="update_version">PassVault %1$s · %2$s</string>
+    <string name="update_version">PassVault %1$s (%2$d) · %3$s</string>
+    <string name="update_source_lan">Local network</string>
     <string name="update_idle">Check for a newer version</string>
     <string name="update_checking">Checking for updates…</string>
     <string name="update_current">You\'re up to date</string>
