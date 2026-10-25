@@ -49,6 +49,8 @@ class CardsTest {
         assertEquals("4111111111111234", number.digits("4111 1111 1111 1234")); assertNull(number.digits("ask the bank"))
         assertEquals("0327", expiry.digits("03/27")); assertEquals("0327", expiry.digits("2027-03")); assertNull(expiry.digits("soon"))
         assertEquals("03/27", Cards.formattedExpiry("0327")); assertEquals("03/27", Cards.formattedExpiry("03/27")); assertEquals("soon", Cards.formattedExpiry("soon")); assertEquals("202712", Cards.formattedExpiry("202712"))
+        val stored = VaultRecord(type = RecordType.card, fields = defaultFields(RecordType.card).map { if (it.label == CARD_EXPIRY_LABEL) it.copy(value = "0226") else it })
+        assertTrue("found as shown", stored.matches("02/26")); assertTrue(stored.matches("0226"))
         assertEquals(java.time.LocalDate.of(2026, 2, 28), VaultRecord(type = RecordType.card, fields = defaultFields(RecordType.card).map { if (it.label == CARD_EXPIRY_LABEL) it.copy(value = "0226") else it }).expiryDate)
     }
     @Test fun expiryStateFromReminderOrCard() {

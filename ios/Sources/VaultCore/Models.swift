@@ -58,7 +58,8 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
     public var isNote: Bool { type == "note" }
     public init() {}
     public func matches(_ query: String) -> Bool {
-        let searchable = [name, website, group] + fields.filter { !$0.secret }.map(\.value) + [totp?.account].compactMap { $0 }
+        // A card's expiry is stored as digits ("0226") but found as shown, too ("02/26").
+        let searchable = [name, website, group] + fields.filter { !$0.secret }.flatMap { $0.label == cardExpiryLabel ? [$0.value, Cards.formattedExpiry($0.value)] : [$0.value] } + [totp?.account].compactMap { $0 }
         return query.isEmpty || searchable.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }

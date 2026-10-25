@@ -42,6 +42,7 @@ func cardChecks() throws {
     var after = before; after.fields = after.fields.map { var f = $0; if f.label == cardNumberLabel { f.value = "4000056655665556" }; return f }
     try check(after.recordingPasswordChanges(previous: before).fields.first { $0.label == cardNumberLabel }?.history?.map(\.value) == ["4111 1111 1111 1234"], "card number changes kept in history")
     var digitsOnly = before; digitsOnly.fields = digitsOnly.fields.map { var f = $0; if f.label == cardNumberLabel { f.value = "4111111111111234" }; return f }
+    try check(card("0226").matches("02/26") && card("0226").matches("0226"), "a card's expiry is found as shown")
     try check(digitsOnly.recordingPasswordChanges(previous: before).fields.first { $0.label == cardNumberLabel }?.history == nil, "a card number kept as digits is not a change")
     // Android's JSON writes the same keys, so the two apps read each other's records.
     let android = #"[{"id":"c","name":"Bank","website":"","group":"","favorite":false,"updatedAt":"2026-10-25T00:00:00Z","fields":[],"legacy":{},"type":"card","expires":"2027-01-31"}]"#
