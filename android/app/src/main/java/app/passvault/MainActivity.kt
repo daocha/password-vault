@@ -62,6 +62,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -709,13 +711,13 @@ class MainActivity : FragmentActivity() {
                                     if (field.kind == FieldKind.question && field.question.isNotBlank()) Text(field.question, style = MaterialTheme.typography.bodyMedium)
                                     when {
                                         field.value.isEmpty() -> Text("—", color = MaterialTheme.colorScheme.outline)
-                                        shown -> Text(if (field.label == CARD_NUMBER_LABEL) Cards.formatted(field.value) else field.value, style = MaterialTheme.typography.bodyLarge, fontFamily = if (field.kind == FieldKind.password) FontFamily.Monospace else null)
+                                        shown -> Text(when (field.label) { CARD_NUMBER_LABEL -> Cards.formatted(field.value); CARD_EXPIRY_LABEL -> Cards.formattedExpiry(field.value); else -> field.value }, style = MaterialTheme.typography.bodyLarge, fontFamily = if (field.kind == FieldKind.password) FontFamily.Monospace else null)
                                         else -> Text("••••••••••", style = MaterialTheme.typography.bodyLarge)
                                     }
                                 }
                                 if (field.secret && field.value.isNotEmpty()) IconButton(onClick = { revealed = if (field.id in revealed) revealed - field.id else revealed + field.id }) { Icon(if (field.id in revealed) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (field.id in revealed) stringResource(R.string.main_hide) else stringResource(R.string.main_reveal)) }
                                 if (field.history.isNotEmpty()) IconButton(onClick = { historyFor = field.id }) { Icon(Icons.Outlined.History, stringResource(R.string.main_password_history_for, field.displayName)) }
-                                if (allowCopy && field.value.isNotEmpty()) IconButton(onClick = { copySecret(field.value) }) { Icon(Icons.Outlined.ContentCopy, stringResource(R.string.main_copy_field, field.displayName)) }
+                                if (allowCopy && field.value.isNotEmpty()) IconButton(onClick = { copySecret(if (field.label == CARD_EXPIRY_LABEL) Cards.formattedExpiry(field.value) else field.value) }) { Icon(Icons.Outlined.ContentCopy, stringResource(R.string.main_copy_field, field.displayName)) }
                             }
                         }
                     }
@@ -834,10 +836,20 @@ class MainActivity : FragmentActivity() {
                                 }
                                 if (field.kind == FieldKind.question) { EditorField(field.question, { update(field.copy(question = it)) }, stringResource(R.string.main_question)); Spacer(Modifier.height(8.dp)) }
                                 val hidden = field.secret && field.id !in revealed
-                                OutlinedTextField(field.value, { update(field.copy(value = it)) }, Modifier.fillMaxWidth(), placeholder = { Text(when { field.kind == FieldKind.question -> stringResource(R.string.main_answer); field.label == CARD_EXPIRY_LABEL -> stringResource(R.string.rec_expiry_placeholder); else -> field.displayName }) },
+                                // A card number or expiry is stored as digits only and shown grouped; legacy values like "03/27" are edited as their digits.
+                                val cardInput = CardInput.of(field.label)?.takeIf { it.digits(field.value) != null }
+                                val editorText = cardInput?.digits(field.value) ?: field.value
+                                var text by remember(field.id) { mutableStateOf(TextFieldValue(editorText, TextRange(editorText.length))) }
+                                if (text.text != editorText) text = TextFieldValue(editorText, TextRange(editorText.length))
+                                OutlinedTextField(text, { typed ->
+                                    val value = cardInput?.clean(typed.text) ?: typed.text
+                                    // When cleaning changed what was typed (3 → 03, a pasted space dropped), the cursor goes to the end.
+                                    text = if (value == typed.text) typed else TextFieldValue(value, TextRange(value.length))
+                                    if (value != editorText) update(field.copy(value = value))
+                                }, Modifier.fillMaxWidth(), placeholder = { Text(when { field.kind == FieldKind.question -> stringResource(R.string.main_answer); field.label == CARD_EXPIRY_LABEL -> stringResource(R.string.rec_expiry_placeholder); else -> field.displayName }) },
                                     singleLine = field.kind != FieldKind.note, shape = RoundedCornerShape(12.dp), textStyle = if (field.kind == FieldKind.password && !hidden) LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace) else LocalTextStyle.current,
-                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = when { field.label in CARD_NUMERIC_LABELS -> KeyboardType.NumberPassword; field.secret -> KeyboardType.Password; else -> KeyboardType.Text }),
-                                    visualTransformation = if (hidden) PasswordVisualTransformation() else VisualTransformation.None,
+                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = when { field.label in CARD_NUMERIC_LABELS -> KeyboardType.NumberPassword; cardInput == CardInput.expiry -> KeyboardType.Number; field.secret -> KeyboardType.Password; else -> KeyboardType.Text }),
+                                    visualTransformation = when { hidden -> PasswordVisualTransformation(); cardInput != null -> CardDigitsTransformation(cardInput); else -> VisualTransformation.None },
                                     trailingIcon = { if (field.secret) Row {
                                         if (field.kind == FieldKind.password && field.label !in CARD_NUMERIC_LABELS) IconButton(onClick = { generatingFor = field.id }) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.main_generate_password)) }
                                         IconButton(onClick = { revealed = if (field.id in revealed) revealed - field.id else revealed + field.id }) { Icon(if (hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff, if (hidden) stringResource(R.string.main_reveal) else stringResource(R.string.main_hide)) }

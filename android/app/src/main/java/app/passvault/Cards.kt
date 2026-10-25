@@ -48,16 +48,54 @@ object Cards {
         return out.joinToString(" ")
     }
     fun lastFour(number: String) = number.filter(Char::isDigit).takeLast(4)
-    /** Reads `MM/YY`, `MM/YYYY`, `MM-YY`, `YYYY-MM` or `MMYY`, as printed on cards and exported by other managers. */
+    /** Reads `MM/YY`, `MM/YYYY`, `MM-YY`, `YYYY-MM`, `MMYY` or `MMYYYY`, as printed on cards and exported by other managers. */
     fun parseExpiry(text: String): YearMonth? {
         val t = text.trim()
         Regex("""^(\d{4})[-/.](\d{1,2})$""").find(t)?.let { m -> return yearMonth(m.groupValues[1].toInt(), m.groupValues[2].toInt()) }
         Regex("""^(\d{1,2})\s*[-/.]\s*(\d{2}|\d{4})$""").find(t)?.let { m -> return yearMonth(year(m.groupValues[2]), m.groupValues[1].toInt()) }
-        Regex("""^(\d{2})(\d{2})$""").find(t)?.let { m -> return yearMonth(year(m.groupValues[2]), m.groupValues[1].toInt()) }
+        Regex("""^(\d{2})(\d{2}|\d{4})$""").find(t)?.let { m -> return yearMonth(year(m.groupValues[2]), m.groupValues[1].toInt()) }
         return null
     }
+    /** An expiry as stored: `MMYY` for years 2000–2099, `MMYYYY` for any other (see [CardInput]). */
+    fun expiryDigits(month: YearMonth) = "%02d".format(month.monthValue) + if (month.year in 2000..2099) "%02d".format(month.year % 100) else month.year.toString()
+    /** `MM/YY` for a stored expiry; anything else, such as other digits ("202712"), is shown as stored. */
+    fun formattedExpiry(value: String) = CardInput.expiry.digits(value)?.takeIf { parseExpiry(it) != null }?.let(CardInput.expiry::formatted) ?: value
     private fun year(text: String) = if (text.length == 2) 2000 + text.toInt() else text.toInt()
     private fun yearMonth(year: Int, month: Int) = if (month in 1..12 && year in 1900..2999) YearMonth.of(year, month) else null
+}
+
+/**
+ * How a card's number and expiry date are typed. Only the digits are stored ("5241000212345678", "0226"); the editor shows the spaces
+ * or the slash as the user types, and the record shows them too, so they are never part of the value.
+ */
+enum class CardInput(val maxDigits: Int, val separator: Char) {
+    number(19, ' '), expiry(6, '/');
+    /** The digits the editor starts from, or null when the stored value holds something else, which is then edited as plain text. */
+    fun digits(value: String): String? = when (this) {
+        number -> value.takeIf { v -> v.all { it in '0'..'9' || it == ' ' || it == '-' } }?.filter { it in '0'..'9' }
+        expiry -> if (value.all { it in '0'..'9' }) value else Cards.parseExpiry(value)?.let(Cards::expiryDigits)
+    }
+    /** What to store for [typed]: its digits, at most [maxDigits]. An expiry starting with 2–9 is a one-digit month, so 3 becomes 03. */
+    fun clean(typed: String): String {
+        val digits = typed.filter { it in '0'..'9' }.take(maxDigits)
+        return if (this == expiry && digits.length == 1 && digits[0] in '2'..'9') "0$digits" else digits
+    }
+    /**
+     * The digit counts followed by a separator. One shows as soon as its group is typed ("5241" reads "5241 ", "02" reads "02/"), except
+     * after a complete 16-digit number.
+     */
+    fun breaks(digits: String): List<Int> = when (this) {
+        expiry -> listOf(2)
+        number -> if (Cards.brand(digits) == "American Express") listOf(4, 10) else listOf(4, 8, 12, 16)
+    }.filter { it < digits.length || (it == digits.length && it != 16) }
+    fun formatted(digits: String): String {
+        val breaks = breaks(digits); val out = StringBuilder()
+        digits.forEachIndexed { i, c -> out.append(c); if (i + 1 in breaks) out.append(separator) }
+        return out.toString()
+    }
+    companion object {
+        fun of(label: String) = when (label) { CARD_NUMBER_LABEL -> number; CARD_EXPIRY_LABEL -> expiry; else -> null }
+    }
 }
 
 val VaultRecord.cardNumber: String get() = fields.firstOrNull { it.label == CARD_NUMBER_LABEL }?.value.orEmpty()

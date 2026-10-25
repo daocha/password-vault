@@ -35,7 +35,7 @@ internal object ImportBuilder {
         VaultRecord(name = name, group = group.trim(), favorite = favorite, updatedAt = (updatedAt ?: Instant.now()).toString(), type = RecordType.note, expires = expires,
             fields = listOf(VaultField(kind = FieldKind.note, label = "Notes", value = notes)) + extra)
     fun card(name: String, holder: String, number: String, expiry: String, code: String, pin: String = "", notes: String = "", group: String = "", favorite: Boolean = false, updatedAt: Instant? = null, extra: List<VaultField> = emptyList()): VaultRecord {
-        val values = mapOf(CARD_HOLDER_LABEL to holder, CARD_NUMBER_LABEL to number, CARD_EXPIRY_LABEL to expiry, CARD_CODE_LABEL to code, CARD_PIN_LABEL to pin, "Notes" to notes)
+        val values = mapOf(CARD_HOLDER_LABEL to holder, CARD_NUMBER_LABEL to (CardInput.number.digits(number) ?: number), CARD_EXPIRY_LABEL to (CardInput.expiry.digits(expiry) ?: expiry), CARD_CODE_LABEL to code, CARD_PIN_LABEL to pin, "Notes" to notes)
         return VaultRecord(name = name, group = group.trim(), favorite = favorite, updatedAt = (updatedAt ?: Instant.now()).toString(), type = RecordType.card,
             fields = defaultFields(RecordType.card).map { it.copy(value = values[it.label].orEmpty()) } + extra)
     }

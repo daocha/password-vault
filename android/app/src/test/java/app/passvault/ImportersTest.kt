@@ -66,7 +66,7 @@ class ImportersTest {
         assertTrue(mail.fields.first { it.label == "PIN" }.secret); assertFalse(mail.fields.first { it.label == "Plan" }.secret)
         assertTrue(records.any { it.type == RecordType.totp && it.name == "Mail" })
         val card = records.single { it.type == RecordType.card }
-        assertEquals("Visa •••• 1111", card.cardSummary); assertEquals("03/27", card.value(CARD_EXPIRY_LABEL)); assertEquals("123", card.value(CARD_CODE_LABEL))
+        assertEquals("Visa •••• 1111", card.cardSummary); assertEquals("0327", card.value(CARD_EXPIRY_LABEL)); assertEquals("123", card.value(CARD_CODE_LABEL))
         assertEquals("4321", records.single { it.name == "Door code" }.value("Notes"))
         val identity = records.single { it.name == "Me" }
         assertEquals(RecordType.note, identity.type); assertEquals("Ann", identity.value("First name")); assertTrue(identity.fields.first { it.label == "Passport number" }.secret)
@@ -82,7 +82,7 @@ class ImportersTest {
         assertEquals(listOf("older"), mail.fields[1].history.map { it.value }); assertTrue(mail.fields.first { it.label == "recovery" }.secret)
         assertTrue(records.any { it.type == RecordType.totp })
         val card = records.single { it.type == RecordType.card }
-        assertEquals("Mastercard •••• 0004", card.cardSummary); assertEquals("12/27", card.value(CARD_EXPIRY_LABEL)); assertEquals("999", card.value(CARD_CODE_LABEL))
+        assertEquals("Mastercard •••• 0004", card.cardSummary); assertEquals("1227", card.value(CARD_EXPIRY_LABEL)); assertEquals("999", card.value(CARD_CODE_LABEL))
         assertEquals("Big Bank", card.value("bank")); assertEquals(1, card.fields.count { it.value == "999" })
         assertTrue(records.none { it.name == "Old" }); assertEquals("keep me", records.single { it.name == "Note" }.value("Notes"))
     }
@@ -95,7 +95,7 @@ class ImportersTest {
         val shop = records.single { it.name == "Shop" }
         assertEquals("https://shop.example", shop.website); assertEquals(listOf("https://checkout.example"), shop.fields.filter { it.label == "Website" }.map { it.value })
         val card = records.single { it.type == RecordType.card }
-        assertEquals("12/1999", card.value(CARD_EXPIRY_LABEL)); assertEquals(ExpiryState.expired, card.expiryState())
+        assertEquals("121999", card.value(CARD_EXPIRY_LABEL)); assertEquals(ExpiryState.expired, card.expiryState())
         assertEquals("12/27", ImportBuilder.cardExpiry("12", "2027")); assertEquals("03/27", ImportBuilder.cardExpiry("3", "27")); assertEquals("01/2101", ImportBuilder.cardExpiry("1", "2101"))
     }
     @Test fun totpValuesThatAreNotKeysAreKept() {

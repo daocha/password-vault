@@ -19,7 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -68,6 +72,18 @@ val VaultField.icon: ImageVector get() = when (label) {
     CARD_EXPIRY_LABEL -> Icons.Outlined.Event
     CARD_CODE_LABEL, CARD_PIN_LABEL -> Icons.Outlined.Pin
     else -> kind.icon
+}
+
+/** Shows a card number or expiry, stored as bare digits, with its spaces or slash (see [CardInput.breaks]). */
+data class CardDigitsTransformation(private val input: CardInput) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val digits = text.text; val breaks = input.breaks(digits)
+        return TransformedText(AnnotatedString(input.formatted(digits)), object : OffsetMapping {
+            override fun originalToTransformed(offset: Int) = offset + breaks.count { it <= offset }
+            // The separator after `breaks[i]` digits sits at `breaks[i] + i` in the shown text.
+            override fun transformedToOriginal(offset: Int) = (offset - breaks.withIndex().count { (i, b) -> b + i < offset }).coerceIn(0, digits.length)
+        })
+    }
 }
 
 /** Tinted circular badge used for field kinds and section rows. */

@@ -355,7 +355,10 @@ struct RecordEditor: View {
                             TextField("Field label", text: $field.label).font(.caption).foregroundStyle(.secondary)
                             if field.kind == .question { TextField("Security question", text: $field.question) }
                             HStack {
-                                if field.secret && !revealed.contains(field.id) { SecureField(field.kind == .question ? "Answer" : cardNumericLabels.contains(field.label) ? field.label : "Password", text: $field.value).keyboardType(cardNumericLabels.contains(field.label) ? .numberPad : .default) }
+                                let cardInput = CardInput.of(field.label).flatMap { input in input.digits(field.value).map { _ in input } }
+                                if field.secret && !revealed.contains(field.id) { SecureField(field.kind == .question ? "Answer" : cardNumericLabels.contains(field.label) ? field.label : "Password", text: cardInput.map { input in Binding(get: { field.value }, set: { field.value = input.clean($0) }) } ?? $field.value).keyboardType(cardNumericLabels.contains(field.label) ? .numberPad : .default) }
+                                // A card number or expiry is stored as digits only and shown grouped; legacy values like "03/27" are edited as their digits.
+                                else if let cardInput { TextField(field.label == cardExpiryLabel ? "MM/YY" : "Value", text: Binding(get: { cardInput.formatted(cardInput.digits(field.value) ?? "") }, set: { field.value = cardInput.edited($0, from: cardInput.digits(field.value) ?? "") })).keyboardType(.numberPad) }
                                 else { TextField(field.label == cardExpiryLabel ? "MM/YY" : "Value", text: $field.value, axis: .vertical).keyboardType(cardNumericLabels.contains(field.label) ? .numberPad : .default) }
                                 if field.secret {
                                     Button { if !revealed.insert(field.id).inserted { revealed.remove(field.id) } } label: { Image(systemName: revealed.contains(field.id) ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(revealed.contains(field.id) ? "Hide secret" : "Reveal secret")
@@ -366,7 +369,7 @@ struct RecordEditor: View {
                                 Spacer()
                                 if !field.historyNewestFirst.isEmpty { Button("History", systemImage: "clock.arrow.circlepath") { historyField = field }.font(.caption).buttonStyle(.borderless) }
                                 Button("Copy", systemImage: "doc.on.doc") {
-                                    UIPasteboard.general.setItems([["public.utf8-plain-text": field.value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)])
+                                    UIPasteboard.general.setItems([["public.utf8-plain-text": field.label == cardExpiryLabel ? Cards.formattedExpiry(field.value) : field.value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)])
                                 }.font(.caption).buttonStyle(.borderless)
                             }
                         }.padding(.vertical, 4)
