@@ -276,7 +276,8 @@ enum KeePassXml {
         guard let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
         if t.contains("-") { return ISO8601DateFormatter().date(from: t) }
         guard let b = Data(base64Encoded: t), b.count == 8 else { return nil }
-        return Date(timeIntervalSince1970: TimeInterval(Int64(bitPattern: Kdbx.u64(Array(b), 0)) - 62_135_596_800))
+        // In floating point: a damaged value near Int64.min would overflow (and crash) as integer arithmetic.
+        return Date(timeIntervalSince1970: TimeInterval(Int64(bitPattern: Kdbx.u64(Array(b), 0))) - 62_135_596_800)
     }
     static func records(_ root: XmlElement, stream: InnerStream?) throws -> [VaultRecord] {
         guard root.name == "KeePassFile" else { throw VaultError.invalid("Unrecognised XML file. PassVault reads KeePass XML exports.") }
@@ -325,7 +326,7 @@ enum KeePassXml {
         guard s.values.contains(where: { !$0.1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return [] }
         let times = entry.child("Times"), updated = time(times?.child("LastModificationTime")?.text)
         var expires = ""
-        if times?.child("Expires")?.text.trimmingCharacters(in: .whitespaces).lowercased() == "true", let date = time(times?.child("ExpiryTime")?.text) { expires = Expiry.format(Expiry.components(date)) }
+        if times?.child("Expires")?.text.trimmingCharacters(in: .whitespaces).lowercased() == "true", let date = time(times?.child("ExpiryTime")?.text) { expires = Expiry.imported(date) }
         // History versions (oldest first) then the entry itself: each password that was replaced is kept with the time it was replaced.
         let versions = (entry.child("History")?.all("Entry") ?? []).map { (Strings($0)["Password"], time($0.child("Times")?.child("LastModificationTime")?.text)) } + [(s["Password"], updated)]
         let history = zip(versions, versions.dropFirst()).filter { !$0.0.0.isEmpty && $0.0.0 != $0.1.0 }

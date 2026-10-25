@@ -86,6 +86,18 @@ class ImportersTest {
         assertEquals("Big Bank", card.value("bank")); assertEquals(1, card.fields.count { it.value == "999" })
         assertTrue(records.none { it.name == "Old" }); assertEquals("keep me", records.single { it.name == "Note" }.value("Notes"))
     }
+    @Test fun onePuxKeepsEveryUrlAndCardYearsOutsideThisCentury() {
+        val data = """{"accounts":[{"vaults":[{"attrs":{"name":"Private"},"items":[
+            {"categoryUuid":"001","overview":{"title":"Shop","url":"https://shop.example","urls":[{"url":"https://shop.example"},{"url":"https://checkout.example"},{"url":" "}]},"details":{"password":"test-only-12"}},
+            {"categoryUuid":"002","overview":{"title":"Old card"},"details":{"sections":[{"fields":[{"id":"expiry","title":"expiry","value":{"monthYear":199912}}]}]}}]}]}]}"""
+        val zip = java.io.ByteArrayOutputStream().also { out -> java.util.zip.ZipOutputStream(out).use { it.putNextEntry(java.util.zip.ZipEntry("export.data")); it.write(data.toByteArray()) } }.toByteArray()
+        val records = Importers.importPlain(zip)
+        val shop = records.single { it.name == "Shop" }
+        assertEquals("https://shop.example", shop.website); assertEquals(listOf("https://checkout.example"), shop.fields.filter { it.label == "Website" }.map { it.value })
+        val card = records.single { it.type == RecordType.card }
+        assertEquals("12/1999", card.value(CARD_EXPIRY_LABEL)); assertEquals(ExpiryState.expired, card.expiryState())
+        assertEquals("12/27", ImportBuilder.cardExpiry("12", "2027")); assertEquals("03/27", ImportBuilder.cardExpiry("3", "27")); assertEquals("01/2101", ImportBuilder.cardExpiry("1", "2101"))
+    }
     @Test fun totpValuesThatAreNotKeysAreKept() {
         val records = import("name,url,username,password,totp\nGame,,me,test-only-11,steam://ABCDEF\n")
         assertEquals(1, records.size); assertEquals("steam://ABCDEF", records[0].value("One-time password"))

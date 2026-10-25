@@ -65,9 +65,10 @@ enum ImportBuilder {
         let l = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return VaultField(kind: secret ? .password : .note, label: l.isEmpty ? "Field" : l, value: value)
     }
+    /// `MM/YY`, as printed on cards, for years 2000–2099 (which is how two-digit years are read back); `MM/YYYY` for any other year.
     static func cardExpiry(month: String, year: String) -> String {
         guard let m = Int(month.trimmingCharacters(in: .whitespaces)), let y = Int(year.trimmingCharacters(in: .whitespaces)) else { return "" }
-        return String(format: "%02d/%02d", m, y % 100)
+        return y < 100 || (2000...2099).contains(y) ? String(format: "%02d/%02d", m, y % 100) : String(format: "%02d/%d", m, y)
     }
     static func date(_ text: String) -> Date? {
         let fractional = ISO8601DateFormatter(); fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -225,13 +226,18 @@ enum OnePux {
                 let group = tags.first ?? (vaults.count > 1 ? vaultName : "")
                 let favorite = (item["favIndex"] as? Int ?? 0) > 0
                 let updated = (item["updatedAt"] as? Int).flatMap { $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil }
-                var website = BitwardenJson.str(overview, "url")
-                if website.isEmpty, let first = (overview["urls"] as? [[String: Any]])?.first { website = BitwardenJson.str(first, "url") }
+                // The main URL, then any others the item lists; the others are kept as extra Website fields.
+                var urls = [String]()
+                for url in [BitwardenJson.str(overview, "url")] + (overview["urls"] as? [[String: Any]] ?? []).map({ BitwardenJson.str($0, "url") }) {
+                    let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty, !urls.contains(trimmed) { urls.append(trimmed) }
+                }
+                let website = urls.first ?? ""
                 let name = ImportBuilder.name(BitwardenJson.str(overview, "title"), website: website)
                 let notes = BitwardenJson.str(details, "notesPlain"), category = BitwardenJson.str(item, "categoryUuid")
                 // A card's own fields fill the card; any others stay as extra fields.
                 let cardFields: Set<String> = category == "002" ? ["cardholder", "ccnum", "cvv", "expiry", "pin"] : []
-                var username = "", password = BitwardenJson.str(details, "password"), totp = "", extra = [VaultField](), byId = [String: String]()
+                var username = "", password = BitwardenJson.str(details, "password"), totp = "", extra = urls.dropFirst().map { ImportBuilder.extra("Website", $0, secret: false) }, byId = [String: String]()
                 for f in details["loginFields"] as? [[String: Any]] ?? [] {
                     switch BitwardenJson.str(f, "designation") {
                     case "username": username = BitwardenJson.str(f, "value")
@@ -244,8 +250,8 @@ enum OnePux {
                         guard let value = f["value"] as? [String: Any], let kind = value.keys.first else { continue }
                         var text = ""
                         switch kind {
-                        case "monthYear": if let v = value[kind] as? Int, v > 0 { text = String(format: "%02d/%02d", v % 100, (v / 100) % 100) }
-                        case "date": if let v = value[kind] as? Int, v > 0 { text = Expiry.format(Expiry.components(Date(timeIntervalSince1970: TimeInterval(v)))) }
+                        case "monthYear": if let v = value[kind] as? Int, v > 0 { text = ImportBuilder.cardExpiry(month: String(v % 100), year: String(v / 100)) }
+                        case "date": if let v = value[kind] as? Int, v > 0 { text = Expiry.imported(Date(timeIntervalSince1970: TimeInterval(v))) }
                         case "email": text = (value[kind] as? [String: Any]).map { BitwardenJson.str($0, "email_address") } ?? BitwardenJson.str(value, kind)
                         case "address": if let a = value[kind] as? [String: Any] { text = ["street", "city", "state", "zip", "country"].map { BitwardenJson.str(a, $0) }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: ", ") }
                         case "sshKey": text = (value[kind] as? [String: Any]).map { BitwardenJson.str($0, "privateKey") } ?? ""

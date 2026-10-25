@@ -125,6 +125,11 @@ class KeePassTest {
         assertTrue(message(argon).contains("key settings"))
     }
 
+    @Test fun importedDatesOutsideFourDigitYearsAreDropped() {
+        assertEquals("2026-10-25", ImportBuilder.localDate(java.time.Instant.parse("2026-10-25T12:00:00Z")))
+        assertEquals("", ImportBuilder.localDate(java.time.Instant.parse("+10000-01-02T00:00:00Z"))) // iOS could not read it back
+    }
+
     @Test fun malformedHeadersReportADamagedFile() {
         for (damaged in listOf(kdbx3With(6, ByteArray(4)), kdbx3With(3, ByteArray(2)), kdbx3With(7, ByteArray(8)), kdbx3With(10, ByteArray(1)))) {
             assertEquals("The KeePass file is damaged or not supported.", message(damaged))

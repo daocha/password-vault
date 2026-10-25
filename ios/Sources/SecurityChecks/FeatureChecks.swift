@@ -143,6 +143,10 @@ func importChecks() throws {
     _ = try Kdbx.importRecords(file("KeyV2.kdbx"), password: nil, keyFile: file("KeyV2.keyx"))
     _ = try Kdbx.importTyped(file("NoPassWithKeyFile.kdbx"), password: "", keyFile: file("NoPassWithKeyFile.key"))
     checks += 1
+    try check(Expiry.imported(Date(timeIntervalSince1970: 1_793_016_000)).count == 10 && Expiry.imported(Date(timeIntervalSince1970: 253_402_400_000)).isEmpty,
+              "imported dates outside four-digit years are dropped")
+    let damagedTime = "<KeePassFile><Root><Group><Entry><Times><LastModificationTime>AAAAAAAAAIA=</LastModificationTime></Times><String><Key>Title</Key><Value>Mail</Value></String></Entry></Group></Root></KeePassFile>"
+    try check(try Importers.importPlain(Data(damagedTime.utf8)).count == 1, "a damaged KDBX 4 time (near Int64.min) does not overflow")
     // Key settings too slow for a phone are refused before any work: AES-KDF rounds (KDBX 3.1 header field 6) and Argon2 passes ("I").
     func refusedAsTooCostly(_ data: Data, _ label: String) throws {
         do { _ = try Kdbx.importRecords(data, password: "demo", keyFile: file("demo.key")); throw VaultError.invalid("\(label) was accepted") }
@@ -216,6 +220,8 @@ func importChecks() throws {
               && bwMail.fields.first { $0.label == "Plan" }?.secret == false && records.contains { $0.isTotp && $0.name == "Mail" }, "Bitwarden JSON login")
     let card = records.first(where: \.isCard)!
     try check(card.cardSummary == "Visa •••• 1111" && value(card, cardExpiryLabel) == "03/27" && value(card, cardCodeLabel) == "123", "Bitwarden JSON card")
+    let oldCard = #"{"encrypted":false,"items":[{"id":"9","type":3,"name":"Old card","card":{"number":"4111111111111111","expMonth":"12","expYear":"1999"}}]}"#
+    try check(value(try Importers.importPlain(Data(oldCard.utf8)).first(where: \.isCard)!, cardExpiryLabel) == "12/1999", "a card year outside 2000-2099 keeps four digits")
     let identity = records.first { $0.name == "Me" }!
     try check(value(records.first { $0.name == "Door code" }!, "Notes") == "4321" && identity.isNote && value(identity, "First name") == "Ann"
               && identity.fields.first { $0.label == "Passport number" }?.secret == true && !records.contains { $0.name == "Gone" }, "Bitwarden JSON notes, identities and trash")
@@ -330,6 +336,13 @@ func decoyCounterChecks() throws {
     try check(try engine.remainingAttempts() == 10, "biometrics clear the failure count")
     engine.lock(); _ = try engine.unlock(password: current)
     try engine.changePassword(current: current, new: "Fresh decoy phrase 9$") // and renew the allowance
+    current = "Fresh decoy phrase 9$"
+    // A change that stops after the real-password check (here: the new vault file cannot be written) still uses the allowance.
+    store.failBlobWrite = true
+    for _ in 1..<VaultEngine.decoyChanges { try rejects("interrupted change") { try engine.changePassword(current: current, new: "Fresh decoy phrase 8$") } }
+    store.failBlobWrite = false
+    try rejects("allowance used by interrupted changes") { try engine.changePassword(current: current, new: "Fresh decoy phrase 8$") }
+    try check(try engine.remainingAttempts() == 10, "interrupted changes cost no attempt")
 }
 
 /// The real vault can give the decoy a new password, keeping its entries; the decoy cannot.

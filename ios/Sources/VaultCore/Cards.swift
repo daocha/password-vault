@@ -67,6 +67,13 @@ public enum Expiry {
     /// The calendar day as a local-time `Date`, for date pickers and display.
     public static func localDate(_ date: DateComponents) -> Date? { Calendar(identifier: .gregorian).date(from: DateComponents(year: date.year, month: date.month, day: date.day)) }
     public static func components(_ date: Date) -> DateComponents { Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date) }
+    /// An imported date as `yyyy-MM-dd`, or "" for one outside years 1–9999 (e.g. KeePass's 9999-12-31 read east of UTC), which
+    /// `parseDate` and Android would refuse, failing the whole import.
+    public static func imported(_ date: Date) -> String {
+        let c = components(date)
+        guard let year = c.year, (1...9999).contains(year) else { return "" }
+        return format(c)
+    }
 }
 
 public enum Cards {

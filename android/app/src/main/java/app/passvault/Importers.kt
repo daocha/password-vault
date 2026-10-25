@@ -41,10 +41,13 @@ internal object ImportBuilder {
     }
     /** A field the importer has no place for: hidden when the source marked it secret. */
     fun extra(label: String, value: String, secret: Boolean) = VaultField(kind = if (secret) FieldKind.password else FieldKind.note, label = label.trim().ifEmpty { "Field" }, value = value)
-    fun localDate(instant: Instant) = instant.atZone(ZoneId.systemDefault()).toLocalDate().toString()
+    /** As `yyyy-MM-dd`, or "" outside years 1–9999 (e.g. KeePass's 9999-12-31 read east of UTC), which iOS would refuse in a transfer or backup. */
+    fun localDate(instant: Instant): String =
+        runCatching { instant.atZone(ZoneId.systemDefault()).toLocalDate() }.getOrNull()?.takeIf { it.year in 1..9999 }?.toString().orEmpty()
+    /** `MM/YY`, as printed on cards, for years 2000–2099 (which is how two-digit years are read back); `MM/YYYY` for any other year. */
     fun cardExpiry(month: String, year: String): String {
         val m = month.trim().toIntOrNull() ?: return ""; val y = year.trim().toIntOrNull() ?: return ""
-        return "%02d/%02d".format(m, y % 100)
+        return if (y < 100 || y in 2000..2099) "%02d/%02d".format(m, y % 100) else "%02d/%d".format(m, y)
     }
 }
 
@@ -185,13 +188,16 @@ internal object OnePux {
                 val group = tags.firstOrNull() ?: if (vaults.size > 1) vaultName else ""
                 val favorite = item.optInt("favIndex", 0) > 0
                 val updated = item.optLong("updatedAt", 0).takeIf { it > 0 }?.let(Instant::ofEpochSecond)
-                val website = overview.optString("url").ifEmpty { overview.optJSONArray("urls")?.optJSONObject(0)?.optString("url").orEmpty() }
+                // The main URL, then any others the item lists; the others are kept as extra Website fields.
+                val urls = (listOf(overview.optString("url")) + overview.optJSONArray("urls")?.let { a -> (0 until a.length()).map { a.optJSONObject(it)?.optString("url").orEmpty() } }.orEmpty())
+                    .map(String::trim).filter { it.isNotEmpty() }.distinct()
+                val website = urls.firstOrNull().orEmpty()
                 val name = ImportBuilder.name(overview.optString("title"), website)
                 val notes = details.optString("notesPlain"); val category = item.optString("categoryUuid")
                 // A card's own fields fill the card; any others stay as extra fields.
                 val cardFields = if (category == "002") setOf("cardholder", "ccnum", "cvv", "expiry", "pin") else emptySet()
                 var username = ""; var password = details.optString("password"); var totp = ""
-                val extra = mutableListOf<VaultField>(); val byId = mutableMapOf<String, String>()
+                val extra = urls.drop(1).map { ImportBuilder.extra("Website", it, false) }.toMutableList(); val byId = mutableMapOf<String, String>()
                 details.optJSONArray("loginFields")?.let { a -> for (j in 0 until a.length()) { val f = a.getJSONObject(j)
                     when (f.optString("designation")) { "username" -> username = f.optString("value"); "password" -> password = f.optString("value")
                         else -> if (f.optString("value").isNotEmpty()) extra += ImportBuilder.extra(f.optString("name"), f.optString("value"), f.optString("fieldType") == "P") }
@@ -201,8 +207,8 @@ internal object OnePux {
                     for (j in 0 until fields.length()) {
                         val f = fields.getJSONObject(j); val value = f.optJSONObject("value") ?: continue; val kind = value.keys().asSequence().firstOrNull() ?: continue
                         val text = when (kind) {
-                            "monthYear" -> value.optInt(kind).takeIf { it > 0 }?.let { "%02d/%02d".format(it % 100, (it / 100) % 100) }.orEmpty()
-                            "date" -> value.optLong(kind).takeIf { it > 0 }?.let { ImportBuilder.localDate(Instant.ofEpochSecond(it)) }.orEmpty()
+                            "monthYear" -> value.optInt(kind).takeIf { it > 0 }?.let { ImportBuilder.cardExpiry((it % 100).toString(), (it / 100).toString()) }.orEmpty()
+                            "date" -> value.optLong(kind).takeIf { it > 0 }?.let { runCatching { Instant.ofEpochSecond(it) }.getOrNull() }?.let(ImportBuilder::localDate).orEmpty()
                             "email" -> value.optJSONObject(kind)?.optString("email_address") ?: value.optString(kind)
                             "address" -> value.optJSONObject(kind)?.let { a -> listOf("street", "city", "state", "zip", "country").map { a.optString(it) }.filter { it.isNotBlank() }.joinToString(", ") }.orEmpty()
                             "sshKey" -> value.optJSONObject(kind)?.optString("privateKey").orEmpty()
