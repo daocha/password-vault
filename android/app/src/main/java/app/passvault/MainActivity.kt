@@ -99,7 +99,7 @@ private sealed interface SettingsDialog {
  */
 private class PendingTransfer(val code: String, val bytes: ByteArray, val decoy: Boolean, val expiresAt: Long) {
     /** Built once: the receiver starts over whenever the session id changes, so the frames must survive the screen coming back. */
-    val frames: List<String>? = runCatching { TransferFrames.frames(bytes) }.getOrNull()
+    val frames: TransferFrames.Sender? = runCatching { TransferFrames.Sender(bytes) }.getOrNull()
 }
 private class ScannedImport(val records: List<VaultRecord>, val hotp: Int, val duplicates: Int)
 

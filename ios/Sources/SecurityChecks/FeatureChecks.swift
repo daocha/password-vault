@@ -383,11 +383,21 @@ func transferChecks() throws {
     var tampered = sealed; tampered[tampered.count - 1] ^= 1
     try rejects("tampered transfer") { _ = try Transfer.open(tampered, code: code) }
     // QR frames in any order, with repeats, rebuild the same bytes.
-    let frames = try TransferFrames.frames(sealed, session: "AB12"), collector = TransferFrames.Collector()
+    let sender = try TransferFrames.Sender(sealed, session: "AB12"), frames = (0..<sender.count).map(sender.frame), collector = TransferFrames.Collector()
     for f in frames.reversed() + frames { collector.add(f) }
     try check(collector.result() == sealed && frames.allSatisfy { $0.count < 700 }, "transfer frames reassemble")
-    let android = Array(try TransferFrames.frames(Data(repeating: 7, count: 2345), session: "AB12").prefix(1))
-    try check(android[0].hasPrefix("PVX1:AB12:1/5:"), "frame layout matches Android")
+    let small = try TransferFrames.Sender(Data((0..<2345).map { UInt8(truncatingIfNeeded: $0 * 7) }), session: "AB12")
+    try check(small.frame(0).hasPrefix("PVX2:AB12:5:2345:0:") && TransferFrames.mix(5, 5) == [0b11010] && TransferFrames.mix(1000, 141).map { String($0, radix: 16) } == ["3c1eba8b4dccc148", "d07a9d82d4f4bbaf", "1651"], "frame layout and mixes match Android")
+    // Missed chunks are made up from any later frames: the camera reads a third of what it is shown.
+    var generator = SystemRandomNumberGenerator()
+    for _ in 0..<5 {
+        let partial = TransferFrames.Collector(); var shown = 0, read = 0
+        while !partial.complete { let f = small.frame(shown); shown += 1; if Int.random(in: 0..<3, using: &generator) == 0 { read += 1; partial.add(f) } }
+        try check(partial.result() == Data((0..<2345).map { UInt8(truncatingIfNeeded: $0 * 7) }) && read <= 5 + 12, "missed frames replaced by later ones")
+    }
+    let v1 = stride(from: 0, to: 2345, by: 500).enumerated().map { i, start in "PVX1:AB12:\(i + 1)/5:" + TransferFrames.base64url((start..<min(2345, start + 500)).map { UInt8(truncatingIfNeeded: $0 * 7) }) }
+    let old = TransferFrames.Collector(); for f in v1.reversed() { old.add(f) }
+    try check(old.result() == Data((0..<2345).map { UInt8(truncatingIfNeeded: $0 * 7) }), "reads the first version's loop")
     if ProcessInfo.processInfo.environment["PASSVAULT_WRITE_TRANSFER_FIXTURE"] != nil {
         var x = VaultRecord(); x.name = "From iOS"; var y = VaultRecord.new(type: "note"); y.name = "iOS note"
         try Transfer.seal([x, y], code: "PHNE2C3DE4FG").write(to: fixtures.appendingPathComponent("ios.pvtransfer"))
@@ -407,7 +417,7 @@ func reviewFixChecks() throws {
     let nested = try Importers.importPlain(Data("folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\nWork/Email,,login,A,,,0,,me,p1,\nWork/Bank,,login,B,,,0,,me,p2,\nWork,,login,C,,,0,,me,p3,\n".utf8))
     try check(nested.map(\.group) == ["Work/Email", "Work/Bank", "Work"], "nested folders outside KeePassXC kept")
     let data = Data((0..<(TransferFrames.chunk * 400)).map { UInt8(truncatingIfNeeded: $0) }), collector = TransferFrames.Collector()
-    for f in try TransferFrames.frames(data) { collector.add(f) }
+    let sender = try TransferFrames.Sender(data); for i in 0..<sender.count { collector.add(sender.frame(i)) }
     let started = Date(); let joined = collector.result()
     try check(joined == data && Date().timeIntervalSince(started) < 2, "transfer joins linearly")
 }

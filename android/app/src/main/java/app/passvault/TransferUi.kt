@@ -47,17 +47,16 @@ private fun qrBitmap(text: String, mask: Int): ImageBitmap {
 }
 
 /**
- * The old phone: a looping animated QR code of the encrypted transfer. The one-time code is shown only on request, and the QR code is
+ * The old phone: an animated QR code of the encrypted transfer, every chunk once and then fresh mixes of them (see [TransferFrames]). The one-time code is shown only on request, and the QR code is
  * hidden while it is, so one photo never holds both.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TransferSendScreen(frames: List<String>?, code: String, onSaveFile: () -> Unit, onDone: () -> Unit) {
+fun TransferSendScreen(frames: TransferFrames.Sender?, code: String, onSaveFile: () -> Unit, onDone: () -> Unit) {
     KeepScreenOn()
     var index by remember { mutableIntStateOf(0) }
-    var pass by remember { mutableIntStateOf(0) }
     var showCode by remember { mutableStateOf(false) }
-    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(250); index = (index + 1) % frames.size; if (index == 0) pass++ } }
+    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(250); index++ } }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.transfer_send)) }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
@@ -73,13 +72,12 @@ fun TransferSendScreen(frames: List<String>?, code: String, onSaveFile: () -> Un
                     }
                 }
             } else if (frames != null) {
-                // Each loop draws every frame with the next mask pattern: a camera can fail on one picture of a dense code every time (a
-                // receiver stuck at 135 of 141), and the same frame drawn another way is read.
-                val bitmap = remember(frames, index, pass) { qrBitmap(frames[index], pass % 8) }
+                // Mask patterns take turns too: a camera can fail on one picture of a dense code every time, and reads it drawn another way.
+                val bitmap = remember(frames, index) { qrBitmap(frames.frame(index), index % 8) }
                 Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
                     Image(bitmap, null, Modifier.fillMaxSize(), filterQuality = FilterQuality.None)
                 }
-                Text(stringResource(R.string.transfer_frame, index + 1, frames.size), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.transfer_frame, index % frames.count + 1, frames.count), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else Text(stringResource(R.string.transfer_too_large), textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             Button(onClick = { showCode = !showCode }, Modifier.fillMaxWidth().height(52.dp)) {

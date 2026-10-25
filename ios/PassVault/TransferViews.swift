@@ -10,20 +10,20 @@ struct TransferPayload: Identifiable {
     static let keep: TimeInterval = 600
     let id = UUID(); let code: String; let data: Data; let decoy: Bool; let expiresAt = Date().addingTimeInterval(keep)
     /// Built once: the receiver starts over whenever the session id changes, so every frame must come from the same split.
-    let frames: [String]
-    init(code: String, data: Data, decoy: Bool) { self.code = code; self.data = data; self.decoy = decoy; frames = (try? TransferFrames.frames(data)) ?? [] }
+    let frames: TransferFrames.Sender?
+    init(code: String, data: Data, decoy: Bool) { self.code = code; self.data = data; self.decoy = decoy; frames = try? TransferFrames.Sender(data) }
 }
 
 /// A QR code, one point per module scaled without smoothing.
-func qrImage(_ text: String, correctionLevel: String = "L") -> UIImage? {
+func qrImage(_ text: String) -> UIImage? {
     let filter = CIFilter.qrCodeGenerator()
-    filter.message = Data(text.utf8); filter.correctionLevel = correctionLevel
+    filter.message = Data(text.utf8); filter.correctionLevel = "L"
     guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)), let cg = CIContext().createCGImage(output, from: output.extent) else { return nil }
     return UIImage(cgImage: cg)
 }
 
-/// The old phone: a looping animated QR code of the encrypted transfer. The one-time code is shown only on request, and the QR code is
-/// hidden while it is, so one photo never holds both.
+/// The old phone: an animated QR code of the encrypted transfer, every chunk once and then fresh mixes of them (see `TransferFrames`).
+/// The one-time code is shown only on request, and the QR code is hidden while it is, so one photo never holds both.
 struct TransferSendView: View {
     let payload: TransferPayload
     @Environment(\.dismiss) var dismiss
@@ -43,9 +43,7 @@ struct TransferSendView: View {
                         Text(Transfer.display(payload.code)).font(.system(size: 30, weight: .bold, design: .monospaced))
                         Text("Type this code on the new phone when it asks. The QR codes hold only encrypted data; without this code they are useless, so don't let anyone photograph it.").font(.footnote).multilineTextAlignment(.center)
                     }.padding(24).frame(maxWidth: .infinity).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
-                } else if !frames.isEmpty, let image = qrImage(frames[index % frames.count], correctionLevel: (index / frames.count) % 2 == 0 ? "L" : "M") {
-                    // Every other loop draws each frame at correction level M, a different picture of the same text: a camera can fail on one
-                    // picture of a dense code every time (a receiver stuck at 135 of 141), and reads it drawn another way.
+                } else if let frames, let image = qrImage(frames.frame(index)) {
                     Image(uiImage: image).interpolation(.none).resizable().scaledToFit().padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
                     Text("Code \(index % frames.count + 1) of \(frames.count)").font(.caption).foregroundStyle(.secondary)
                 } else {
@@ -60,7 +58,7 @@ struct TransferSendView: View {
             .padding()
             .navigationTitle("Send to another phone").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
-            .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in if !showCode && !frames.isEmpty { index = (index + 1) % (frames.count * 2) } }
+            .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in if !showCode && frames != nil { index += 1 } }
             .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
