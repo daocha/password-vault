@@ -84,6 +84,12 @@
     <string name="decoy_remove">Remove decoy vault</string>
     <string name="decoy_remove_body">This deletes the decoy vault and everything in it. Your real vault is not affected.</string>
     <string name="decoy_removed">Decoy vault removed.</string>
+    <string name="decoy_manage_body">Your decoy vault is set up. You can give it a new password, for example if you forgot it; what is in it is kept. Removing it deletes it and everything in it.</string>
+    <string name="decoy_change_password">Change decoy password</string>
+    <string name="decoy_change_body">Enter your app password, then a new password for the decoy vault. Its entries are kept.</string>
+    <string name="decoy_new_password">New decoy password</string>
+    <string name="decoy_password_changed">Decoy password changed.</string>
+    <string name="decoy_change_unavailable">This decoy vault was set up by an earlier test version, so its password cannot be changed from here. Remove it and set it up again.</string>
     <!-- Phone-to-phone transfer -->
     <string name="transfer_send">Send to another phone</string>
     <string name="transfer_send_summary">Moving QR code or a file, no network needed</string>

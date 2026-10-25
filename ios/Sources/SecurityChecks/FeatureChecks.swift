@@ -140,6 +140,20 @@ func importChecks() throws {
     _ = try Kdbx.importRecords(file("KeyV2.kdbx"), password: nil, keyFile: file("KeyV2.keyx"))
     _ = try Kdbx.importTyped(file("NoPassWithKeyFile.kdbx"), password: "", keyFile: file("NoPassWithKeyFile.key"))
     checks += 1
+    // Key settings too slow for a phone are refused before any work: AES-KDF rounds (KDBX 3.1 header field 6) and Argon2 passes ("I").
+    func refusedAsTooCostly(_ data: Data, _ label: String) throws {
+        do { _ = try Kdbx.importRecords(data, password: "demo", keyFile: file("demo.key")); throw VaultError.invalid("\(label) was accepted") }
+        catch VaultError.invalid(let message) where message.contains("key settings") { checks += 1 }
+    }
+    func le64(_ v: UInt64) -> [UInt8] { (0..<8).map { UInt8(truncatingIfNeeded: v >> (8 * UInt64($0))) } }
+    var demo = Array(try file("demo.kdbx")), pos = 12
+    while demo[pos] != 6 { pos += 3 + Int(demo[pos + 1]) | Int(demo[pos + 2]) << 8 }
+    demo.replaceSubrange(pos + 3..<pos + 11, with: le64(200_000_000))
+    try refusedAsTooCostly(Data(demo), "200 million AES rounds")
+    var argon = Array(try file("Argon2.kdbx")); let marker: [UInt8] = [5, 1, 0, 0, 0, UInt8(ascii: "I"), 8, 0, 0, 0]
+    guard let at = (0...argon.count - marker.count).first(where: { Array(argon[$0..<$0 + marker.count]) == marker }) else { throw VaultError.invalid("no Argon2 passes entry") }
+    argon.replaceSubrange(at + marker.count..<at + marker.count + 8, with: le64(1_000_000))
+    try refusedAsTooCostly(Data(argon), "a million Argon2 passes")
     try checkDemo(try Importers.importPlain(file("demo.xml")), "KeePass XML export")
     let unsupportedOTP = """
     <KeePassFile><Root><Group><Entry>
@@ -275,6 +289,7 @@ func decoyChecks() throws {
     try engine.removeDecoy(password: main)
     try check(!(try engine.hasDecoy()) && store.blobs.count == 1, "decoy removed with its file"); engine.lock()
     try rejects("removed decoy no longer opens") { _ = try engine.unlock(password: "Fresh decoy phrase 4$") }
+    try decoyCounterChecks(); try decoyResetChecks()
 
     // Erasure after 10 failures destroys both vaults.
     let wiped = MemoryStorage(), e = VaultEngine(storage: wiped)
@@ -285,6 +300,58 @@ func decoyChecks() throws {
     // State written before decoys existed still reads.
     let legacy = MemoryStorage(); _ = try VaultEngine(storage: legacy).create(password: main)
     try check(!String(decoding: legacy.state!, as: UTF8.self).contains("decoy"), "no decoy key stored without a decoy")
+}
+
+/// Decoy password changes cost an attempt only when they fail, are limited until the real password or biometrics opens the vault, and never erase.
+func decoyCounterChecks() throws {
+    let main = "A lengthy test passphrase 1!", decoyPassword = "Another decoy phrase 2?"
+    let store = MemoryStorage(), engine = VaultEngine(storage: store)
+    _ = try engine.create(password: main); try engine.enableBiometrics(password: main); try engine.createDecoy(password: main, decoyPassword: decoyPassword); engine.lock()
+    try rejects("wrong password") { _ = try engine.unlock(password: "Wrong passphrase 9!") }
+    _ = try engine.unlock(password: decoyPassword)
+    try check(try engine.remainingAttempts() == 9, "decoy sign-in leaves the failure count")
+    try rejects("wrong current decoy password") { try engine.changePassword(current: "Wrong passphrase 9!", new: "Fresh decoy phrase 4$") }
+    try check(try engine.remainingAttempts() == 8, "a wrong current password is counted")
+    _ = try engine.unlock(password: decoyPassword) // a failed password check locks the vault
+    try rejects("the real password as the decoy's") { try engine.changePassword(current: decoyPassword, new: main) }
+    try check(try engine.remainingAttempts() == 7, "taking the real password is refused and counted")
+    var current = decoyPassword
+    for i in 1...VaultEngine.decoyChanges { let next = "Fresh decoy phrase \(i)$"; try engine.changePassword(current: current, new: next); current = next }
+    try check(try engine.remainingAttempts() == 7, "successful decoy password changes cost no attempt")
+    try rejects("a fourth change") { try engine.changePassword(current: current, new: "Fresh decoy phrase 9$") }
+    try rejects("the real password once the allowance is used") { try engine.changePassword(current: current, new: main) }
+    try check(try engine.remainingAttempts() == 7 && store.blobs.count == 2, "refused changes are not counted and erase nothing")
+    engine.lock(); _ = try engine.unlock(password: current)
+    try rejects("a decoy sign-in does not renew the allowance") { try engine.changePassword(current: current, new: "Fresh decoy phrase 9$") }
+    engine.lock(); _ = try engine.unlockBiometric()
+    try check(try engine.remainingAttempts() == 10, "biometrics clear the failure count")
+    engine.lock(); _ = try engine.unlock(password: current)
+    try engine.changePassword(current: current, new: "Fresh decoy phrase 9$") // and renew the allowance
+}
+
+/// The real vault can give the decoy a new password, keeping its entries; the decoy cannot.
+func decoyResetChecks() throws {
+    let main = "A lengthy test passphrase 1!", newMain = "Another long passphrase 2@"
+    let store = MemoryStorage(), engine = VaultEngine(storage: store)
+    _ = try engine.create(password: main); var real = VaultRecord(); real.name = "Real bank"; try engine.save([real])
+    try engine.createDecoy(password: main, decoyPassword: "Another decoy phrase 2?"); engine.lock()
+    _ = try engine.unlock(password: "Another decoy phrase 2?"); var harmless = VaultRecord(); harmless.name = "Shopping"; try engine.save([harmless])
+    try engine.changePassword(current: "Another decoy phrase 2?", new: "Forgotten decoy 3#"); engine.lock()
+    _ = try engine.unlock(password: main)
+    try check(try engine.canResetDecoy(), "the real vault can reset the decoy's password")
+    try engine.changePassword(current: main, new: newMain); engine.lock()
+    _ = try engine.unlock(password: newMain)
+    try rejects("reset needs the app password") { try engine.resetDecoyPassword(password: "Wrong passphrase 9!", decoyPassword: "Remembered decoy 5%") }
+    _ = try engine.unlock(password: newMain)
+    try rejects("reset to the app password") { try engine.resetDecoyPassword(password: newMain, decoyPassword: newMain) }
+    let before = Set(store.blobs.keys)
+    try engine.resetDecoyPassword(password: newMain, decoyPassword: "Remembered decoy 5%")
+    try check(store.blobs.count == 2 && Set(store.blobs.keys) != before, "the decoy is re-encrypted into a new file"); engine.lock()
+    try rejects("the forgotten decoy password") { _ = try engine.unlock(password: "Forgotten decoy 3#") }
+    try check(try engine.unlock(password: "Remembered decoy 5%").map(\.name) == ["Shopping"] && engine.isDecoy(), "the decoy keeps its entries under the new password")
+    try check(!(try engine.canResetDecoy()), "only the real vault can reset the decoy")
+    try rejects("reset from inside the decoy") { try engine.resetDecoyPassword(password: "Remembered decoy 5%", decoyPassword: "Another decoy 6&") }
+    engine.lock(); try check(try engine.unlock(password: newMain).map(\.name) == ["Real bank"], "the real vault is untouched")
 }
 
 /// Phone-to-phone transfer; Android opens fixtures/transfer/ios.pvtransfer and iOS opens Android's android.pvtransfer.

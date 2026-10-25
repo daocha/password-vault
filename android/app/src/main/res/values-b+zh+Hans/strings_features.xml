@@ -79,6 +79,12 @@
     <string name="decoy_remove">移除诱饵密码库</string>
     <string name="decoy_remove_body">这会删除诱饵密码库及其中的所有内容。你的真实密码库不受影响。</string>
     <string name="decoy_removed">诱饵密码库已移除。</string>
+    <string name="decoy_manage_body">诱饵密码库已设置。你可以为它设置新密码（例如忘记了密码时），其中的内容会保留。移除会删除它及其中的所有内容。</string>
+    <string name="decoy_change_password">更改诱饵密码</string>
+    <string name="decoy_change_body">输入你的主密码，然后输入诱饵密码库的新密码。其中的条目会保留。</string>
+    <string name="decoy_new_password">新的诱饵密码</string>
+    <string name="decoy_password_changed">诱饵密码已更改。</string>
+    <string name="decoy_change_unavailable">此诱饵密码库由较早的测试版本设置，无法在这里更改密码。请移除后重新设置。</string>
     <string name="transfer_send">发送到另一部手机</string>
     <string name="transfer_send_summary">动态二维码或文件，无需网络</string>
     <string name="transfer_send_body">请输入应用密码。PassVault 随后会显示供新手机扫描的动态二维码，以及要在新手机上输入的一次性传输码。</string>

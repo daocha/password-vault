@@ -79,6 +79,12 @@
     <string name="decoy_remove">移除誘餌密碼庫</string>
     <string name="decoy_remove_body">這會刪除誘餌密碼庫及其中的所有內容。你的真實密碼庫不受影響。</string>
     <string name="decoy_removed">誘餌密碼庫已移除。</string>
+    <string name="decoy_manage_body">誘餌密碼庫已設定。你可以為它設定新密碼（例如忘記了密碼時），其中的內容會保留。移除會刪除它及其中的所有內容。</string>
+    <string name="decoy_change_password">更改誘餌密碼</string>
+    <string name="decoy_change_body">輸入你的主密碼，然後輸入誘餌密碼庫的新密碼。其中的項目會保留。</string>
+    <string name="decoy_new_password">新的誘餌密碼</string>
+    <string name="decoy_password_changed">誘餌密碼已更改。</string>
+    <string name="decoy_change_unavailable">此誘餌密碼庫由較早的測試版本設定，無法在這裡更改密碼。請移除後重新設定。</string>
     <string name="transfer_send">傳送到另一部手機</string>
     <string name="transfer_send_summary">動態 QR 碼或檔案，無需網絡</string>
     <string name="transfer_send_body">請輸入應用程式密碼。PassVault 隨後會顯示供新手機掃描的動態 QR 碼，以及要在新手機上輸入的一次性傳輸碼。</string>

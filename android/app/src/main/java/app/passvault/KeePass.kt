@@ -30,6 +30,14 @@ object Kdbx {
     private fun uuid(hex: String) = ByteArray(16) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
     /** Argon2 memory above this would not fit an app's memory on most phones. */
     private const val MAX_ARGON2_BYTES = 512L * 1024 * 1024
+    /**
+     * Key settings that would keep a phone busy for more than about a minute are refused: the import cannot be cancelled, and while it runs
+     * the app cannot be unlocked again. KeePass and KeePassXC defaults (tens of thousands to a few million AES rounds, or Argon2 at 64 MiB
+     * and a few dozen passes) stay well below these.
+     */
+    private const val MAX_AES_ROUNDS = 100_000_000L
+    private const val MAX_ARGON2_WORK_BYTES = 8L * 1024 * 1024 * 1024 // memory times iterations
+    private const val TOO_COSTLY = "This database's key settings need more memory or time than a phone can provide. Lower them in KeePass (Database settings, Security) and export again."
 
     fun isKdbx(data: ByteArray) = data.size >= 12 && le(data).getInt(0) == SIG1 && le(data).getInt(4) == SIG2
     private fun le(data: ByteArray) = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
@@ -39,7 +47,12 @@ object Kdbx {
 
     /** Imports a database. [password] null means "no password" (key file only), which differs from an empty password. */
     fun import(data: ByteArray, password: String?, keyFile: ByteArray?): List<VaultRecord> {
-        val (xml, stream) = decrypt(data, compositeKey(password, keyFile))
+        val composite = compositeKey(password, keyFile)
+        // A truncated or malformed file can fail in a read past its end or in the cipher setup; report it as damaged, not with the raw error.
+        val (xml, stream) = try { decrypt(data, composite) }
+            catch (_: IndexOutOfBoundsException) { damaged() } catch (_: java.nio.BufferUnderflowException) { damaged() }
+            catch (_: java.security.GeneralSecurityException) { damaged() } catch (_: java.io.IOException) { damaged() }
+            finally { composite.fill(0) }
         return KeePassXml.records(MiniXml.parse(xml), stream)
     }
     /** Tries the password as given, and with a key file and an empty password also "no password", as KeePass allows both. */
@@ -74,7 +87,7 @@ object Kdbx {
 
     /** Key derivation from the header (KDBX 3: fields 5/6, AES-KDF; KDBX 4: the VariantDictionary in field 11). */
     private fun transform(h: Header, composite: ByteArray): ByteArray {
-        if (h.major < 4) return aesKdf(composite, h.fields[5] ?: damaged(), le(h.fields[6] ?: damaged()).getLong(0))
+        if (h.major < 4) return aesKdf(composite, h.fields[5] ?: damaged(), le(h.fields[6]?.takeIf { it.size == 8 } ?: damaged()).getLong(0))
         val params = variantDictionary(h.fields[11] ?: damaged())
         val kdf = params["\$UUID"] as? ByteArray ?: damaged()
         return when {
@@ -82,9 +95,8 @@ object Kdbx {
             kdf.contentEquals(ARGON2D) || kdf.contentEquals(ARGON2ID) -> {
                 val memory = (params["M"] as? Long) ?: damaged(); val iterations = (params["I"] as? Long) ?: damaged()
                 val parallelism = ((params["P"] as? Int) ?: (params["P"] as? Long)?.toInt()) ?: damaged(); val version = (params["V"] as? Int) ?: 0x13
-                require(memory in 8L * 1024..MAX_ARGON2_BYTES && iterations in 1..100_000 && parallelism in 1..256 && (version == 0x10 || version == 0x13)) {
-                    "This database's key settings need more memory or time than a phone can provide. Lower them in KeePass (Database settings, Security) and export again."
-                }
+                require(version == 0x10 || version == 0x13) { "The KeePass file is damaged or not supported." }
+                require(memory in 8L * 1024..MAX_ARGON2_BYTES && iterations in 1..MAX_ARGON2_WORK_BYTES / memory && parallelism in 1..256) { TOO_COSTLY }
                 val builder = Argon2Parameters.Builder(if (kdf.contentEquals(ARGON2D)) Argon2Parameters.ARGON2_d else Argon2Parameters.ARGON2_id)
                     .withVersion(if (version == 0x10) Argon2Parameters.ARGON2_VERSION_10 else Argon2Parameters.ARGON2_VERSION_13)
                     .withIterations(iterations.toInt()).withMemoryAsKB((memory / 1024).toInt()).withParallelism(parallelism).withSalt(params["S"] as? ByteArray ?: damaged())
@@ -100,7 +112,8 @@ object Kdbx {
     /** KeePass's AES-KDF is defined as repeated AES-ECB encryption of the key; ECB is not used to encrypt data. */
     @android.annotation.SuppressLint("GetInstance")
     private fun aesKdf(composite: ByteArray, seed: ByteArray, rounds: Long): ByteArray {
-        require(seed.size == 32 && rounds in 0..2_000_000_000L) { "The KeePass file is damaged or not supported." }
+        require(seed.size == 32 && rounds >= 0) { "The KeePass file is damaged or not supported." }
+        require(rounds <= MAX_AES_ROUNDS) { TOO_COSTLY }
         val cipher = Cipher.getInstance("AES/ECB/NoPadding").apply { init(Cipher.ENCRYPT_MODE, SecretKeySpec(seed, "AES")) }
         var a = composite.copyOf(); var b = ByteArray(32)
         for (i in 0 until rounds) { cipher.update(a, 0, 32, b, 0); val t = a; a = b; b = t }
@@ -117,6 +130,7 @@ object Kdbx {
             if (nameLength < 0 || pos + nameLength + 4 > bytes.size) damaged()
             val name = String(bytes, pos, nameLength, Charsets.UTF_8); pos += nameLength
             val length = buffer.getInt(pos); pos += 4; if (length < 0 || pos + length > bytes.size) damaged()
+            if (type in setOf(0x04, 0x0C) && length != 4 || type in setOf(0x05, 0x0D) && length != 8 || type == 0x08 && length != 1) damaged()
             out[name] = when (type) {
                 0x04 -> buffer.getInt(pos); 0x05 -> buffer.getLong(pos); 0x08 -> bytes[pos].toInt() != 0; 0x0C -> buffer.getInt(pos); 0x0D -> buffer.getLong(pos)
                 0x18 -> String(bytes, pos, length, Charsets.UTF_8); else -> bytes.copyOfRange(pos, pos + length)
@@ -179,7 +193,7 @@ object Kdbx {
     // KeePass specifies AES-CBC for these existing files. This importer only decrypts; KDBX 4 verifies block HMACs before this call,
     // and KDBX 3 checks its stream-start bytes and block hashes afterward. AES-GCM would not read KeePass AES databases.
     private fun cipher(id: ByteArray, key: ByteArray, iv: ByteArray, input: ByteArray): ByteArray =
-        if (id.contentEquals(AES)) Cipher.getInstance("AES/CBC/PKCS5Padding").run { init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv)); doFinal(input) }
+        if (id.contentEquals(AES)) Cipher.getInstance("AES/CBC/PKCS5Padding").run { if (iv.size != 16) damaged(); init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv)); doFinal(input) }
         else { require(iv.size == 12) { "The KeePass file is damaged or not supported." }; ChaCha7539Engine().run { init(false, ParametersWithIV(KeyParameter(key), iv)); ByteArray(input.size).also { processBytes(input, 0, input.size, it, 0) } } }
     /** KDBX 3 hashed block stream: u32 index, 32-byte SHA-256, u32 size, data; a zero-size block ends it. */
     private fun hashedBlocks(data: ByteArray, start: Int): ByteArray {

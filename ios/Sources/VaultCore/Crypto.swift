@@ -95,6 +95,27 @@ public enum VaultCrypto {
         guard crypto_aead_xchacha20poly1305_ietf_decrypt(&output, &length, nil, cipher, UInt64(cipher.count), Array(aad), UInt64(aad.count), nonce, Array(key)) == 0 else { throw VaultError.authentication }
         return Data(output.prefix(Int(length)))
     }
+    /// An X25519 key pair for `seal(_:to:)`: public 32 bytes, secret 32 bytes.
+    static func boxKeyPair() throws -> (public: Data, secret: Data) {
+        var publicKey = [UInt8](repeating: 0, count: 32), secretKey = [UInt8](repeating: 0, count: 32)
+        defer { sodium_memzero(&secretKey, secretKey.count) }
+        guard initialized, crypto_box_keypair(&publicKey, &secretKey) == 0 else { throw VaultError.invalid("Key generation failed.") }
+        return (Data(publicKey), Data(secretKey))
+    }
+    /// A libsodium sealed box: only the holder of the secret key matching `publicKey` can open it, not the sender. 48 bytes longer than `plaintext`.
+    static func seal(_ plaintext: Data, to publicKey: Data) throws -> Data {
+        guard initialized, publicKey.count == 32, plaintext.count <= 1024 else { throw VaultError.invalid("Invalid encryption input.") }
+        var output = [UInt8](repeating: 0, count: plaintext.count + 48)
+        guard crypto_box_seal(&output, Array(plaintext), UInt64(plaintext.count), Array(publicKey)) == 0 else { throw VaultError.invalid("Encryption failed.") }
+        return Data(output)
+    }
+    static func openSealed(_ box: Data, publicKey: Data, secretKey: Data) throws -> Data {
+        guard initialized, publicKey.count == 32, secretKey.count == 32, (48...1024 + 48).contains(box.count) else { throw VaultError.invalid("Invalid encrypted data.") }
+        var output = [UInt8](repeating: 0, count: max(1, box.count - 48))
+        defer { sodium_memzero(&output, output.count) }
+        guard crypto_box_seal_open(&output, Array(box), UInt64(box.count), Array(publicKey), Array(secretKey)) == 0 else { throw VaultError.authentication }
+        return Data(output.prefix(box.count - 48))
+    }
     public static let passwordRule = "At least 12 characters with uppercase and lowercase letters, a number and a symbol."
     public static func passwordProblem(_ typed: String) -> String? {
         let password = PasswordText.normalize(typed)

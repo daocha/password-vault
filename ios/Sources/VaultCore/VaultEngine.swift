@@ -15,11 +15,19 @@ public protocol VaultStorage: AnyObject {
     func deleteBiometricKey() throws
 }
 /// The second, decoy vault: its own wrapped data key and file, opened by its own password (see `VaultEngine.createDecoy`).
+///
+/// The last three keys are the real vault's way back into the decoy, so it can give the decoy a new password without losing its contents:
+/// `owner` is an X25519 public key whose secret key is sealed under the real vault's data key (`ownerSecret`), and `recovery` is the decoy's
+/// data key in a sealed box to `owner`. The decoy vault can write a new `recovery` when its password changes but cannot read one.
+/// Decoys set up by earlier test builds have none of them.
 struct DecoySlot: Codable {
     var salt: Data
     var secret: Data
     var wrappedKey: Data
     var blob: String
+    var owner: Data? = nil
+    var ownerSecret: Data? = nil
+    var recovery: Data? = nil
 }
 struct DeviceState: Codable {
     var version = 1
@@ -31,6 +39,8 @@ struct DeviceState: Codable {
     var blob: String
     /// Absent (and omitted from the state) unless a decoy vault was set up.
     var decoy: DecoySlot? = nil
+    /// Decoy password changes since the real password or biometrics last opened the vault (see `VaultEngine.changePassword`); omitted when 0.
+    var decoyChanges: Int? = nil
 }
 public final class VaultEngine: @unchecked Sendable {
     private let storage: VaultStorage
@@ -40,6 +50,9 @@ public final class VaultEngine: @unchecked Sendable {
     /// Whether the open vault is the decoy one. Every operation acts on the open vault only.
     private var activeDecoy = false
     private static let keyAAD = Data("PassVault/key/v1".utf8)
+    private static let ownerAAD = Data("PassVault/decoy-owner/v1".utf8)
+    /// Decoy password changes allowed between openings by the real password or biometrics.
+    public static let decoyChanges = 3
     public init(storage: VaultStorage) { self.storage = storage }
     private func serialized<T>(_ action: () throws -> T) rethrows -> T { mutex.lock(); defer { mutex.unlock() }; return try action() }
     /// State saved by a newer PassVault may not decode as this version's layout, so its version is read first.
@@ -58,7 +71,12 @@ public final class VaultEngine: @unchecked Sendable {
         if value.erased { throw VaultError.erased }
         if value.attempts >= 10 { try erase(value); throw VaultError.erased }
         guard value.salt.count == 16, value.secret.count == 32, value.wrappedKey.count == 72 else { throw VaultError.invalid("Damaged protected keys.") }
-        if let d = value.decoy { guard d.salt.count == 16, d.secret.count == 32, d.wrappedKey.count == 72, UUID(uuidString: d.blob) != nil else { throw VaultError.invalid("Damaged protected keys.") } }
+        if let d = value.decoy {
+            guard d.salt.count == 16, d.secret.count == 32, d.wrappedKey.count == 72, UUID(uuidString: d.blob) != nil else { throw VaultError.invalid("Damaged protected keys.") }
+            let parts = [d.owner?.count, d.ownerSecret?.count, d.recovery?.count]
+            guard parts == [nil, nil, nil] || parts == [32, 72, 80] else { throw VaultError.invalid("Damaged protected keys.") }
+        }
+        guard (0...Self.decoyChanges).contains(value.decoyChanges ?? 0) else { throw VaultError.invalid("Damaged protected state.") }
         return value
     }
     private func write(_ value: DeviceState) throws { try storage.writeState(JSONEncoder().encode(value)) }
@@ -109,7 +127,8 @@ public final class VaultEngine: @unchecked Sendable {
      * Checks `password` as one counted attempt and returns the data key it opens and whether that is the decoy vault's.
      * Unlocking (`unlocking`) accepts either vault's password and always derives two keys (the decoy's, or a throwaway one when there is
      * no decoy), so its timing does not reveal whether a decoy exists. Other checks accept only the open vault's password. The main
-     * password clears the failure count; the decoy password leaves it as it was, so decoy sign-ins cannot reset guesses at the main one.
+     * password clears the failure count and the decoy's password-change allowance; the decoy password leaves both as they were, so decoy
+     * sign-ins cannot reset guesses at the main one.
      */
     private func authenticate(_ password: String, unlocking: Bool = false) throws -> (key: Data, decoy: Bool) {
         guard var value = try state() else { throw VaultError.locked }
@@ -131,7 +150,7 @@ public final class VaultEngine: @unchecked Sendable {
             else if unlocking { var throwaway = try VaultCrypto.passwordKey(password, salt: VaultCrypto.random(16)); throwaway.resetBytes(in: 0..<throwaway.count) }
         }
         if let main {
-            value.attempts = 0
+            value.attempts = 0; value.decoyChanges = nil
             if legacy { let wrapped = try wrap(password, dataKey: main); value.salt = wrapped.salt; value.secret = wrapped.secret; value.wrappedKey = wrapped.wrapped }
             try write(value)
             return (main, false)
@@ -150,11 +169,13 @@ public final class VaultEngine: @unchecked Sendable {
         key = candidate; records = loaded; activeDecoy = decoy; return loaded
     }
     public func unlock(password: String) throws -> [VaultRecord] { try serialized { let found = try authenticate(password, unlocking: true); return try load(found.key, decoy: found.decoy) } }
-    /// Biometrics always open the main vault.
+    /// Biometrics always open the main vault. The key is released only by the Secure Enclave after a biometric match, which proves the owner is
+    /// present, so like the main password it clears failed password attempts and the decoy's password-change allowance.
     public func unlockBiometric() throws -> [VaultRecord] { try serialized {
-        guard try state() != nil else { throw VaultError.locked }
-        // Successful biometrics never reset the app-password attempt counter.
-        return try load(storage.readBiometricKey(), decoy: false)
+        guard var value = try state() else { throw VaultError.locked }
+        let loaded = try load(storage.readBiometricKey(), decoy: false)
+        if value.attempts != 0 || value.decoyChanges != nil { value.attempts = 0; value.decoyChanges = nil; try write(value) }
+        return loaded
     } }
     public func enableBiometrics(password: String) throws { try serialized {
         guard !activeDecoy else { throw VaultError.locked }
@@ -165,6 +186,8 @@ public final class VaultEngine: @unchecked Sendable {
     public func isDecoy() -> Bool { serialized { activeDecoy } }
     /// Whether a decoy vault exists. Only the main vault can tell; from the decoy vault this is always false.
     public func hasDecoy() throws -> Bool { try serialized { guard !activeDecoy, key != nil else { return false }; return try state()?.decoy != nil } }
+    /// Whether the real vault can give the decoy a new password (`resetDecoyPassword`); decoys set up by earlier test builds cannot.
+    public func canResetDecoy() throws -> Bool { try serialized { guard !activeDecoy, key != nil else { return false }; return try state()?.decoy?.recovery != nil } }
     public func save(_ updated: [VaultRecord]) throws { try serialized {
         guard let key, var value = try state() else { throw VaultError.locked }
         let blob = UUID().uuidString
@@ -174,19 +197,26 @@ public final class VaultEngine: @unchecked Sendable {
         records = updated
         try storage.removeBlobs(keeping: liveBlobs(value))
     } }
-    /// Also replaces the data key and re-encrypts the vault, so nothing derived from the old password or old state can open future data.
-    /// Changes the open vault's password: the decoy vault's when the decoy is open.
+    /// Changes the open vault's password: the decoy vault's when the decoy is open. Also replaces the data key and re-encrypts the vault, so
+    /// nothing derived from the old password or old state can open future data.
+    ///
+    /// In the decoy vault the new password must not be the real one, and that check tests a guess at the real password: a refusal is counted
+    /// as a failed attempt, and since an accepted change also tells that the guess was wrong, only `decoyChanges` changes are allowed until the
+    /// real password or biometrics opens the vault. Past that the change is refused, never erased.
     public func changePassword(current: String, new: String) throws { try serialized {
         guard key != nil else { throw VaultError.locked }
         try VaultCrypto.requireStrongPassword(new)
         var proven = try authenticate(current).key; proven.resetBytes(in: 0..<proven.count) // the vault is unlocked, so the old data key is not needed again
         guard var value = try state() else { throw VaultError.locked }
         if activeDecoy {
-            // Each decoy password change is a counted attempt that only the real password clears; otherwise changing the decoy's password
-            // to a guess and unlocking with it would test guesses at the real password without limit.
-            value.attempts += 1; try write(value)
-            if value.attempts >= 10 { try erase(value); throw VaultError.erased }
-            if try unwrap(new, salt: value.salt, secret: value.secret, wrapped: value.wrappedKey) != nil { throw VaultError.invalid("Choose a different password.") }
+            guard (value.decoyChanges ?? 0) < Self.decoyChanges else { throw VaultError.invalid("The password was changed too many times. Try again later.") }
+            if var real = try unwrap(new, salt: value.salt, secret: value.secret, wrapped: value.wrappedKey) {
+                real.resetBytes(in: 0..<real.count)
+                value.attempts += 1; try write(value)
+                if value.attempts >= 10 { try erase(value); throw VaultError.erased }
+                throw VaultError.invalid("Choose a different password.")
+            }
+            value.decoyChanges = (value.decoyChanges ?? 0) + 1
         }
         if !activeDecoy, let d = value.decoy, try unwrap(new, salt: d.salt, secret: d.secret, wrapped: d.wrappedKey) != nil {
             throw VaultError.invalid("Choose a password different from your decoy vault's.")
@@ -197,8 +227,15 @@ public final class VaultEngine: @unchecked Sendable {
         do {
             let wrapped = try wrap(new, dataKey: dataKey)
             if activeDecoy {
-                value.decoy = DecoySlot(salt: wrapped.salt, secret: wrapped.secret, wrappedKey: wrapped.wrapped, blob: blob)
+                guard let old = value.decoy else { throw VaultError.locked }
+                let recovery = try old.owner.map { try VaultCrypto.seal(dataKey, to: $0) }
+                value.decoy = DecoySlot(salt: wrapped.salt, secret: wrapped.secret, wrappedKey: wrapped.wrapped, blob: blob, owner: old.owner, ownerSecret: old.ownerSecret, recovery: recovery)
             } else {
+                // The way back into the decoy is sealed under the data key, so it moves to the new one.
+                if let sealed = value.decoy?.ownerSecret, let key {
+                    var owner = try VaultCrypto.open(sealed, key: key, aad: Self.ownerAAD); defer { owner.resetBytes(in: 0..<owner.count) }
+                    value.decoy?.ownerSecret = try VaultCrypto.seal(owner, key: dataKey, aad: Self.ownerAAD)
+                }
                 // The biometric copy holds the old data key. Remove it before the commit so it cannot outlive the state that made it valid.
                 try storage.deleteBiometricKey()
                 value.salt = wrapped.salt; value.secret = wrapped.secret; value.wrappedKey = wrapped.wrapped; value.blob = blob
@@ -217,17 +254,48 @@ public final class VaultEngine: @unchecked Sendable {
         guard value.decoy == nil else { throw VaultError.invalid("A decoy vault already exists.") }
         if try unwrap(decoyPassword, salt: value.salt, secret: value.secret, wrapped: value.wrappedKey) != nil { throw VaultError.invalid("Choose a decoy password different from your app password.") }
         var dataKey = VaultCrypto.random(32); defer { dataKey.resetBytes(in: 0..<dataKey.count) }
+        var pair = try VaultCrypto.boxKeyPair(); defer { pair.secret.resetBytes(in: 0..<pair.secret.count) }
+        guard let key else { throw VaultError.locked }
         let wrapped = try wrap(decoyPassword, dataKey: dataKey), blob = UUID().uuidString
         try storage.writeBlob(VaultCrypto.seal(Records.encode([]), key: dataKey, aad: Data(blob.utf8)), id: blob)
-        value.decoy = DecoySlot(salt: wrapped.salt, secret: wrapped.secret, wrappedKey: wrapped.wrapped, blob: blob)
+        value.decoy = DecoySlot(salt: wrapped.salt, secret: wrapped.secret, wrappedKey: wrapped.wrapped, blob: blob, owner: pair.public,
+                                ownerSecret: try VaultCrypto.seal(pair.secret, key: key, aad: Self.ownerAAD), recovery: try VaultCrypto.seal(dataKey, to: pair.public))
+        value.decoyChanges = nil
         do { try write(value) } catch { try? storage.removeBlobs(keeping: [value.blob]); throw error }
+    } }
+    /// Gives the decoy vault a new password, keeping what is in it, for when its password is forgotten. Only from the main vault, with its
+    /// password. The decoy is re-encrypted under a new data key, as a password change from inside it would be.
+    public func resetDecoyPassword(password: String, decoyPassword: String) throws { try serialized {
+        guard key != nil, !activeDecoy else { throw VaultError.locked }
+        try VaultCrypto.requireStrongPassword(decoyPassword)
+        var proven = try authenticate(password).key; proven.resetBytes(in: 0..<proven.count)
+        guard var value = try state(), let key else { throw VaultError.locked }
+        guard let decoy = value.decoy else { throw VaultError.invalid("There is no decoy vault.") }
+        guard let owner = decoy.owner, let ownerSecret = decoy.ownerSecret, let recovery = decoy.recovery else {
+            throw VaultError.invalid("This decoy vault was set up by an earlier test version. Remove it and set it up again.")
+        }
+        if try unwrap(decoyPassword, salt: value.salt, secret: value.secret, wrapped: value.wrappedKey) != nil { throw VaultError.invalid("Choose a decoy password different from your app password.") }
+        var secretKey = try VaultCrypto.open(ownerSecret, key: key, aad: Self.ownerAAD); defer { secretKey.resetBytes(in: 0..<secretKey.count) }
+        var oldKey = try VaultCrypto.openSealed(recovery, publicKey: owner, secretKey: secretKey); defer { oldKey.resetBytes(in: 0..<oldKey.count) }
+        var plaintext = try VaultCrypto.open(storage.readBlob(decoy.blob), key: oldKey, aad: Data(decoy.blob.utf8)); defer { plaintext.resetBytes(in: 0..<plaintext.count) }
+        let previous = liveBlobs(value), blob = UUID().uuidString
+        var dataKey = VaultCrypto.random(32); defer { dataKey.resetBytes(in: 0..<dataKey.count) }
+        try storage.writeBlob(VaultCrypto.seal(plaintext, key: dataKey, aad: Data(blob.utf8)), id: blob)
+        do {
+            let wrapped = try wrap(decoyPassword, dataKey: dataKey)
+            value.decoy = DecoySlot(salt: wrapped.salt, secret: wrapped.secret, wrappedKey: wrapped.wrapped, blob: blob, owner: owner, ownerSecret: ownerSecret,
+                                    recovery: try VaultCrypto.seal(dataKey, to: owner))
+            value.decoyChanges = nil
+            try write(value)
+        } catch { try? storage.removeBlobs(keeping: previous); throw error }
+        try storage.removeBlobs(keeping: liveBlobs(value))
     } }
     /// Deletes the decoy vault and everything in it. Only from the main vault, with its password.
     public func removeDecoy(password: String) throws { try serialized {
         guard key != nil, !activeDecoy else { throw VaultError.locked }
         var proven = try authenticate(password).key; proven.resetBytes(in: 0..<proven.count)
         guard var value = try state() else { throw VaultError.locked }
-        value.decoy = nil; try write(value)
+        value.decoy = nil; value.decoyChanges = nil; try write(value)
         try storage.removeBlobs(keeping: [value.blob])
     } }
     public func export(password: String, backupPassword: String?, csv: Bool) throws -> Data { try serialized {
@@ -258,7 +326,7 @@ public final class VaultEngine: @unchecked Sendable {
     private func erase(_ original: DeviceState) throws {
         lock()
         var tombstone = original
-        tombstone.erased = true; tombstone.secret = Data(); tombstone.wrappedKey = Data(); tombstone.salt = Data(); tombstone.decoy = nil
+        tombstone.erased = true; tombstone.secret = Data(); tombstone.wrappedKey = Data(); tombstone.salt = Data(); tombstone.decoy = nil; tombstone.decoyChanges = nil
         try write(tombstone) // Deny access even if later cleanup is interrupted.
         try storage.deleteBiometricKey()
         try storage.removeBlobs(keeping: [])

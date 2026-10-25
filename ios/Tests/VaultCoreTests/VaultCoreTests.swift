@@ -51,8 +51,9 @@ final class VaultCoreTests: XCTestCase {
             XCTAssertEqual(try engine.remainingAttempts(), 10 - attempt)
         }
         _ = try engine.unlockBiometric()
-        XCTAssertEqual(try engine.remainingAttempts(), 1)
-        XCTAssertThrowsError(try engine.unlock(password: "wrong"))
+        XCTAssertEqual(try engine.remainingAttempts(), 10) // biometrics clear the counter, as on Android
+        engine.lock()
+        for _ in 1...10 { XCTAssertThrowsError(try engine.unlock(password: "wrong")) }
         XCTAssertTrue(store.blobs.isEmpty); XCTAssertNil(store.biometric)
         XCTAssertThrowsError(try engine.unlockBiometric())
         XCTAssertThrowsError(try engine.unlock(password: password))

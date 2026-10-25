@@ -12,6 +12,10 @@ public enum Kdbx {
     static let aesKdf = hex("c9d9f39a628a4460bf740d08c18a4fea"), aesKdfKdbx4 = hex("7c02bb8279a74ac0927d114a00648238")
     static let argon2d = hex("ef636ddf8c29444b91f7a9a403e30a0c"), argon2id = hex("9e298b1956db4773b23dfc3ec6f0a1e6")
     static let maxArgon2Bytes: UInt64 = 512 * 1024 * 1024
+    /// Key settings that would keep a phone busy for more than about a minute are refused: the import cannot be cancelled. KeePass and
+    /// KeePassXC defaults (tens of thousands to a few million AES rounds, or Argon2 at 64 MiB and a few dozen passes) stay well below these.
+    static let maxAesRounds: UInt64 = 100_000_000, maxArgon2WorkBytes: UInt64 = 8 * 1024 * 1024 * 1024 // Argon2: memory times iterations
+    static var tooCostly: VaultError { .invalid("This database's key settings need more memory or time than a phone can provide. Lower them in KeePass (Database settings, Security) and export again.") }
     static func hex(_ s: String) -> [UInt8] { stride(from: 0, to: s.count, by: 2).map { UInt8(s.dropFirst($0).prefix(2), radix: 16)! } }
     static func u32(_ d: [UInt8], _ o: Int) -> UInt32 { UInt32(d[o]) | UInt32(d[o + 1]) << 8 | UInt32(d[o + 2]) << 16 | UInt32(d[o + 3]) << 24 }
     static func u64(_ d: [UInt8], _ o: Int) -> UInt64 { UInt64(u32(d, o)) | UInt64(u32(d, o + 4)) << 32 }
@@ -93,14 +97,14 @@ public enum Kdbx {
         guard kdf == argon2d || kdf == argon2id else { throw VaultError.invalid("This database uses a key derivation PassVault does not support.") }
         guard let memory = params["M"] as? UInt64, let iterations = params["I"] as? UInt64, let lanes = params["P"] as? UInt64, let salt = params["S"] as? [UInt8] else { throw damaged }
         let version = params["V"] as? UInt64 ?? 0x13
-        guard (8 * 1024...maxArgon2Bytes).contains(memory), (1...100_000).contains(iterations), (1...256).contains(lanes), version == 0x10 || version == 0x13 else {
-            throw VaultError.invalid("This database's key settings need more memory or time than a phone can provide. Lower them in KeePass (Database settings, Security) and export again.")
-        }
+        guard version == 0x10 || version == 0x13 else { throw damaged }
+        guard (8 * 1024...maxArgon2Bytes).contains(memory), (1...maxArgon2WorkBytes / memory).contains(iterations), (1...256).contains(lanes) else { throw tooCostly }
         return try Argon2.hash(password: composite, salt: salt, secret: params["K"] as? [UInt8] ?? [], associated: params["A"] as? [UInt8] ?? [], iterations: Int(iterations),
                                memoryKiB: Int(memory / 1024), lanes: Int(lanes), variant: kdf == argon2d ? .d : .id, version: UInt32(version))
     }
     static func aesKdf(_ composite: [UInt8], seed: [UInt8], rounds: UInt64) throws -> [UInt8] {
-        guard seed.count == 32, rounds <= 2_000_000_000 else { throw damaged }
+        guard seed.count == 32 else { throw damaged }
+        guard rounds <= maxAesRounds else { throw tooCostly }
         var cryptor: CCCryptorRef?
         guard CCCryptorCreate(CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionECBMode), seed, seed.count, nil, &cryptor) == kCCSuccess, let cryptor else { throw damaged }
         defer { CCCryptorRelease(cryptor) }

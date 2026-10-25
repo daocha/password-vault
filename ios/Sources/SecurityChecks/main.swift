@@ -58,7 +58,8 @@ do {
         try check(VaultEngine(storage: store).remainingAttempts() == 10 - attempt, "durable counter")
     }
     _ = try engine.unlockBiometric()
-    try check(engine.remainingAttempts() == 1, "biometrics cannot reset password counter")
+    try check(engine.remainingAttempts() == 10, "biometrics clear the password counter, as on Android"); engine.lock()
+    for _ in 1...9 { try rejects("wrong app password") { _ = try engine.unlock(password: "wrong") } }
     try rejects("tenth failure") { _ = try engine.unlock(password: "wrong") }
     try check(store.blobs.isEmpty && store.biometric == nil, "cryptographic erasure cleanup")
     try rejects("biometric after erasure") { _ = try engine.unlockBiometric() }

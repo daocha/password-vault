@@ -269,6 +269,52 @@ class VaultStorageInstrumentedTest {
         assertThrows(AuthenticationFailure::class.java) { engine.unlock("Fresh decoy phrase 4\$") }
     }
 
+    @Test fun decoyPasswordChangesCountOnlyWhenTheyFailAndAreLimited() {
+        val decoyPassword = "Another decoy phrase 2?"
+        engine.create(password); engine.createDecoy(password, decoyPassword); engine.lock()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong passphrase 9!") }
+        assertEquals(9, engine.remainingAttempts())
+        engine.unlock(decoyPassword); assertEquals(9, engine.remainingAttempts()) // the decoy password does not reset the count
+        assertThrows(AuthenticationFailure::class.java) { engine.changePassword("Wrong passphrase 9!", "Fresh decoy phrase 4\$") }
+        assertEquals(8, engine.remainingAttempts())
+        assertThrows(IllegalArgumentException::class.java) { engine.changePassword(decoyPassword, password) } // the real password is refused and counted
+        assertEquals(7, engine.remainingAttempts())
+        // Successful changes cost no attempt, but only three are allowed until the real password opens the vault.
+        var current = decoyPassword
+        for (i in 1..VaultEngine.DECOY_CHANGES) { val next = "Fresh decoy phrase $i\$"; engine.changePassword(current, next); current = next }
+        assertEquals(7, engine.remainingAttempts())
+        assertThrows(IllegalStateException::class.java) { engine.changePassword(current, "Fresh decoy phrase 9\$") }
+        assertThrows(IllegalStateException::class.java) { engine.changePassword(current, password) } // refused before the real password is tested
+        assertEquals(7, engine.remainingAttempts()); assertTrue(engine.exists())
+        engine.lock(); engine.unlock(current); engine.lock() // a decoy sign-in does not renew the allowance
+        engine.unlock(current); assertThrows(IllegalStateException::class.java) { engine.changePassword(current, "Fresh decoy phrase 9\$") }
+        engine.lock(); engine.unlock(password); assertEquals(10, engine.remainingAttempts()); engine.lock()
+        engine.unlock(current); engine.changePassword(current, "Fresh decoy phrase 9\$")
+    }
+
+    @Test fun theRealVaultCanGiveTheDecoyANewPasswordAndKeepItsEntries() {
+        val decoyPassword = "Another decoy phrase 2?"
+        engine.create(password); engine.save(listOf(record("Real bank"))); engine.createDecoy(password, decoyPassword); engine.lock()
+        engine.unlock(decoyPassword); engine.save(listOf(record("Shopping")))
+        engine.changePassword(decoyPassword, "Forgotten decoy 3#") // the decoy's own change keeps the real vault's way back in
+        engine.lock(); engine.unlock(password)
+        assertTrue(engine.canResetDecoy())
+        // The real vault's own password change moves the way back in to its new data key.
+        val newPassword = "Another long passphrase 2@"
+        engine.changePassword(password, newPassword); engine.lock(); fresh(); engine.unlock(newPassword)
+        assertThrows(AuthenticationFailure::class.java) { engine.resetDecoyPassword("Wrong passphrase 9!", "Remembered decoy 5%") }
+        assertThrows(IllegalArgumentException::class.java) { engine.resetDecoyPassword(newPassword, newPassword) }
+        val oldDecoyBlob = blobs().map { it.name }.toSet()
+        engine.resetDecoyPassword(newPassword, "Remembered decoy 5%")
+        assertEquals(2, blobs().size); assertNotEquals(oldDecoyBlob, blobs().map { it.name }.toSet())
+        engine.lock()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Forgotten decoy 3#") }
+        assertEquals(listOf("Shopping"), engine.unlock("Remembered decoy 5%").map { it.name }); assertTrue(engine.isDecoy())
+        assertFalse(engine.canResetDecoy()) // only the real vault can do this
+        assertThrows(IllegalStateException::class.java) { engine.resetDecoyPassword("Remembered decoy 5%", "Another decoy 6&") }
+        engine.lock(); assertEquals(listOf("Real bank"), engine.unlock(newPassword).map { it.name })
+    }
+
     @Test fun erasureRemovesTheDecoyToo() {
         engine.create(password); engine.createDecoy(password, "Another decoy phrase 2?"); engine.lock()
         repeat(9) { assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong passphrase 9!") } }

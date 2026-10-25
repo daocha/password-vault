@@ -100,4 +100,34 @@ class KeePassTest {
         val encoded = java.util.Base64.getEncoder().encodeToString(java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN).putLong(seconds).array())
         assertEquals(java.time.Instant.parse("2015-08-16T14:45:54Z"), KeePassXml.time(encoded))
     }
+
+    /** demo.kdbx (KDBX 3.1) with header field [id] replaced: fields are u8 id, u16 size, value, up to the end field 0. */
+    private fun kdbx3With(id: Int, value: ByteArray): ByteArray {
+        val data = file("demo.kdbx"); val out = java.io.ByteArrayOutputStream().apply { write(data, 0, 12) }; var pos = 12
+        while (true) {
+            val field = data[pos].toInt() and 0xFF; val size = (data[pos + 1].toInt() and 0xFF) or ((data[pos + 2].toInt() and 0xFF) shl 8)
+            val bytes = if (field == id) value else data.copyOfRange(pos + 3, pos + 3 + size)
+            out.write(field); out.write(bytes.size and 0xFF); out.write(bytes.size shr 8); out.write(bytes); pos += 3 + size
+            if (field == 0) break
+        }
+        out.write(data, pos, data.size - pos); return out.toByteArray()
+    }
+    private fun le64(value: Long) = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN).putLong(value).array()
+    private fun message(data: ByteArray) = assertThrows(IllegalArgumentException::class.java) { Kdbx.import(data, "demo", file("demo.key")) }.message.orEmpty()
+
+    @Test fun keySettingsTooSlowForAPhoneAreRefused() {
+        assertTrue(message(kdbx3With(6, le64(3_000_000_000L))).contains("key settings"))
+        assertTrue(message(kdbx3With(6, le64(200_000_000L))).contains("key settings"))
+        // Argon2 passes: the "I" entry of the KDBX 4 key parameters (type 5, name length 1, "I", value length 8).
+        val argon = file("Argon2.kdbx"); val marker = byteArrayOf(5, 1, 0, 0, 0, 'I'.code.toByte(), 8, 0, 0, 0)
+        val at = (0..argon.size - marker.size).first { i -> marker.indices.all { argon[i + it] == marker[it] } } + marker.size
+        le64(1_000_000L).copyInto(argon, at)
+        assertTrue(message(argon).contains("key settings"))
+    }
+
+    @Test fun malformedHeadersReportADamagedFile() {
+        for (damaged in listOf(kdbx3With(6, ByteArray(4)), kdbx3With(3, ByteArray(2)), kdbx3With(7, ByteArray(8)), kdbx3With(10, ByteArray(1)))) {
+            assertEquals("The KeePass file is damaged or not supported.", message(damaged))
+        }
+    }
 }

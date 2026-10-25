@@ -20,6 +20,8 @@ import AVFoundation
     /// The decoy vault is open: settings that would reveal or touch the real vault are not shown.
     @Published var decoy = false
     @Published var hasDecoy = false
+    /// Whether the real vault can give the decoy a new password (decoys from earlier test builds cannot).
+    @Published var canResetDecoy = false
     /// The transfer being sent, if any; it survives a lock for a while so its code is still there after sharing the file from another app.
     @Published var sending: TransferPayload?
     private var unlockedAt = Date.distantPast
@@ -51,7 +53,7 @@ import AVFoundation
     func setBackupInterval(_ days: Int) { UserDefaults.standard.set(days, forKey: backupPrefix + "backupReminderDays"); loadBackupStatus() }
     var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil) }
     func lock() {
-        generation += 1; unlocked = false; records = []; decoy = false; hasDecoy = false
+        generation += 1; unlocked = false; records = []; decoy = false; hasDecoy = false; canResetDecoy = false
         if let sending, Date() >= sending.expiresAt { self.sending = nil }
         if !backupPrefix.isEmpty { backupPrefix = ""; loadBackupStatus() }
         let engine = engine
@@ -67,7 +69,7 @@ import AVFoundation
                 if let result {
                     records = result; unlocked = true; exists = true; unlockedAt = Date()
                     // Each vault keeps its own backup history, so the decoy shows only its own.
-                    decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; backupPrefix = decoy ? "decoy." : ""; loadBackupStatus()
+                    decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; canResetDecoy = (try? engine.canResetDecoy()) ?? false; backupPrefix = decoy ? "decoy." : ""; loadBackupStatus()
                     // Only the vault that made a pending transfer may see it again.
                     if let sending, sending.decoy != decoy || Date() >= sending.expiresAt { self.sending = nil }
                 }
@@ -453,6 +455,18 @@ struct TransferView: View {
                     }
                     Section {
                         if model.hasDecoy {
+                            // A new password for the decoy, for when it is forgotten; what is in the decoy is kept.
+                            if model.canResetDecoy {
+                                SecureField("New decoy password", text: $decoyPassword)
+                                SecureField("Repeat decoy password", text: $confirmDecoy)
+                                if !decoyPassword.isEmpty { Text(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.").font(.footnote) }
+                                Button("Change decoy password") {
+                                    let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
+                                    model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: { model.message = "Decoy password changed." })
+                                }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || decoyPassword != confirmDecoy)
+                            } else {
+                                Text("This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again.").font(.footnote)
+                            }
                             Button("Remove decoy vault", role: .destructive) { removingDecoy = true }.disabled(password.isEmpty)
                         } else {
                             SecureField("Decoy password", text: $decoyPassword)
@@ -460,7 +474,7 @@ struct TransferView: View {
                             if !decoyPassword.isEmpty { Text(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.").font(.footnote) }
                             Button("Set up decoy vault") {
                                 let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
-                                model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.message = "Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it." })
+                                model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.canResetDecoy = true; model.message = "Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it." })
                             }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || decoyPassword != confirmDecoy)
                         }
                     } header: { Text("Decoy vault") } footer: {
@@ -507,7 +521,7 @@ struct TransferView: View {
                     }
                     Button("Export all passwords") { export() }.disabled(password.isEmpty || (csv ? !csvConsent : backupPassword != confirmBackup || VaultCrypto.passwordProblem(backupPassword) != nil))
                 }
-                Section("Security") { Text("The vault locks in the background and after five minutes per session. Copied values expire after 30 seconds. Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Biometrics do not reset the password counter.").font(.footnote) }
+                Section("Security") { Text("The vault locks in the background and after five minutes per session. Copied values expire after 30 seconds. Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Unlocking with the app password or biometrics clears failed attempts.").font(.footnote) }
             }.navigationTitle("Vault settings").toolbar { Button("Done") { dismiss() } }
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
                     do {
@@ -527,7 +541,7 @@ struct TransferView: View {
                 } }
                 .sheet(item: $encryptedImport) { file in DecryptImportView(file: file) { records in encryptedImport = nil; if model.unlocked { pendingImport = records } } }
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
-                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
+                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
                 }
                 .confirmationDialog("Import \(pendingImport?.count ?? 0) records?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
                     Button("Import") { if let records = pendingImport { model.run { try $0.merge(records) } }; pendingImport = nil }

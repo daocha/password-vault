@@ -5,21 +5,35 @@ import java.util.Base64
 import java.util.UUID
 import javax.crypto.Cipher
 
+/**
+ * The real vault's way back into the decoy, so it can give the decoy a new password without losing its contents: [owner] is an X25519
+ * public key whose secret key is sealed under the real vault's data key ([ownerSecret]), and [key] is the decoy's data key in a sealed box
+ * to [owner]. The decoy vault can write a new [key] when its password changes but cannot read one.
+ */
+private class DecoyRecovery(val owner: ByteArray, var ownerSecret: ByteArray, var key: ByteArray)
 /** The second, decoy vault: its own wrapped data key and file, opened by its own password (see [VaultEngine.createDecoy]). */
-private class DecoySlot(var salt: ByteArray, var secret: ByteArray, var wrapped: ByteArray, var blob: String)
-private data class DeviceState(var attempts: Int, var erased: Boolean, var salt: ByteArray, var secret: ByteArray, var wrapped: ByteArray, var blob: String, var decoy: DecoySlot? = null) {
+private class DecoySlot(var salt: ByteArray, var secret: ByteArray, var wrapped: ByteArray, var blob: String, var recovery: DecoyRecovery? = null)
+/** [decoyChanges]: decoy password changes since the real password or biometrics last opened the vault (see [VaultEngine.changePassword]). */
+private data class DeviceState(var attempts: Int, var erased: Boolean, var salt: ByteArray, var secret: ByteArray, var wrapped: ByteArray, var blob: String, var decoy: DecoySlot? = null, var decoyChanges: Int = 0) {
     fun encode(): ByteArray {
         fun b64(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
         return JSONObject().put("version", 1).put("attempts", attempts).put("erased", erased).put("salt", b64(salt)).put("secret", b64(secret)).put("wrapped", b64(wrapped)).put("blob", blob)
-            .apply { decoy?.let { d -> put("decoy", JSONObject().put("salt", b64(d.salt)).put("secret", b64(d.secret)).put("wrapped", b64(d.wrapped)).put("blob", d.blob)) } }
+            .apply {
+                decoy?.let { d -> put("decoy", JSONObject().put("salt", b64(d.salt)).put("secret", b64(d.secret)).put("wrapped", b64(d.wrapped)).put("blob", d.blob)
+                    .apply { d.recovery?.let { r -> put("owner", b64(r.owner)).put("ownerSecret", b64(r.ownerSecret)).put("recovery", b64(r.key)) } }) }
+                if (decoyChanges != 0) put("decoyChanges", decoyChanges)
+            }
             .toString().toByteArray()
     }
     companion object {
         fun decode(bytes: ByteArray): DeviceState {
             val j = JSONObject(bytes.toString(Charsets.UTF_8)); require(j.getInt("version") == 1)
             fun data(o: JSONObject, name: String) = Base64.getDecoder().decode(o.getString(name))
-            val decoy = j.optJSONObject("decoy")?.let { d -> DecoySlot(data(d, "salt"), data(d, "secret"), data(d, "wrapped"), d.getString("blob")) }
-            return DeviceState(j.getInt("attempts"), j.getBoolean("erased"), data(j, "salt"), data(j, "secret"), data(j, "wrapped"), j.getString("blob"), decoy)
+            val decoy = j.optJSONObject("decoy")?.let { d ->
+                val recovery = if (d.has("owner")) DecoyRecovery(data(d, "owner"), data(d, "ownerSecret"), data(d, "recovery")) else null
+                DecoySlot(data(d, "salt"), data(d, "secret"), data(d, "wrapped"), d.getString("blob"), recovery)
+            }
+            return DeviceState(j.getInt("attempts"), j.getBoolean("erased"), data(j, "salt"), data(j, "secret"), data(j, "wrapped"), j.getString("blob"), decoy, j.optInt("decoyChanges", 0))
         }
     }
 }
@@ -29,13 +43,16 @@ class VaultEngine(private val storage: ProtectedStorage) {
     /** Whether the open vault is the decoy one. Every operation acts on the open vault only. */
     private var activeDecoy = false
     private val wrapAAD = "PassVault/key/v1".toByteArray()
+    private val ownerAAD = "PassVault/decoy-owner/v1".toByteArray()
     private fun state(): DeviceState? {
         val value = storage.readState()?.let(DeviceState::decode) ?: return null
         require(value.attempts in 0..10); UUID.fromString(value.blob)
         check(!value.erased) { "The local vault was erased after 10 failed attempts." }
         if (value.attempts == 10) { erase(value); error("The local vault was erased after 10 failed attempts.") }
         require(value.salt.size == 16 && value.secret.size == 32 && value.wrapped.size == 72) { "Damaged protected state." }
-        value.decoy?.let { d -> UUID.fromString(d.blob); require(d.salt.size == 16 && d.secret.size == 32 && d.wrapped.size == 72) { "Damaged protected state." } }
+        value.decoy?.let { d -> UUID.fromString(d.blob); require(d.salt.size == 16 && d.secret.size == 32 && d.wrapped.size == 72) { "Damaged protected state." }
+            d.recovery?.let { r -> require(r.owner.size == 32 && r.ownerSecret.size == 72 && r.key.size == 80) { "Damaged protected state." } } }
+        require(value.decoyChanges in 0..DECOY_CHANGES) { "Damaged protected state." }
         return value
     }
     /** The vault files the state points at: the main one and, if set up, the decoy one. */
@@ -74,7 +91,8 @@ class VaultEngine(private val storage: ProtectedStorage) {
      * Checks [password] as one counted attempt and returns the data key it opens and whether that is the decoy vault's. Unlocking
      * ([unlocking]) accepts either vault's password and always derives two keys (the decoy's, or a throwaway one when there is no decoy),
      * so its timing does not reveal whether a decoy exists. Other checks accept only the open vault's password. The main password clears
-     * the failure count; the decoy password leaves it as it was, so decoy sign-ins cannot reset guesses at the main one.
+     * the failure count and the decoy's password-change allowance; the decoy password leaves both as they were, so decoy sign-ins cannot
+     * reset guesses at the main one.
      */
     private fun authenticate(password: String, unlocking: Boolean = false): Found {
         val value = state() ?: error("Create a vault first.")
@@ -95,7 +113,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
         }
         if (main != null) {
             decoy?.fill(0)
-            value.attempts = 0
+            value.attempts = 0; value.decoyChanges = 0
             try {
                 if (legacy) wrap(password, main).let { value.salt = it.salt; value.secret = it.secret; value.wrapped = it.wrapped }
                 // Clearing the counter never makes an old copy more useful to an attacker, so it does not need a new state key. A re-wrap does.
@@ -123,11 +141,14 @@ class VaultEngine(private val storage: ProtectedStorage) {
     /** Biometrics hold the main vault's key, so they can only be set up from the main vault. */
     @Synchronized fun biometricKey(password: String): ByteArray { check(key != null && !activeDecoy) { "Vault is locked." }; return authenticate(password).key }
     @Synchronized fun saveBiometric(cipher: Cipher, candidate: ByteArray) { check(state() != null && key != null && !activeDecoy) { "Vault is locked." }; storage.saveBiometric(cipher, candidate) }
-    /** A successful hardware-backed biometric unlock proves the owner is present, so it clears failed password attempts. It opens the main vault. */
+    /**
+     * A successful hardware-backed biometric unlock proves the owner is present, so like the main password it clears failed password attempts
+     * and the decoy's password-change allowance. It opens the main vault.
+     */
     @Synchronized fun unlockBiometric(cipher: Cipher): List<VaultRecord> {
         val value = state() ?: error("Create a vault first.")
         val loaded = load(storage.readBiometric(cipher), decoy = false)
-        if (value.attempts != 0) { value.attempts = 0; storage.writeState(value.encode(), ratchet = false) }
+        if (value.attempts != 0 || value.decoyChanges != 0) { value.attempts = 0; value.decoyChanges = 0; storage.writeState(value.encode(), ratchet = false) }
         return loaded
     }
     @Synchronized fun hasBiometric() = state() != null && storage.hasBiometric()
@@ -137,6 +158,8 @@ class VaultEngine(private val storage: ProtectedStorage) {
     @Synchronized fun isDecoy() = activeDecoy
     /** Whether a decoy vault exists. Only the main vault can tell; from the decoy vault this is always false. */
     @Synchronized fun hasDecoy() = key != null && !activeDecoy && state()?.decoy != null
+    /** Whether the real vault can give the decoy a new password ([resetDecoyPassword]); decoys set up by earlier test builds cannot. */
+    @Synchronized fun canResetDecoy() = key != null && !activeDecoy && state()?.decoy?.recovery != null
     @Synchronized fun save(updated: List<VaultRecord>) {
         val dataKey = key ?: error("Vault is locked."); val value = state() ?: error("Vault is locked.")
         val blob = UUID.randomUUID().toString(); val plain = Records.encode(updated)
@@ -169,17 +192,23 @@ class VaultEngine(private val storage: ProtectedStorage) {
     /**
      * Changes the open vault's password (the decoy's when the decoy is open). Also replaces the data key and re-encrypts the vault, so
      * nothing derived from the old password or old state can open future data.
+     *
+     * In the decoy vault the new password must not be the real one, and that check tests a guess at the real password: a refusal is counted
+     * as a failed attempt, and since an accepted change also tells that the guess was wrong, only [DECOY_CHANGES] changes are allowed until
+     * the real password or biometrics opens the vault. Past that the change is refused, never erased.
      */
     @Synchronized fun changePassword(current: String, new: String) {
         check(key != null) { "Vault is locked." }; VaultCrypto.strongPassword(new)
         authenticate(current).key.fill(0) // proves the current password; the vault is unlocked, so the old data key is not needed again
         val value = state() ?: error("Vault is locked.")
         if (activeDecoy) {
-            // Each decoy password change is a counted attempt that only the real password clears; otherwise changing the decoy's password
-            // to a guess and unlocking with it would test guesses at the real password without limit.
-            value.attempts++; storage.writeState(value.encode())
-            if (value.attempts >= 10) { erase(value); error("The local vault was erased after 10 failed attempts.") }
-            unwrap(new, value.salt, value.secret, value.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a different password.") }
+            check(value.decoyChanges < DECOY_CHANGES) { "The password was changed too many times. Try again later." }
+            unwrap(new, value.salt, value.secret, value.wrapped)?.let {
+                it.fill(0); value.attempts++; storage.writeState(value.encode())
+                if (value.attempts >= 10) { erase(value); error("The local vault was erased after 10 failed attempts.") }
+                throw IllegalArgumentException("Choose a different password.")
+            }
+            value.decoyChanges++
         }
         value.decoy?.let { d -> if (!activeDecoy) unwrap(new, d.salt, d.secret, d.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a password different from your decoy vault's.") } }
         val previous = liveBlobs(value); val blob = UUID.randomUUID().toString()
@@ -187,8 +216,12 @@ class VaultEngine(private val storage: ProtectedStorage) {
         try {
             storage.writeBlob(blob, VaultCrypto.seal(plain, dataKey, blob.toByteArray()))
             val wrapped = wrap(new, dataKey)
-            if (activeDecoy) value.decoy = DecoySlot(wrapped.salt, wrapped.secret, wrapped.wrapped, blob)
-            else {
+            if (activeDecoy) {
+                val recovery = value.decoy?.recovery?.also { it.key = VaultCrypto.sealTo(dataKey, it.owner) }
+                value.decoy = DecoySlot(wrapped.salt, wrapped.secret, wrapped.wrapped, blob, recovery)
+            } else {
+                // The way back into the decoy is sealed under the data key, so it moves to the new one.
+                value.decoy?.recovery?.let { r -> val owner = VaultCrypto.open(r.ownerSecret, key!!, ownerAAD); try { r.ownerSecret = VaultCrypto.seal(owner, dataKey, ownerAAD) } finally { owner.fill(0) } }
                 // The biometric copy holds the old data key. Remove it before the commit so it cannot outlive the state that made it valid.
                 storage.deleteBiometric()
                 value.salt = wrapped.salt; value.secret = wrapped.secret; value.wrapped = wrapped.wrapped; value.blob = blob
@@ -206,25 +239,55 @@ class VaultEngine(private val storage: ProtectedStorage) {
         val value = state() ?: error("Vault is locked.")
         require(value.decoy == null) { "A decoy vault already exists." }
         unwrap(decoyPassword, value.salt, value.secret, value.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a decoy password different from your app password.") }
-        val dataKey = VaultCrypto.random(32)
+        val dataKey = VaultCrypto.random(32); val (owner, ownerSecret) = VaultCrypto.boxKeyPair()
         try {
             val wrapped = wrap(decoyPassword, dataKey); val blob = UUID.randomUUID().toString()
             storage.writeBlob(blob, VaultCrypto.seal(Records.encode(emptyList()), dataKey, blob.toByteArray()))
-            value.decoy = DecoySlot(wrapped.salt, wrapped.secret, wrapped.wrapped, blob)
+            val recovery = DecoyRecovery(owner, VaultCrypto.seal(ownerSecret, key!!, ownerAAD), VaultCrypto.sealTo(dataKey, owner))
+            value.decoy = DecoySlot(wrapped.salt, wrapped.secret, wrapped.wrapped, blob, recovery); value.decoyChanges = 0
             try { storage.writeState(value.encode()) } catch (e: Exception) { runCatching { storage.removeBlobs(setOf(value.blob)) }; throw e }
-        } finally { dataKey.fill(0) }
+        } finally { dataKey.fill(0); ownerSecret.fill(0) }
+    }
+    /**
+     * Gives the decoy vault a new password, keeping what is in it, for when its password is forgotten. Only from the main vault, with its
+     * password. The decoy is re-encrypted under a new data key, as a password change from inside it would be.
+     */
+    @Synchronized fun resetDecoyPassword(password: String, decoyPassword: String) {
+        check(key != null && !activeDecoy) { "Vault is locked." }; VaultCrypto.strongPassword(decoyPassword)
+        authenticate(password).key.fill(0)
+        val value = state() ?: error("Vault is locked.")
+        val decoy = value.decoy ?: throw IllegalArgumentException("There is no decoy vault.")
+        val recovery = decoy.recovery ?: throw IllegalArgumentException("This decoy vault was set up by an earlier test version. Remove it and set it up again.")
+        unwrap(decoyPassword, value.salt, value.secret, value.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a decoy password different from your app password.") }
+        val ownerSecret = VaultCrypto.open(recovery.ownerSecret, key!!, ownerAAD)
+        val oldKey = try { VaultCrypto.openSealed(recovery.key, recovery.owner, ownerSecret) } finally { ownerSecret.fill(0) }
+        val plain = try { VaultCrypto.open(storage.readBlob(decoy.blob), oldKey, decoy.blob.toByteArray()) } finally { oldKey.fill(0) }
+        val previous = liveBlobs(value); val blob = UUID.randomUUID().toString(); val dataKey = VaultCrypto.random(32)
+        try {
+            storage.writeBlob(blob, VaultCrypto.seal(plain, dataKey, blob.toByteArray()))
+            val wrapped = wrap(decoyPassword, dataKey)
+            value.decoy = DecoySlot(wrapped.salt, wrapped.secret, wrapped.wrapped, blob, DecoyRecovery(recovery.owner, recovery.ownerSecret, VaultCrypto.sealTo(dataKey, recovery.owner)))
+            value.decoyChanges = 0
+            storage.writeState(value.encode())
+        } catch (e: Exception) { runCatching { storage.removeBlobs(previous) }; throw e }
+        finally { plain.fill(0); dataKey.fill(0) }
+        storage.removeBlobs(liveBlobs(value))
     }
     /** Deletes the decoy vault and everything in it. Only from the main vault, with its password. */
     @Synchronized fun removeDecoy(password: String) {
         check(key != null && !activeDecoy) { "Vault is locked." }
         authenticate(password).key.fill(0)
         val value = state() ?: error("Vault is locked.")
-        value.decoy = null; storage.writeState(value.encode())
+        value.decoy = null; value.decoyChanges = 0; storage.writeState(value.encode())
         storage.removeBlobs(setOf(value.blob))
+    }
+    companion object {
+        /** Decoy password changes allowed between openings by the real password or biometrics. */
+        const val DECOY_CHANGES = 3
     }
     private fun erase(value: DeviceState) {
         lock(); value.erased = true; value.secret.fill(0); value.wrapped.fill(0); value.salt.fill(0)
-        value.secret = byteArrayOf(); value.wrapped = byteArrayOf(); value.salt = byteArrayOf(); value.decoy = null
+        value.secret = byteArrayOf(); value.wrapped = byteArrayOf(); value.salt = byteArrayOf(); value.decoy = null; value.decoyChanges = 0
         storage.writeState(value.encode(), ratchet = false); storage.finishErasure()
     }
 }

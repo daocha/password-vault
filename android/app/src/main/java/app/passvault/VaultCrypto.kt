@@ -72,6 +72,22 @@ object VaultCrypto {
         if (sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(plain, LongArray(1), null, cipher, cipher.size.toLong(), aad, aad.size.toLong(), nonce, key) != 0) { plain.fill(0); throw AuthenticationFailure() }
         return plain
     }
+    /** An X25519 key pair for [sealTo]: public 32 bytes, secret 32 bytes. */
+    fun boxKeyPair(): Pair<ByteArray, ByteArray> {
+        val public = ByteArray(32); val secret = ByteArray(32)
+        check(sodium.crypto_box_keypair(public, secret) == 0); return public to secret
+    }
+    /** A libsodium sealed box: only the holder of the secret key matching [publicKey] can open it, not the sender. 48 bytes longer than [plain]. */
+    fun sealTo(plain: ByteArray, publicKey: ByteArray): ByteArray {
+        require(publicKey.size == 32 && plain.size <= 1024)
+        return ByteArray(plain.size + 48).also { check(sodium.crypto_box_seal(it, plain, plain.size.toLong(), publicKey) == 0) }
+    }
+    fun openSealed(box: ByteArray, publicKey: ByteArray, secretKey: ByteArray): ByteArray {
+        require(publicKey.size == 32 && secretKey.size == 32 && box.size in 48..1024 + 48) { "Invalid encrypted data." }
+        val plain = ByteArray(box.size - 48)
+        if (sodium.crypto_box_seal_open(plain, box, box.size.toLong(), publicKey, secretKey) != 0) { plain.fill(0); throw AuthenticationFailure() }
+        return plain
+    }
     fun strongPassword(password: String) { if (PasswordPolicy.problem(password) != null) throw IllegalArgumentException("Password does not meet the strength rules.") }
     // The caller has already verified this is the app password; it met the policy in force when it was set.
     fun exportBackup(records: List<VaultRecord>, password: String): ByteArray {

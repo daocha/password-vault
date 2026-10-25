@@ -88,6 +88,8 @@ private sealed interface SettingsDialog {
     data object DecoySetup : SettingsDialog
     data object TransferSend : SettingsDialog
     data object DecoyRemove : SettingsDialog
+    data object DecoyManage : SettingsDialog
+    data object DecoyReset : SettingsDialog
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
@@ -911,7 +913,7 @@ class MainActivity : FragmentActivity() {
                         if (biometricEnabled) { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } else dialog = SettingsDialog.EnableBiometrics
                     }
                     Row(Icons.Outlined.Password, stringResource(R.string.main_change_app_password)) { dialog = SettingsDialog.ChangePassword }
-                    if (!decoySession) Row(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_title), if (decoyEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off)) { dialog = if (decoyEnabled) SettingsDialog.DecoyRemove else SettingsDialog.DecoySetup }
+                    if (!decoySession) Row(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_title), if (decoyEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off)) { dialog = if (decoyEnabled) SettingsDialog.DecoyManage else SettingsDialog.DecoySetup }
                 }
                 SectionTitle(stringResource(R.string.main_random_password))
                 Group {
@@ -969,7 +971,19 @@ class MainActivity : FragmentActivity() {
                 confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_done)) } })
             SettingsDialog.EnableBiometrics -> PasswordDialog(Icons.Outlined.Fingerprint, stringResource(R.string.main_enable_biometric_unlock), stringResource(R.string.main_enable_biometric_body), stringResource(R.string.main_continue_action), { dialog = null }) { biometrics(it) }
             SettingsDialog.ChangePassword -> ChangePasswordDialog { dialog = null }
-            SettingsDialog.DecoySetup -> DecoySetupDialog { dialog = null }
+            SettingsDialog.DecoySetup -> DecoySetupDialog(reset = false) { dialog = null }
+            SettingsDialog.DecoyReset -> DecoySetupDialog(reset = true) { dialog = null }
+            SettingsDialog.DecoyManage -> {
+                val canReset = remember { runCatching { engine.canResetDecoy() }.getOrDefault(false) }
+                AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(R.string.decoy_title)) },
+                    text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.decoy_manage_body), style = MaterialTheme.typography.bodyMedium)
+                        OutlinedButton(onClick = { dialog = SettingsDialog.DecoyReset }, Modifier.fillMaxWidth(), enabled = canReset) { Icon(Icons.Outlined.Password, null); Text("  " + stringResource(R.string.decoy_change_password)) }
+                        if (!canReset) Text(stringResource(R.string.decoy_change_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = { dialog = SettingsDialog.DecoyRemove }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Delete, null); Text("  " + stringResource(R.string.decoy_remove)) }
+                    } },
+                    confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
+            }
             SettingsDialog.TransferSend -> PasswordDialog(Icons.Outlined.SendToMobile, stringResource(R.string.transfer_send), stringResource(R.string.transfer_send_body), stringResource(R.string.main_continue_action), { dialog = null }) { pass ->
                 var sealed: Pair<String, ByteArray>? = null
                 work({ sealed = engine.exportTransfer(pass); null }) { sealed?.let { (code, bytes) -> sending = PendingTransfer(code, bytes, decoySession, SystemClock.elapsedRealtime() + TRANSFER_KEEP_MILLIS) } }
@@ -1042,17 +1056,20 @@ class MainActivity : FragmentActivity() {
                 work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && next == repeat) { Text(stringResource(R.string.main_change)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
-    @Composable private fun DecoySetupDialog(dismiss: () -> Unit) {
+    /** Sets up the decoy vault, or with [reset] gives the existing one a new password (its contents are kept). */
+    @Composable private fun DecoySetupDialog(reset: Boolean, dismiss: () -> Unit) {
         var current by remember { mutableStateOf("") }; var decoy by remember { mutableStateOf("") }; var repeat by remember { mutableStateOf("") }
-        AlertDialog(onDismissRequest = dismiss, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(R.string.decoy_title)) },
+        AlertDialog(onDismissRequest = dismiss, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(if (reset) R.string.decoy_change_password else R.string.decoy_title)) },
             text = { HardenWindow(); Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.decoy_body), style = MaterialTheme.typography.bodyMedium)
-                SecretInput(stringResource(R.string.main_app_password), current, { current = it }); SecretInput(stringResource(R.string.decoy_password), decoy, { decoy = it }); SecretInput(stringResource(R.string.decoy_repeat), repeat, { repeat = it })
+                Text(stringResource(if (reset) R.string.decoy_change_body else R.string.decoy_body), style = MaterialTheme.typography.bodyMedium)
+                SecretInput(stringResource(R.string.main_app_password), current, { current = it }); SecretInput(stringResource(if (reset) R.string.decoy_new_password else R.string.decoy_password), decoy, { decoy = it }); SecretInput(stringResource(R.string.decoy_repeat), repeat, { repeat = it })
                 PasswordHint(decoy)
                 if (repeat.isNotEmpty() && repeat != decoy) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             } },
-            confirmButton = { TextButton(onClick = { val c = current; val d = decoy; current = ""; decoy = ""; repeat = ""; dismiss(); work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; message = getString(R.string.decoy_created) } },
-                enabled = current.isNotEmpty() && PasswordPolicy.problem(decoy) == null && decoy == repeat) { Text(stringResource(R.string.decoy_create)) } },
+            confirmButton = { TextButton(onClick = { val c = current; val d = decoy; current = ""; decoy = ""; repeat = ""; dismiss()
+                if (reset) work({ engine.resetDecoyPassword(c, d); null }) { message = getString(R.string.decoy_password_changed) }
+                else work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; message = getString(R.string.decoy_created) } },
+                enabled = current.isNotEmpty() && PasswordPolicy.problem(decoy) == null && decoy == repeat) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun ImportDialogs() {
