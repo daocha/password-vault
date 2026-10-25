@@ -16,7 +16,7 @@ func cardChecks() throws {
     try check(expiry.formatted(expiry.clean("02")) == "02/" && expiry.formatted(expiry.clean("02/26")) == "02/26" && expiry.clean("1") == "1" && expiry.clean("3") == "03"
               && expiry.formatted(expiry.clean("12/1999")) == "12/1999" && expiry.edited("02", from: "02") == "0" && expiry.edited("02/2", from: "02") == "022", "card expiry typed as digits, shown with a slash")
     try check(number.digits("4111 1111 1111 1234") == "4111111111111234" && number.digits("ask the bank") == nil && expiry.digits("03/27") == "0327" && expiry.digits("2027-03") == "0327"
-              && expiry.digits("soon") == nil && Cards.formattedExpiry("0327") == "03/27" && Cards.formattedExpiry("03/27") == "03/27" && Cards.formattedExpiry("soon") == "soon", "card values saved before, or imported, edit as digits")
+              && expiry.digits("soon") == nil && Cards.formattedExpiry("0327") == "03/27" && Cards.formattedExpiry("03/27") == "03/27" && Cards.formattedExpiry("soon") == "soon" && Cards.formattedExpiry("202712") == "202712", "card values saved before, or imported, edit as digits")
     try check(Cards.parseExpiry("13/27") == nil && Cards.parseExpiry("soon") == nil, "invalid card expiry")
     let today = DateComponents(year: 2026, month: 10, day: 25)
     func reminder(_ date: String) -> VaultRecord { var r = VaultRecord(); r.expires = date; return r }
@@ -41,6 +41,8 @@ func cardChecks() throws {
     let before = card("01/28")
     var after = before; after.fields = after.fields.map { var f = $0; if f.label == cardNumberLabel { f.value = "4000056655665556" }; return f }
     try check(after.recordingPasswordChanges(previous: before).fields.first { $0.label == cardNumberLabel }?.history?.map(\.value) == ["4111 1111 1111 1234"], "card number changes kept in history")
+    var digitsOnly = before; digitsOnly.fields = digitsOnly.fields.map { var f = $0; if f.label == cardNumberLabel { f.value = "4111111111111234" }; return f }
+    try check(digitsOnly.recordingPasswordChanges(previous: before).fields.first { $0.label == cardNumberLabel }?.history == nil, "a card number kept as digits is not a change")
     // Android's JSON writes the same keys, so the two apps read each other's records.
     let android = #"[{"id":"c","name":"Bank","website":"","group":"","favorite":false,"updatedAt":"2026-10-25T00:00:00Z","fields":[],"legacy":{},"type":"card","expires":"2027-01-31"}]"#
     try check(try Records.decode(Data(android.utf8)).first.map { $0.isCard && $0.expires == "2027-01-31" } == true, "reads Android card JSON")

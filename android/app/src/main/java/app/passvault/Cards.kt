@@ -58,8 +58,8 @@ object Cards {
     }
     /** An expiry as stored: `MMYY` for years 2000–2099, `MMYYYY` for any other (see [CardInput]). */
     fun expiryDigits(month: YearMonth) = "%02d".format(month.monthValue) + if (month.year in 2000..2099) "%02d".format(month.year % 100) else month.year.toString()
-    /** `MM/YY` for a stored expiry; anything else is shown as stored. */
-    fun formattedExpiry(value: String) = CardInput.expiry.digits(value)?.takeIf { it.length == 4 || it.length == 6 }?.let(CardInput.expiry::formatted) ?: value
+    /** `MM/YY` for a stored expiry; anything else, such as other digits ("202712"), is shown as stored. */
+    fun formattedExpiry(value: String) = CardInput.expiry.digits(value)?.takeIf { parseExpiry(it) != null }?.let(CardInput.expiry::formatted) ?: value
     private fun year(text: String) = if (text.length == 2) 2000 + text.toInt() else text.toInt()
     private fun yearMonth(year: Int, month: Int) = if (month in 1..12 && year in 1900..2999) YearMonth.of(year, month) else null
 }

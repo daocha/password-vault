@@ -48,7 +48,7 @@ class CardsTest {
         // Values saved before this, or imported, are edited as their digits; anything else stays plain text.
         assertEquals("4111111111111234", number.digits("4111 1111 1111 1234")); assertNull(number.digits("ask the bank"))
         assertEquals("0327", expiry.digits("03/27")); assertEquals("0327", expiry.digits("2027-03")); assertNull(expiry.digits("soon"))
-        assertEquals("03/27", Cards.formattedExpiry("0327")); assertEquals("03/27", Cards.formattedExpiry("03/27")); assertEquals("soon", Cards.formattedExpiry("soon"))
+        assertEquals("03/27", Cards.formattedExpiry("0327")); assertEquals("03/27", Cards.formattedExpiry("03/27")); assertEquals("soon", Cards.formattedExpiry("soon")); assertEquals("202712", Cards.formattedExpiry("202712"))
         assertEquals(java.time.LocalDate.of(2026, 2, 28), VaultRecord(type = RecordType.card, fields = defaultFields(RecordType.card).map { if (it.label == CARD_EXPIRY_LABEL) it.copy(value = "0226") else it }).expiryDate)
     }
     @Test fun expiryStateFromReminderOrCard() {
@@ -82,5 +82,7 @@ class CardsTest {
         val before = VaultRecord(type = RecordType.card, fields = defaultFields(RecordType.card).map { if (it.label == CARD_NUMBER_LABEL) it.copy(value = "4111111111111111") else it })
         val after = before.copy(fields = before.fields.map { if (it.label == CARD_NUMBER_LABEL) it.copy(value = "4000056655665556") else it }).recordingPasswordChanges(before)
         assertEquals(listOf("4111111111111111"), after.fields.first { it.label == CARD_NUMBER_LABEL }.history.map { it.value })
+        val spaced = before.copy(fields = before.fields.map { if (it.label == CARD_NUMBER_LABEL) it.copy(value = "4111 1111 1111 1111") else it })
+        assertTrue("same number without spaces", before.recordingPasswordChanges(spaced).fields.first { it.label == CARD_NUMBER_LABEL }.history.isEmpty())
     }
 }

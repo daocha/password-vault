@@ -83,7 +83,8 @@ fun VaultRecord.recordingPasswordChanges(previous: VaultRecord?, changedAt: Inst
     val before = previous.fields.associateBy { it.id }
     return copy(fields = fields.map { field ->
         val old = before[field.id]
-        if (old != null && field.secret && old.value.isNotEmpty() && old.value != field.value)
+        // A card number saved with spaces and now kept as digits ("4111 1111 …" → "41111111…") is the same number, not a change.
+        if (old != null && field.secret && old.value.isNotEmpty() && old.value != field.value && CardInput.of(field.label)?.digits(old.value) != field.value)
             field.copy(history = (field.history + PasswordChange(old.value, changedAt.epochSecond)).sortedByDescending { it.changedAtEpochSeconds }.take(PASSWORD_HISTORY_LIMIT))
         else field
     })

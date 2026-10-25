@@ -120,9 +120,9 @@ public enum Cards {
     public static func expiryDigits(_ month: (year: Int, month: Int)) -> String {
         String(format: "%02d", month.month) + ((2000...2099).contains(month.year) ? String(format: "%02d", month.year % 100) : String(month.year))
     }
-    /// `MM/YY` for a stored expiry; anything else is shown as stored.
+    /// `MM/YY` for a stored expiry; anything else, such as other digits ("202712"), is shown as stored.
     public static func formattedExpiry(_ value: String) -> String {
-        guard let digits = CardInput.expiry.digits(value), [4, 6].contains(digits.count) else { return value }
+        guard let digits = CardInput.expiry.digits(value), parseExpiry(digits) != nil else { return value }
         return CardInput.expiry.formatted(digits)
     }
 }

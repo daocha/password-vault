@@ -83,7 +83,8 @@ extension VaultRecord {
         let before = Dictionary(previous.fields.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var updated = self
         updated.fields = fields.map { field in
-            guard let old = before[field.id], field.secret, !old.value.isEmpty, old.value != field.value else { return field }
+            // A card number saved with spaces and now kept as digits ("4111 1111 …" → "41111111…") is the same number, not a change.
+            guard let old = before[field.id], field.secret, !old.value.isEmpty, old.value != field.value, CardInput.of(field.label)?.digits(old.value) != field.value else { return field }
             var changed = field
             let all = ((field.history ?? []) + [PasswordChange(value: old.value, changedAt: Int64(date.timeIntervalSince1970))]).sorted { $0.changedAt > $1.changedAt }
             changed.history = Array(all.prefix(passwordHistoryLimit))
