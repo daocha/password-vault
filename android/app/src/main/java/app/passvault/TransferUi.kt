@@ -37,6 +37,9 @@ private fun qrBitmap(text: String): ImageBitmap {
     return android.graphics.Bitmap.createBitmap(pixels, matrix.width, matrix.height, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
+/** How long each transfer frame is shown. Any frame helps the receiver, so one it skips costs nothing, and a fast camera reads more. */
+private const val FRAME_MILLIS = 150L
+
 /** Keeps the screen on while it is shown. */
 @Composable private fun KeepScreenOn() {
     val view = LocalView.current
@@ -53,7 +56,7 @@ fun TransferSendScreen(frames: TransferFrames.Sender?, code: String, onSaveFile:
     KeepScreenOn()
     var index by remember { mutableIntStateOf(0) }
     var showCode by remember { mutableStateOf(false) }
-    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(250); index++ } }
+    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(FRAME_MILLIS); index++ } }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.transfer_send)) }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->

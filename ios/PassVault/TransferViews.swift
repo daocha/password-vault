@@ -58,7 +58,8 @@ struct TransferSendView: View {
             .padding()
             .navigationTitle("Send to another phone").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
-            .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { _ in if !showCode && frames != nil { index += 1 } }
+            // As on Android: any frame helps the receiver, so one it skips costs nothing, and a fast camera reads more.
+            .onReceive(Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()) { _ in if !showCode && frames != nil { index += 1 } }
             .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
