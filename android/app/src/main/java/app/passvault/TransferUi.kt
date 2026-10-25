@@ -29,13 +29,10 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import kotlinx.coroutines.delay
 
-/**
- * A QR code one pixel per module (with a 4-module quiet zone); drawn scaled up without smoothing. [mask] (0–7) picks the QR mask pattern,
- * which changes the picture but not the text.
- */
-private fun qrBitmap(text: String, mask: Int): ImageBitmap {
-    val hints = mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 4, EncodeHintType.QR_MASK_PATTERN to mask)
-    val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, hints)
+/** A QR code one pixel per module (with a 4-module quiet zone); drawn scaled up without smoothing. */
+private fun qrBitmap(text: String): ImageBitmap {
+    // ZXing picks the mask pattern that is easiest to read; forcing each of the 8 in turn made a camera read under a quarter of the frames.
+    val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 4))
     val pixels = IntArray(matrix.width * matrix.height) { if (matrix.get(it % matrix.width, it / matrix.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
     return android.graphics.Bitmap.createBitmap(pixels, matrix.width, matrix.height, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
 }
@@ -47,8 +44,8 @@ private fun qrBitmap(text: String, mask: Int): ImageBitmap {
 }
 
 /**
- * The old phone: an animated QR code of the encrypted transfer, every chunk once and then fresh mixes of them (see [TransferFrames]). The one-time code is shown only on request, and the QR code is
- * hidden while it is, so one photo never holds both.
+ * The old phone: an animated QR code of the encrypted transfer, every chunk once and then fresh mixes of them (see [TransferFrames]).
+ * The one-time code is shown only on request, and the QR code is hidden while it is, so one photo never holds both.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,8 +69,7 @@ fun TransferSendScreen(frames: TransferFrames.Sender?, code: String, onSaveFile:
                     }
                 }
             } else if (frames != null) {
-                // Mask patterns take turns too: a camera can fail on one picture of a dense code every time, and reads it drawn another way.
-                val bitmap = remember(frames, index) { qrBitmap(frames.frame(index), index % 8) }
+                val bitmap = remember(frames, index) { qrBitmap(frames.frame(index)) }
                 Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
                     Image(bitmap, null, Modifier.fillMaxSize(), filterQuality = FilterQuality.None)
                 }
