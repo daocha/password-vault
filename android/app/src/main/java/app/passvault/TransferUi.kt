@@ -132,7 +132,7 @@ fun TransferReceiveScreen(owner: LifecycleOwner, onComplete: (ByteArray) -> Unit
             Text(stringResource(R.string.transfer_receive_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             QrScanner(owner, onCode = { text ->
-                if (TransferFrames.isFrame(text)) { reads++; lastRead = System.currentTimeMillis() }
+                if (BuildConfig.DEBUG && TransferFrames.isFrame(text)) { reads++; lastRead = System.currentTimeMillis() }
                 if (finished || !collector.add(text)) return@QrScanner
                 received = collector.received; total = collector.total
                 collector.result()?.let { finished = true; onComplete(it) }

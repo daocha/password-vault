@@ -112,7 +112,8 @@ fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifie
                         val centre = SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(0.5f, 0.5f)
                         val action = FocusMeteringAction.Builder(centre, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
                         focus[0] = { if (!done.get()) runCatching { camera.cameraControl.startFocusAndMetering(action) } }
-                        runCatching { camera.cameraControl.setZoomRatio(TRANSFER_ZOOM.coerceAtMost(camera.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f)) }
+                        // The zoom range may not be known yet; a ratio out of range is then refused and the camera stays at 1x.
+                        runCatching { camera.cameraControl.setZoomRatio(TRANSFER_ZOOM.coerceAtMost(camera.cameraInfo.zoomState.value?.maxZoomRatio ?: TRANSFER_ZOOM)) }
                         lastFocus.set(System.currentTimeMillis()); focus[0]?.invoke()
                     }
                 }
