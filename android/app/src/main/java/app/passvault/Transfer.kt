@@ -26,6 +26,10 @@ object Transfer {
     fun newCode(): String = String(CharArray(CODE_LENGTH) { CODE_ALPHABET[rng.nextInt(CODE_ALPHABET.length)] })
     /** "7K4P-92XM-QD3F". */
     fun display(code: String) = code.chunked(4).joinToString("-")
+    /** What to keep of a code being typed: its letters and digits, upper case, at most 12; the dashes are only shown (see [typingBreaks]). */
+    fun typing(text: String) = text.uppercase().filter { it in 'A'..'Z' || it in '0'..'9' }.take(CODE_LENGTH)
+    /** Where a code being typed shows a dash: after each group of four as soon as it is typed ("FM96" reads "FM96-"), not after the last. */
+    fun typingBreaks(typed: String) = listOf(4, 8).filter { it <= typed.length }
     /** The code as typed (any case, with or without dashes or spaces), or an error naming the problem. */
     fun canonical(typed: String): String {
         val code = typed.uppercase().filter { !it.isWhitespace() && it != '-' }

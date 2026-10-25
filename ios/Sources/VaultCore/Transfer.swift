@@ -18,6 +18,19 @@ public enum Transfer {
     }
     /// "7K4P-92XM-QD3F".
     public static func display(_ code: String) -> String { stride(from: 0, to: code.count, by: 4).map { String(Array(code)[$0..<min(code.count, $0 + 4)]) }.joined(separator: "-") }
+    /// What to keep of a code being typed: its letters and digits, upper case, at most 12; the dashes are only shown.
+    public static func typing(_ text: String) -> String { String(text.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(codeLength)) }
+    /// A code being typed as shown: a dash after each group of four as soon as it is typed ("FM96" reads "FM96-"), not after the last.
+    public static func typingShown(_ typed: String) -> String {
+        var out = ""
+        for (i, c) in typed.enumerated() { out.append(c); if [4, 8].contains(i + 1) { out.append("-") } }
+        return out
+    }
+    /// What to keep when the shown text became `text`. Deleting a dash deletes the character before it, so backspace on "FM96-" leaves "FM9".
+    public static func typingEdited(_ text: String, from kept: String) -> String {
+        let value = typing(text)
+        return value == kept && text.count < typingShown(kept).count ? String(kept.dropLast()) : value
+    }
     /// The code as typed (any case, with or without dashes or spaces).
     public static func canonical(_ typed: String) throws -> String {
         let code = typed.uppercased().filter { !$0.isWhitespace && $0 != "-" }

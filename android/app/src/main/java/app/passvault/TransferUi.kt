@@ -17,7 +17,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,6 +39,19 @@ private fun qrBitmap(text: String): ImageBitmap {
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 4))
     val pixels = IntArray(matrix.width * matrix.height) { if (matrix.get(it % matrix.width, it / matrix.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
     return android.graphics.Bitmap.createBitmap(pixels, matrix.width, matrix.height, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
+}
+
+/** Shows a transfer code being typed in groups of four, as the old phone shows it; the dashes are not part of the text. */
+object TransferCodeTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val typed = text.text; val breaks = Transfer.typingBreaks(typed)
+        val shown = buildString { typed.forEachIndexed { i, c -> append(c); if (i + 1 in breaks) append('-') } }
+        return TransformedText(AnnotatedString(shown), object : OffsetMapping {
+            override fun originalToTransformed(offset: Int) = offset + breaks.count { it <= offset }
+            // The dash after `breaks[i]` characters sits at `breaks[i] + i` in the shown text.
+            override fun transformedToOriginal(offset: Int) = (offset - breaks.withIndex().count { (i, b) -> b + i < offset }).coerceIn(0, typed.length)
+        })
+    }
 }
 
 /** How long each transfer frame is shown. Any frame helps the receiver, so one it skips costs nothing, and a fast camera reads more. */

@@ -621,7 +621,7 @@ struct DecryptImportView: View {
             Form {
                 Section {
                     // The transfer code is read off another screen, so it is typed in the clear.
-                    if transfer { TextField("Transfer code", text: $password).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.body.monospaced()) }
+                    if transfer { TextField("Transfer code", text: Binding(get: { Transfer.typingShown(password) }, set: { password = Transfer.typingEdited($0, from: password) })).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.body.monospaced()) }
                     else { SecureField(keepass ? "Database password" : "File password", text: $password) }
                     if keepass {
                         if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }

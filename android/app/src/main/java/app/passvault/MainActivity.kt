@@ -1094,9 +1094,9 @@ class MainActivity : FragmentActivity() {
             AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(stringResource(when { transfer -> R.string.transfer_import_title; keepass -> R.string.import_kdbx_title; keeper -> R.string.main_keeper_backup_title; else -> R.string.main_encrypted_backup_title })) },
                 text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(when { transfer -> R.string.transfer_import_body; keepass -> R.string.import_kdbx_body; keeper -> R.string.main_keeper_backup_body; else -> R.string.main_encrypted_backup_body }))
-                    // The transfer code is read off another screen, so it is typed in the clear.
-                    if (transfer) OutlinedTextField(backupPassword, { backupPassword = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.transfer_code_label)) }, singleLine = true, shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters, keyboardType = KeyboardType.Ascii), textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
+                    // The transfer code is read off another screen, so it is typed in the clear, with the dashes the other phone shows added for the user.
+                    if (transfer) OutlinedTextField(backupPassword, { backupPassword = Transfer.typing(it) }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.transfer_code_label)) }, singleLine = true, shape = RoundedCornerShape(12.dp),
+                        visualTransformation = TransferCodeTransformation, keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters, keyboardType = KeyboardType.Ascii), textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
                     else SecretInput(stringResource(R.string.main_backup_password), backupPassword, { backupPassword = it })
                     if (keepass) {
                         if (importKeyFile == null) OutlinedButton(onClick = { launchPicker { keyFilePicker.launch(arrayOf("*/*")) } }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Key, null); Text("  " + stringResource(R.string.import_keyfile_choose)) }

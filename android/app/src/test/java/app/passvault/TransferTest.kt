@@ -10,6 +10,9 @@ class TransferTest {
         assertFalse(Transfer.CODE_ALPHABET.any { it in "01ILO" })
         assertEquals("7K4P-92XM-QD3F", Transfer.display("7K4P92XMQD3F"))
         assertEquals("7K4P92XMQD3F", Transfer.canonical(" 7k4p-92xm qd3f "))
+        // Typing keeps letters and digits only; the dashes are shown, not stored.
+        assertEquals("FM96", Transfer.typing("fm96")); assertEquals(listOf(4), Transfer.typingBreaks("FM96")); assertEquals(listOf(4, 8), Transfer.typingBreaks("FM962C3DE4FG"))
+        assertEquals("7K4P92XMQD3F", Transfer.typing("7K4P-92XM-QD3F-EXTRA")); assertEquals(emptyList<Int>(), Transfer.typingBreaks("FM9"))
         for (bad in listOf("7K4P92XMQD3", "7K4P92XMQD3FF", "7K4P92XMQD30", "OK4P92XMQD3F")) assertThrows(bad, IllegalArgumentException::class.java) { Transfer.canonical(bad) }
     }
     @Test fun deflateRoundTripAndLimits() {

@@ -375,6 +375,8 @@ func transferChecks() throws {
     let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../fixtures/transfer").standardized
     for _ in 0..<100 { let c = Transfer.newCode(); try check(c.count == 12 && c.allSatisfy(Transfer.codeAlphabet.contains), "transfer code alphabet") }
     try check(Transfer.display("7K4P92XMQD3F") == "7K4P-92XM-QD3F" && (try Transfer.canonical(" 7k4p-92xm qd3f ")) == "7K4P92XMQD3F", "transfer code formats")
+    try check(Transfer.typing("fm96") == "FM96" && Transfer.typingShown("FM96") == "FM96-" && Transfer.typingShown("FM962C3DE4FG") == "FM96-2C3D-E4FG"
+              && Transfer.typing("7K4P-92XM-QD3F-EXTRA") == "7K4P92XMQD3F" && Transfer.typingEdited("FM96", from: "FM96") == "FM9" && Transfer.typingEdited("FM96-2", from: "FM96") == "FM962", "transfer code typed with dashes shown")
     for bad in ["7K4P92XMQD3", "7K4P92XMQD30", "OK4P92XMQD3F"] { try rejects("bad code \(bad)") { _ = try Transfer.canonical(bad) } }
     var a = VaultRecord(); a.name = "Mail"; var b = VaultRecord.new(type: "card"); b.name = "Visa"
     let code = Transfer.newCode(), sealed = try Transfer.seal([a, b], code: code)
