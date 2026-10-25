@@ -29,9 +29,13 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import kotlinx.coroutines.delay
 
-/** A QR code one pixel per module (with a 4-module quiet zone); drawn scaled up without smoothing. */
-private fun qrBitmap(text: String): ImageBitmap {
-    val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 4))
+/**
+ * A QR code one pixel per module (with a 4-module quiet zone); drawn scaled up without smoothing. [mask] (0–7) picks the QR mask pattern,
+ * which changes the picture but not the text.
+ */
+private fun qrBitmap(text: String, mask: Int): ImageBitmap {
+    val hints = mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 4, EncodeHintType.QR_MASK_PATTERN to mask)
+    val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, hints)
     val pixels = IntArray(matrix.width * matrix.height) { if (matrix.get(it % matrix.width, it / matrix.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
     return android.graphics.Bitmap.createBitmap(pixels, matrix.width, matrix.height, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
 }
@@ -51,8 +55,9 @@ private fun qrBitmap(text: String): ImageBitmap {
 fun TransferSendScreen(frames: List<String>?, code: String, onSaveFile: () -> Unit, onDone: () -> Unit) {
     KeepScreenOn()
     var index by remember { mutableIntStateOf(0) }
+    var pass by remember { mutableIntStateOf(0) }
     var showCode by remember { mutableStateOf(false) }
-    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(250); index = (index + 1) % frames.size } }
+    LaunchedEffect(frames, showCode) { if (frames != null && !showCode) while (true) { delay(250); index = (index + 1) % frames.size; if (index == 0) pass++ } }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.transfer_send)) }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
@@ -68,7 +73,9 @@ fun TransferSendScreen(frames: List<String>?, code: String, onSaveFile: () -> Un
                     }
                 }
             } else if (frames != null) {
-                val bitmap = remember(frames, index) { qrBitmap(frames[index]) }
+                // Each loop draws every frame with the next mask pattern: a camera can fail on one picture of a dense code every time (a
+                // receiver stuck at 135 of 141), and the same frame drawn another way is read.
+                val bitmap = remember(frames, index, pass) { qrBitmap(frames[index], pass % 8) }
                 Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
                     Image(bitmap, null, Modifier.fillMaxSize(), filterQuality = FilterQuality.None)
                 }
