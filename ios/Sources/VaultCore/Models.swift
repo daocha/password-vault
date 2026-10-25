@@ -49,8 +49,13 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
     ]
     public var legacy: [String: String] = [:]
     /// nil or "login" for passwords; "seed" for BIP-39 seed phrases (created on Android) and "totp" for authenticator keys, which never go into CSV.
+    /// "card" (payment card) and "note" (secure note) are listed with the passwords and are not written to CSV either.
     public var type: String? = nil
+    /// Optional reminder date, ISO `yyyy-MM-dd`; nil (omitted from the file) for none. Cards also expire on their own expiry date.
+    public var expires: String? = nil
     public var isLogin: Bool { type == nil || type == "login" }
+    public var isCard: Bool { type == "card" }
+    public var isNote: Bool { type == "note" }
     public init() {}
     public func matches(_ query: String) -> Bool {
         let searchable = [name, website, group] + fields.filter { !$0.secret }.map(\.value) + [totp?.account].compactMap { $0 }
@@ -74,7 +79,7 @@ extension VaultRecord {
     /// stamped `date`. Fields are matched by id; a field that was empty before, or is unchanged, records nothing. Keeps the newest
     /// `passwordHistoryLimit` entries per field. Seed phrases are not tracked.
     public func recordingPasswordChanges(previous: VaultRecord?, at date: Date = Date()) -> VaultRecord {
-        guard let previous, isLogin else { return self }
+        guard let previous, type != "seed", type != "totp" else { return self }
         let before = Dictionary(previous.fields.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var updated = self
         updated.fields = fields.map { field in
@@ -91,7 +96,7 @@ public enum Records {
     public static let maxBytes = 16 * 1024 * 1024
     public static func validate(_ records: [VaultRecord]) throws -> [VaultRecord] {
         guard records.count <= 10000, Set(records.map(\.id)).count == records.count,
-              records.allSatisfy({ $0.fields.count <= 200 && Set($0.fields.map(\.id)).count == $0.fields.count }) else {
+              records.allSatisfy({ $0.fields.count <= 200 && Set($0.fields.map(\.id)).count == $0.fields.count && ($0.expires.map { Expiry.parseDate($0) != nil } ?? true) }) else {
             throw VaultError.invalid("Too many records, fields, or duplicate identifiers.")
         }
         return records

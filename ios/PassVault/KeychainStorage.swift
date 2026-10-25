@@ -81,8 +81,8 @@ final class KeychainStorage: VaultStorage {
     }
     func writeBlob(_ data: Data, id: String) throws { try data.write(to: path(id), options: [.atomic, .completeFileProtection]) }
     func hasBlobs() throws -> Bool { try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).contains { $0.pathExtension == "vault" } }
-    func removeBlobs(except id: String?) throws {
-        for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where url.pathExtension == "vault" && url.deletingPathExtension().lastPathComponent != id {
+    func removeBlobs(keeping ids: Set<String>) throws {
+        for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where url.pathExtension == "vault" && !ids.contains(url.deletingPathExtension().lastPathComponent) {
             try FileManager.default.removeItem(at: url)
         }
     }

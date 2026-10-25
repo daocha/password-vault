@@ -10,7 +10,8 @@
     <!-- Scanning authenticator QR codes. Asked for only when the user taps "Scan QR code". -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
-    <!-- Deliberately no INTERNET permission. Only the GitHub sideload build adds it (src/release), to update itself. -->
+    <!-- Deliberately no INTERNET permission. Only the GitHub sideload build (src/release) and a debug build given a LAN
+         update server (src/lanUpdate) add it, to update themselves. -->
     <application android:localeConfig="@xml/locales_config" android:allowBackup="false" android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false"
         android:label="${appLabel}" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"

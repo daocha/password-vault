@@ -171,6 +171,18 @@ flowchart TD
     I --> J[Delete the plaintext file]
 ```
 
+**Coming from another password manager?** Export from it, copy the file to your phone, and import it the same way. PassVault recognises the format from the file itself:
+
+| From | Export to use | Notes |
+|---|---|---|
+| **KeePass / KeePassXC** | the `.kdbx` database itself, or KeePass XML | Asks for the database password and, if it has one, the key file. Groups, history, expiry dates, custom fields and TOTP keys come across. Twofish databases: switch to AES or ChaCha20 first |
+| **Bitwarden** | JSON (*not* "JSON (Encrypted)"), or CSV | Logins, cards, secure notes and identities (as notes), folders, custom fields, password history and TOTP keys |
+| **1Password** | `.1pux`, or CSV | Logins, credit cards, notes and other items (as notes), tags as groups, password history and one-time passwords |
+| **Chrome, Edge, Firefox, Safari** | the browser's password CSV | |
+| **LastPass, Dashlane, Proton Pass, others** | CSV with name/URL and username/password columns | |
+
+Authenticator keys in these exports become 2FA entries. Attachments are not imported.
+
 **How to import**
 
 1. Transfer the file to your phone locally.
