@@ -1,7 +1,7 @@
 name: Test builds
 
 # Manual, unsigned test builds only. Release signing keys are deliberately NOT stored on GitHub:
-# release builds for Google Play are made locally with scripts/build-android-release.sh.
+# release builds are made locally with scripts/release-github.sh and scripts/build-android-play.sh.
 on:
   workflow_dispatch:
 

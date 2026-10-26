@@ -1,7 +1,7 @@
 name: Android
 
 # CI for every push and pull request: debug build, unit tests and lint. Unsigned debug APK only;
-# release builds for Google Play are made locally with scripts/build-android-release.sh.
+# release builds are made locally with scripts/release-github.sh and scripts/build-android-play.sh.
 on: [push, pull_request]
 
 permissions:
@@ -19,6 +19,9 @@ jobs:
           # v3 defaults to "tools platform-tools"; the obsolete "tools" package makes newer sdkmanager fail.
           packages: platform-tools platforms;android-36 build-tools;35.0.0 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Release script tests
+        run: python3 -m unittest discover -s scripts/tests -v
 
       - name: Build, unit tests and lint
         working-directory: android
