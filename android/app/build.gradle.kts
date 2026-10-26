@@ -45,12 +45,12 @@ android {
         resources { excludes += "org/bouncycastle/**" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    // Release signing comes only from the environment (CI secrets); no key is ever committed.
-    val releaseKeystore = System.getenv("QV_KEYSTORE_FILE")
+    // Release signing comes only from the environment (set by scripts/_signing-common.sh); no key is ever committed.
+    val releaseKeystore = System.getenv("PASSVAULT_KEYSTORE_FILE")
     signingConfigs {
         if (releaseKeystore != null) create("release") {
-            storeFile = file(releaseKeystore); storePassword = System.getenv("QV_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("QV_KEY_ALIAS"); keyPassword = System.getenv("QV_KEY_PASSWORD")
+            storeFile = file(releaseKeystore); storePassword = System.getenv("PASSVAULT_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("PASSVAULT_KEY_ALIAS"); keyPassword = System.getenv("PASSVAULT_KEY_PASSWORD")
         }
     }
     buildTypes {
