@@ -48,5 +48,7 @@ picked up. Never write the address from `.env` into a committed file, commit mes
 
 ## Releases
 
-Releases come from `scripts/release-github.sh`. Release signing comes only from the environment; never commit
-a keystore, password or signing config.
+Releases come from `scripts/release-github.sh`, and Play bundles from `scripts/build-android-play.sh` (see
+`docs/RELEASING.md`). Release signing comes only from the environment; never commit a keystore, password or signing
+config. The release scripts are shared with AquaRestore: keep them identical there, and put anything
+project-specific in `scripts/release-settings.sh`.
