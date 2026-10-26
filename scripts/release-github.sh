@@ -20,7 +20,10 @@ for arg in "$@"; do case "$arg" in
 command -v gh >/dev/null || die "GitHub CLI not found. Install it (brew install gh) and run 'gh auth login'."
 gh auth status >/dev/null 2>&1 || die "Not logged in to GitHub. Run 'gh auth login'."
 cd "$root"
-[ -z "$(git status --porcelain)" ] || die "Uncommitted changes. Commit them first so the tag matches what was built."
+[ -z "$(git status --porcelain --untracked-files=no)" ] || die "Uncommitted changes. Commit them first so the tag matches what was built."
+# Untracked files elsewhere (e.g. release notes at the root) are not part of the build; under android/ or scripts/ they could be.
+untracked="$(git status --porcelain -- android scripts | sed -n 's/^?? //p')"
+[ -z "$untracked" ] || die "Untracked files that could end up in the build: $untracked"
 
 gradle="android/app/build.gradle.kts"
 version="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' "$gradle" | head -1)"
@@ -53,7 +56,8 @@ read -r -p "Tag, push and upload now? [y/N] " yn
 
 if [ "$bumped" = 1 ]; then git add "$gradle"; git commit -q -m "Release $version"; fi
 git tag -a "$tag" -m "PassVault $version"
-git push origin HEAD "$tag"
+# Atomic: if the branch is refused (main is protected), the tag is not pushed either, so no remote tag points off main.
+git push --atomic origin HEAD "$tag" || { git tag -d "$tag" >/dev/null; die "Push refused; nothing was published and the local tag $tag was removed.$([ "$bumped" = 1 ] && echo " The version bump is committed locally: open a pull request for it, then re-run with --skip-build from the merged main.")"; }
 gh release create "$tag" "$apk" "$sums" --verify-tag --title "PassVault $version" ${draft[@]+"${draft[@]}"} --notes "Android sideload APK (Android 11+). Verify the download against the SHA256SUMS file.
 
 **Open source, not independently audited.** Everything stays on your device. Keep a separate backup of anything important."

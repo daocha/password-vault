@@ -48,6 +48,9 @@ if [ -f "$lineage" ]; then
   echo "Key-rotation lineage attached: $lineage"
 fi
 cp app/build/outputs/bundle/playRelease/app-playRelease.aab "$aab"
+# R8 mapping for the Play build: upload it with the AAB so Play Console shows readable crash stack traces.
+mapping="$out/PassVault-$version-$code-play-mapping.txt"
+cp app/build/outputs/mapping/playRelease/mapping.txt "$mapping"
 
 "$apksigner" verify --print-certs -v --min-sdk-version "$min_sdk" "$apk" | sed -n '1,8p'
 # jarsigner -verify exits 0 even for an unsigned jar, so check its verdict and that the signer is our upload key.
@@ -62,6 +65,7 @@ cat <<MSG
 
 Done.
   Play Store upload : $aab
+  Play R8 mapping   : $mapping  (App bundle explorer > Downloads > ReTrace mapping file)
   Sideload APK      : $apk$([ -f "$lineage" ] && echo '  (with key-rotation lineage)')
 Before the next release, increase versionCode in android/app/build.gradle.kts (Play rejects a repeated code).
 MSG
