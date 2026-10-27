@@ -490,11 +490,12 @@ class MainActivity : FragmentActivity() {
             Spacer(Modifier.height(32.dp)); SecretInput(if (exists) stringResource(R.string.main_app_password) else stringResource(R.string.main_new_app_password), password, { password = it })
             if (!exists) {
                 Spacer(Modifier.height(8.dp)); SecretInput(stringResource(R.string.main_repeat_password), confirm, { confirm = it })
+                if (confirm.isNotEmpty() && !samePassword(password, confirm)) Text(stringResource(R.string.main_passwords_dont_match), Modifier.fillMaxWidth().padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 PasswordHint(password)
                 Text(stringResource(R.string.main_no_password_reset), Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 CheckRow(consent, { consent = it }) { Text(stringResource(R.string.main_consent_erase)) }
             }
-            Button(onClick = { val value = password; password = ""; confirm = ""; work({ if (exists) engine.unlock(value) else engine.create(value) }) }, enabled = ready && password.isNotEmpty() && (exists || (password == confirm && consent && PasswordPolicy.problem(password) == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
+            Button(onClick = { val value = password; password = ""; confirm = ""; work({ if (exists) engine.unlock(value) else engine.create(value) }) }, enabled = ready && password.isNotEmpty() && (exists || (samePassword(password, confirm) && consent && PasswordPolicy.problem(password) == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
             if (exists && biometricEnabled) OutlinedButton(onClick = { biometrics() }, enabled = ready, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Default.Fingerprint, null); Text("  " + stringResource(R.string.main_unlock_with_biometrics)) }
             if (exists) Text(stringResource(R.string.main_attempts_remaining, remaining), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1166,6 +1167,8 @@ class MainActivity : FragmentActivity() {
         val days = java.time.Duration.between(at, Instant.now()).toDays().coerceAtLeast(0)
         return when (days) { 0L -> stringResource(R.string.backup_today); 1L -> stringResource(R.string.backup_yesterday); else -> stringResource(R.string.backup_days_ago, days.toInt()) }
     }
+    /** The vault keys on the normalized password, so two spellings that normalize alike are the same password. */
+    private fun samePassword(a: String, b: String) = PasswordText.normalize(a) == PasswordText.normalize(b)
     @Composable private fun PasswordHint(value: String) {
         val problem = if (value.isEmpty()) null else PasswordPolicy.problem(value)
         Text(stringResource(problem ?: if (value.isEmpty()) PasswordPolicy.RULE else R.string.main_password_meets), Modifier.fillMaxWidth().padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = if (problem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
