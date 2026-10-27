@@ -40,6 +40,9 @@ The name "upload" is historical: this is the app's only signing key, for GitHub 
 - Back the keystore and its password up in two places, one offline. Losing it ends updates for GitHub installs.
 - Passwords reach Gradle only through the environment of a single-use Gradle process; tests and lint run in
   a separate process that never sees them.
+- `scripts/print-signing-fingerprint.sh [cert.pem]` prints the key's SHA-256 fingerprint (to compare with Play's
+  **App integrity** page or to register the app for Android developer verification). It needs only a JDK or
+  openssl, not the Android SDK, and never creates a key.
 
 `scripts/rotate-signing-key.sh` makes the key the successor of an older one (by default the Android debug key) so
 phones with builds signed by the old key update in place. The lineage is attached to the GitHub APK only.
@@ -106,14 +109,14 @@ Run `scripts/release-github.sh --play`, then upload the bundle and its mapping f
 ## Keeping the scripts in sync with AquaRestore
 
 `_signing-common.sh`, `build-android-debug.sh`, `build-android-release.sh`, `build-android-play.sh`,
-`release-github.sh`, `rotate-signing-key.sh` and `tests/test_release_workflow.py` are identical in PassVault and
-AquaRestore. Everything project-specific (app name, package, key defaults, build directories, forbidden Play
+`release-github.sh`, `rotate-signing-key.sh`, `print-signing-fingerprint.sh` and `tests/test_release_workflow.py`
+are identical in PassVault and AquaRestore. Everything project-specific (app name, package, key defaults, build directories, forbidden Play
 permissions, release notes, source checks) is in `scripts/release-settings.sh`. Change a shared file in both
 repositories, and check with:
 
 ```bash
 for f in _signing-common.sh build-android-debug.sh build-android-release.sh build-android-play.sh \
-         release-github.sh rotate-signing-key.sh tests/test_release_workflow.py; do
+         release-github.sh rotate-signing-key.sh print-signing-fingerprint.sh tests/test_release_workflow.py; do
   diff -q ~/git/password-vault/scripts/$f ~/git/AquaRestore/scripts/$f
 done
 ```
