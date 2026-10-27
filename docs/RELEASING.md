@@ -109,14 +109,14 @@ Run `scripts/release-github.sh --play`, then upload the bundle and its mapping f
 ## Keeping the scripts in sync with AquaRestore
 
 `_signing-common.sh`, `build-android-debug.sh`, `build-android-release.sh`, `build-android-play.sh`,
-`release-github.sh`, `rotate-signing-key.sh` and `tests/test_release_workflow.py` are identical in PassVault and
-AquaRestore. Everything project-specific (app name, package, key defaults, build directories, forbidden Play
+`release-github.sh`, `rotate-signing-key.sh`, `print-signing-fingerprint.sh` and `tests/test_release_workflow.py`
+are identical in PassVault and AquaRestore. Everything project-specific (app name, package, key defaults, build directories, forbidden Play
 permissions, release notes, source checks) is in `scripts/release-settings.sh`. Change a shared file in both
 repositories, and check with:
 
 ```bash
 for f in _signing-common.sh build-android-debug.sh build-android-release.sh build-android-play.sh \
-         release-github.sh rotate-signing-key.sh tests/test_release_workflow.py; do
+         release-github.sh rotate-signing-key.sh print-signing-fingerprint.sh tests/test_release_workflow.py; do
   diff -q ~/git/password-vault/scripts/$f ~/git/AquaRestore/scripts/$f
 done
 ```
