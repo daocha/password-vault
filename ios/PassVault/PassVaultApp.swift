@@ -24,7 +24,7 @@ import AVFoundation
     @Published var canResetDecoy = false
     /// The transfer being sent, if any; it survives a lock for a while so its code is still there after sharing the file from another app.
     @Published var sending: TransferPayload?
-    private var unlockedAt = Date.distantPast
+    private var backgroundedAt: Date?
     private(set) var engine: VaultEngine? = nil
     private var generation = 0
     init() {
@@ -53,6 +53,7 @@ import AVFoundation
     func setBackupInterval(_ days: Int) { UserDefaults.standard.set(days, forKey: backupPrefix + "backupReminderDays"); loadBackupStatus() }
     var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil) }
     func lock() {
+        SecretClipboard.clearOnLock(); backgroundedAt = nil
         generation += 1; unlocked = false; records = []; decoy = false; hasDecoy = false; canResetDecoy = false
         if let sending, Date() >= sending.expiresAt { self.sending = nil }
         if !backupPrefix.isEmpty { backupPrefix = ""; loadBackupStatus() }
@@ -67,7 +68,7 @@ import AVFoundation
                 let result = try await Task.detached { try work(engine) }.value
                 guard generation == current else { engine.lock(); busy = false; return }
                 if let result {
-                    records = result; unlocked = true; exists = true; unlockedAt = Date()
+                    records = result; unlocked = true; exists = true
                     // Each vault keeps its own backup history, so the decoy shows only its own.
                     decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; canResetDecoy = (try? engine.canResetDecoy()) ?? false; backupPrefix = decoy ? "decoy." : ""; loadBackupStatus()
                     // Only the vault that made a pending transfer may see it again.
@@ -83,7 +84,22 @@ import AVFoundation
             busy = false
         }
     }
-    func checkTimeout() { if unlocked && Date().timeIntervalSince(unlockedAt) >= 300 { lock() } }
+    /// The app left the screen: lock now, or note the time so a later return can lock once the chosen delay has passed.
+    func didEnterBackground() {
+        guard unlocked else { return }
+        switch AppSettings.shared.autoLock.delay {
+        case 0?: lock()
+        case nil: break // Only locking the device does it.
+        default: backgroundedAt = Date()
+        }
+    }
+    func didBecomeActive() {
+        defer { backgroundedAt = nil }
+        guard unlocked, let since = backgroundedAt, let delay = AppSettings.shared.autoLock.delay, Date().timeIntervalSince(since) >= delay else { return }
+        lock()
+    }
+    /// The phone locked: end a pending transfer, and lock the vault when that is the chosen auto-lock.
+    func deviceDidLock() { sending = nil; if AppSettings.shared.autoLock == .deviceLock { lock() } }
     func resetErased() {
         guard let engine else { return }
         do { try engine.resetErasedVault(); erased = false; exists = false; attempts = 10; message = "Create a new vault, then import your backup." }
@@ -125,11 +141,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 .overlay { if phase != .active { Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) } } }
                 .onChange(of: phase) { _, phase in
                     if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
-                    if phase == .background { model.lock() }
+                    if phase == .background { model.didEnterBackground() }
+                    if phase == .active { model.didBecomeActive() }
                 }
                 // Locking the phone (not just leaving the app to share the file) ends a pending transfer.
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in model.sending = nil }
-                .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in model.checkTimeout() }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in model.deviceDidLock() }
         }
     }
 }
@@ -253,6 +269,9 @@ struct RecordIcon: View {
 struct RecordList: View {
     @EnvironmentObject var model: VaultModel
     @State private var query = ""
+    /// The search field is opened from the toolbar and tucks away once the list is dragged; the query stays applied.
+    @State private var searchOpen = false
+    @FocusState private var searchFocused: Bool
     @State private var favorites = false
     @State private var editing: VaultRecord?
     @State private var editingTotp: VaultRecord?
@@ -265,6 +284,15 @@ struct RecordList: View {
     var body: some View {
         NavigationStack {
             List {
+                if searchOpen {
+                    Section {
+                        HStack {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            TextField("Search names, usernames, notes", text: $query).focused($searchFocused).submitLabel(.search)
+                            if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.borderless).accessibilityLabel("Clear search") }
+                        }
+                    }
+                }
                 Section {
                     Picker("Show", selection: $showTotp) { Text("Passwords").tag(false); Text("2FA codes").tag(true) }.pickerStyle(.segmented)
                     Toggle("Favorites only", isOn: $favorites)
@@ -276,9 +304,11 @@ struct RecordList: View {
                         HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless)
                     }
                 }
-                let expiring = model.records.filter { [.expired, .soon].contains($0.expiryState()) }.count
+                let expiring = model.records.filter { $0.needsNotice() }.count
                 if expiring > 0 {
-                    Section { Button { healthFocus = "expiring"; health = true } label: { Label("Expired or expiring soon: \(expiring)", systemImage: "calendar.badge.exclamationmark") } }
+                    Button { healthFocus = "expiring"; health = true } label: {
+                        HStack { Label("Expired or due within 14 days: \(expiring)", systemImage: "calendar.badge.exclamationmark").lineLimit(1); Spacer(); Text("Review") }.font(.footnote)
+                    }.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 }
                 Section(showTotp ? "\(filtered.count) codes" : "\(filtered.count) records") {
                     ForEach(filtered) { record in
@@ -307,11 +337,15 @@ struct RecordList: View {
                 if showTotp && !model.records.contains(where: \.isTotp) { ContentUnavailableView("No 2FA codes", systemImage: "qrcode.viewfinder", description: Text("Tap + and scan the QR code a site shows when you turn on two-factor authentication, or enter its setup key. Codes are generated offline on this device. To move from Google Authenticator, export there and scan its QR code here.")) }
                 else if !showTotp && model.records.isEmpty { ContentUnavailableView("A little peace of mind", systemImage: "lock.shield", description: Text("Add your first password or import your Password Keeper CSV.")) }
             }
-            .navigationTitle("PassVault").navigationBarTitleDisplayMode(.inline).searchable(text: $query, prompt: "Search names, usernames, notes")
+            .navigationTitle("PassVault").navigationBarTitleDisplayMode(.inline)
+            .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
+            .onChange(of: showTotp) { _, _ in query = "" }
+            .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { _ in if searchOpen { searchFocused = false; searchOpen = false } })
             .toolbar {
                 ToolbarItem(placement: .principal) { WordMark().font(.headline) }
                 ToolbarItem(placement: .topBarLeading) { Button("Lock", systemImage: "lock") { model.lock() } }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button("Search", systemImage: "magnifyingglass") { searchOpen.toggle() }.tint(query.isEmpty ? nil : .accentColor)
                     Button("Vault health", systemImage: "heart.text.square") { healthFocus = nil; health = true }
                     Button("Import, export & security", systemImage: "gearshape") { transfer = true }
                     if showTotp {
@@ -335,20 +369,16 @@ struct RecordList: View {
 }
 
 struct RecordEditor: View {
+    @ObservedObject private var settings = AppSettings.shared
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
     @State var record: VaultRecord
     @State private var revealed = Set<String>()
-    @State private var generatorLength = 24
-    @State private var generatorSymbols = true
     @State private var historyField: VaultField?
     var body: some View {
         NavigationStack {
             Form {
-                Section("Password generator") {
-                    Stepper("Length: \(generatorLength)", value: $generatorLength, in: 12...128)
-                    Toggle("Include symbols", isOn: $generatorSymbols)
-                }
+                Section("Password generator") { GeneratorOptionsEditor(options: $settings.generator) }
                 Section(record.isCard ? "Card" : record.isNote ? "Secure note" : "Website or app") {
                     TextField("Name", text: $record.name)
                     if !record.isNote { TextField("Website/App name", text: $record.website).textInputAutocapitalization(.never).autocorrectionDisabled() }
@@ -380,12 +410,12 @@ struct RecordEditor: View {
                                 }
                             }.textInputAutocapitalization(.never).autocorrectionDisabled()
                             HStack {
-                                if field.kind == .password && !cardNumericLabels.contains(field.label) { Button("Generate strong password") { do { field.value = try VaultCrypto.generatePassword(length: generatorLength, symbols: generatorSymbols) } catch { model.message = error.localizedDescription } }.font(.caption).buttonStyle(.borderless) }
+                                if field.kind == .password && !cardNumericLabels.contains(field.label) { Button("Generate strong password") { do { field.value = try VaultCrypto.generatePassword(settings.generator) } catch { model.message = error.localizedDescription } }.font(.caption).buttonStyle(.borderless) }
                                 Spacer()
                                 if !field.historyNewestFirst.isEmpty { Button("History", systemImage: "clock.arrow.circlepath") { historyField = field }.font(.caption).buttonStyle(.borderless) }
-                                Button("Copy", systemImage: "doc.on.doc") {
-                                    UIPasteboard.general.setItems([["public.utf8-plain-text": field.label == cardExpiryLabel ? Cards.formattedExpiry(field.value) : field.value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)])
-                                }.font(.caption).buttonStyle(.borderless)
+                                if settings.allowCopy {
+                                    Button("Copy", systemImage: "doc.on.doc") { SecretClipboard.copy(field.label == cardExpiryLabel ? Cards.formattedExpiry(field.value) : field.value) }.font(.caption).buttonStyle(.borderless)
+                                }
                             }
                         }.padding(.vertical, 4)
                     }.onMove { record.fields.move(fromOffsets: $0, toOffset: $1) }.onDelete { record.fields.remove(atOffsets: $0) }
@@ -415,6 +445,7 @@ struct RecordEditor: View {
 
 /// Earlier values of a password, newest change first. Imported from Password Keeper; unrelated to fields the user names "Previous password".
 struct PasswordHistoryView: View {
+    @ObservedObject private var settings = AppSettings.shared
     let field: VaultField
     @Environment(\.dismiss) var dismiss
     @State private var shown = Set<Int>()
@@ -428,7 +459,7 @@ struct PasswordHistoryView: View {
                     }
                     Spacer()
                     Button { if !shown.insert(index).inserted { shown.remove(index) } } label: { Image(systemName: shown.contains(index) ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(shown.contains(index) ? "Hide" : "Reveal")
-                    Button { UIPasteboard.general.setItems([["public.utf8-plain-text": change.value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)]) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("Copy earlier password")
+                    if settings.allowCopy { Button { SecretClipboard.copy(change.value) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("Copy earlier password") }
                 }
             }.navigationTitle("Password history \(field.label)").navigationBarTitleDisplayMode(.inline).toolbar { Button("Done") { dismiss() } }
         }
@@ -443,11 +474,10 @@ struct ExportDocument: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
 struct TransferView: View {
+    @ObservedObject private var settings = AppSettings.shared
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
     @State private var password = ""
-    @State private var backupPassword = ""
-    @State private var confirmBackup = ""
     @State private var csv = false
     @State private var csvConsent = false
     @State private var importing = false
@@ -536,13 +566,21 @@ struct TransferView: View {
                         Text("CSV files expose every password. Keep them out of spreadsheets: cells may contain formulas. Delete your migration copy after checking the import.").font(.footnote).foregroundStyle(.orange)
                         Toggle("I understand the plaintext export risk", isOn: $csvConsent)
                     } else {
-                        SecureField("Encrypted export password", text: $backupPassword)
-                        SecureField("Repeat password for export", text: $confirmBackup)
-                        Text("Encrypted exports use their own password. Keep it safe; there is no recovery service.").font(.footnote)
+                        Text("Encrypted exports use your app password. Keep it safe; there is no recovery service.").font(.footnote)
                     }
-                    Button("Export all passwords") { export() }.disabled(password.isEmpty || (csv ? !csvConsent : backupPassword != confirmBackup || VaultCrypto.passwordProblem(backupPassword) != nil))
+                    Button("Export all passwords") { export() }.disabled(password.isEmpty || (csv && !csvConsent))
                 }
-                Section("Security") { Text("The vault locks in the background and after five minutes per session. Copied values expire after 30 seconds. Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Unlocking with the app password or biometrics clears failed attempts.").font(.footnote) }
+                Section {
+                    Picker("Auto-lock", selection: $settings.autoLock) { ForEach(AutoLock.allCases) { Text($0.label).tag($0) } }
+                    Toggle("Allow copying", isOn: $settings.allowCopy)
+                    if settings.allowCopy {
+                        Picker("Clear copied text", selection: $settings.clipboardClear) { ForEach(ClipboardClear.allCases) { Text($0.label).tag($0) } }
+                        Toggle("Clear copied text when the vault locks", isOn: $settings.clearClipboardOnLock)
+                    }
+                } header: { Text("Security") } footer: {
+                    Text("Copied values stay on this device only: they are not shared with your other devices through Universal Clipboard. Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Unlocking with the app password or biometrics clears failed attempts.")
+                }
+                Section("Password generator") { GeneratorOptionsEditor(options: $settings.generator) }
             }.navigationTitle("Vault settings").toolbar { Button("Done") { dismiss() } }
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
                     do {
@@ -601,11 +639,11 @@ struct TransferView: View {
     }
     private func export() {
         guard !model.busy, let engine = model.engine else { return }
-        let pass = password, backup = backupPassword, isCSV = csv
-        password = ""; backupPassword = ""; confirmBackup = ""; model.busy = true
+        let pass = password, isCSV = csv
+        password = ""; model.busy = true
         Task {
             do {
-                let data = try await Task.detached { try engine.export(password: pass, backupPassword: backup, csv: isCSV) }.value
+                let data = try await Task.detached { try engine.export(password: pass, csv: isCSV) }.value
                 if model.unlocked { document = ExportDocument(data: data); exporting = true }
             } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
@@ -689,4 +727,21 @@ func exportFileName(_ fileExtension: String) -> String {
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.dateFormat = "yyyy-MM-dd_HH_mm"
     return "passvault_\(formatter.string(from: Date())).\(fileExtension)"
+}
+
+/// Length and character types for generated passwords; at least one type always stays on.
+struct GeneratorOptionsEditor: View {
+    @Binding var options: GeneratorOptions
+    var body: some View {
+        Stepper("Length: \(options.length)", value: $options.length, in: GeneratorOptions.minLength...GeneratorOptions.maxLength)
+        Toggle("Letters", isOn: toggle(\.letters))
+        Toggle("Numbers", isOn: toggle(\.numbers))
+        Toggle("Symbols", isOn: toggle(\.symbols))
+    }
+    private func toggle(_ key: WritableKeyPath<GeneratorOptions, Bool>) -> Binding<Bool> {
+        Binding(get: { options[keyPath: key] }, set: { on in
+            var next = options; next[keyPath: key] = on
+            if next.letters || next.numbers || next.symbols { options = next }
+        })
+    }
 }

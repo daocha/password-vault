@@ -20,6 +20,14 @@ func cardChecks() throws {
     try check(Cards.parseExpiry("13/27") == nil && Cards.parseExpiry("soon") == nil, "invalid card expiry")
     let today = DateComponents(year: 2026, month: 10, day: 25)
     func reminder(_ date: String) -> VaultRecord { var r = VaultRecord(); r.expires = date; return r }
+    try check(!VaultRecord().needsNotice(today: today) && reminder("2026-10-24").needsNotice(today: today) && reminder("2026-11-08").needsNotice(today: today)
+              && !reminder("2026-11-09").needsNotice(today: today), "list notice covers expired and the next 14 days")
+    try check(Expiry.parseDate("+12345-01-01")?.year == 12345 && Expiry.parseDate("12345-01-01") == nil && Expiry.parseDate("2026-1-01") == nil, "expiry dates parse like LocalDate")
+    let dup = try Totp.parseURI("otpauth://totp/A:b?secret=JBSWY3DPEHPK3PXP&issuer=One&issuer=Two")
+    try check(dup.issuer == "Two", "a repeated otpauth key takes the last value")
+    try rejects("otpauth link with a raw space") { _ = try Totp.parseURI("otpauth://totp/A b?secret=JBSWY3DPEHPK3PXP") }
+    try rejects("otpauth link with a bad escape") { _ = try Totp.parseURI("otpauth://totp/A%zz?secret=JBSWY3DPEHPK3PXP") }
+    try check(Character("5").isDecimalDigit && !Character("½").isDecimalDigit && Character("٣").isDecimalDigit, "decimal digits match Kotlin's isDigit")
     try check(VaultRecord().expiryState(today: today) == .none && reminder("2026-10-24").expiryState(today: today) == .expired && reminder("2026-10-25").expiryState(today: today) == .soon
               && reminder("2026-11-24").expiryState(today: today) == .soon && reminder("2026-11-25").expiryState(today: today) == .ok, "reminder expiry states")
     func card(_ expiry: String) -> VaultRecord {
@@ -275,9 +283,9 @@ func decoyChecks() throws {
     try engine.save([harmless])
     try rejects("decoy cannot enable biometrics") { try engine.enableBiometrics(password: decoyPassword) }
     try rejects("decoy cannot remove itself") { try engine.removeDecoy(password: decoyPassword) }
-    try rejects("main password is not accepted inside the decoy vault") { _ = try engine.export(password: main, backupPassword: nil, csv: true) }
+    try rejects("main password is not accepted inside the decoy vault") { _ = try engine.export(password: main, csv: true) }
     try check(!(try engine.unlock(password: decoyPassword)).isEmpty && engine.isDecoy(), "decoy reopens after the failed check")
-    let exported = try engine.export(password: decoyPassword, backupPassword: nil, csv: true)
+    let exported = try engine.export(password: decoyPassword, csv: true)
     try check(String(decoding: exported, as: UTF8.self).contains("Shopping") && !String(decoding: exported, as: UTF8.self).contains("Real bank"), "decoy export holds only decoy entries")
     engine.lock()
 

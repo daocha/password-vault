@@ -91,22 +91,34 @@ public enum Totp {
 
     private static func query(_ components: URLComponents) -> [String: String] {
         var result = [String: String]()
-        for item in components.queryItems ?? [] where result[item.name.lowercased()] == nil { result[item.name.lowercased()] = item.value ?? "" }
+        // A repeated key takes its last value, like Android.
+        for item in components.queryItems ?? [] { result[item.name.lowercased()] = item.value ?? "" }
         return result
+    }
+
+    /// Android parses with `java.net.URI`, which refuses spaces, control characters, a few punctuation marks and bad `%` escapes; so does this.
+    static func isValidURI(_ text: String) -> Bool {
+        let illegal: Set<Character> = ["\"", "<", ">", "\\", "^", "`", "{", "|", "}"]
+        let chars = Array(text)
+        for (i, c) in chars.enumerated() {
+            if c.isWhitespace || c.isNewline || illegal.contains(c) || c.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) { return false }
+            if c == "%" && !(i + 2 < chars.count && chars[i + 1].isHexDigit && chars[i + 2].isHexDigit) { return false }
+        }
+        return true
     }
 
     /// Parses `otpauth://totp/Issuer:account?secret=...`. HOTP (counter-based) accounts are rejected.
     public static func parseURI(_ text: String) throws -> TotpAccount {
-        guard let components = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)), components.scheme?.lowercased() == "otpauth" else { throw VaultError.invalid("Not an authenticator QR code.") }
+        guard isValidURI(text.trimmingCharacters(in: .whitespacesAndNewlines)), let components = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)), components.scheme?.lowercased() == "otpauth" else { throw VaultError.invalid("Not an authenticator QR code.") }
         guard components.host?.lowercased() == "totp" else { throw VaultError.invalid("Only time-based (TOTP) codes are supported.") }
         let params = query(components)
         let label = String(components.path.drop { $0 == "/" })
         let colon = label.firstIndex(of: ":")
-        let labelIssuer = colon.map { String(label[..<$0]).trimmingCharacters(in: .whitespaces) } ?? ""
-        let account = (colon.map { String(label[label.index(after: $0)...]) } ?? label).trimmingCharacters(in: .whitespaces)
+        let labelIssuer = colon.map { String(label[..<$0]).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        let account = (colon.map { String(label[label.index(after: $0)...]) } ?? label).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let secret = params["secret"] else { throw VaultError.invalid("The QR code has no key.") }
         func number(_ name: String, _ fallback: Int) -> Int { guard let value = params[name], !value.isEmpty else { return fallback }; return Int(value) ?? 0 }
-        let issuer = params["issuer"]?.trimmingCharacters(in: .whitespaces) ?? ""
+        let issuer = params["issuer"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let algorithm = params["algorithm"]?.uppercased() ?? ""
         return try TotpAccount(secret: decodeBase32(secret), issuer: issuer.isEmpty ? labelIssuer : issuer, account: account,
                                algorithm: algorithm.isEmpty ? "SHA1" : algorithm, digits: number("digits", 6), period: number("period", 30))

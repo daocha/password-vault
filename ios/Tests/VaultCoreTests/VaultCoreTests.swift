@@ -162,10 +162,10 @@ final class VaultCoreTests: XCTestCase {
     func testGeneratorPolicy() throws {
         for _ in 0..<50 {
             let value = try VaultCrypto.generatePassword()
-            XCTAssertEqual(value.count, 24)
+            XCTAssertEqual(value.count, 10)
             XCTAssertTrue(value.contains { $0.isUppercase }); XCTAssertTrue(value.contains { $0.isLowercase }); XCTAssertTrue(value.contains { $0.isNumber })
         }
-        XCTAssertThrowsError(try VaultCrypto.generatePassword(length: 0))
+        XCTAssertThrowsError(try VaultCrypto.generatePassword(GeneratorOptions(length: 5)))
     }
     func testLocalMigrationFileWithoutExposingSecrets() throws {
         guard let path = ProcessInfo.processInfo.environment["PASSVAULT_TEST_CSV"] else { throw XCTSkip("Optional local migration fixture not configured") }

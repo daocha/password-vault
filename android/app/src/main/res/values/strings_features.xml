@@ -50,7 +50,7 @@
     <string name="health_expiring_body">Expired, or expiring within the next 30 days.</string>
     <string name="health_2fa">Consider two-factor codes</string>
     <string name="health_2fa_body">Well-known services with no 2FA code saved in PassVault. If you already use another authenticator or text messages for them, ignore this.</string>
-    <string name="health_banner_expiring">Expired or expiring soon: %1$d</string>
+    <string name="health_banner_expiring">Expired or due within 14 days: %1$d</string>
     <string name="health_review">Review</string>
     <string name="health_expand">Show</string>
     <string name="health_collapse">Hide</string>

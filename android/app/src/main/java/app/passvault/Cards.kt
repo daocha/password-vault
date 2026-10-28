@@ -108,11 +108,15 @@ val VaultRecord.cardSummary: String get() {
 object Expiry {
     /** Records expiring within this many days count as "expiring soon". */
     const val SOON_DAYS = 30L
+    /** The notice above the list only appears for records expired or due within this many days. */
+    const val NOTICE_DAYS = 14L
     fun parseDate(text: String): LocalDate? = runCatching { LocalDate.parse(text) }.getOrNull()
 }
 /** The date this record needs attention: its reminder date, else (cards) the last day of the card's expiry month. */
 val VaultRecord.expiryDate: LocalDate? get() = Expiry.parseDate(expires)
     ?: if (type == RecordType.card) fields.firstOrNull { it.label == CARD_EXPIRY_LABEL }?.value?.let(Cards::parseExpiry)?.atEndOfMonth() else null
+/** Whether the list notice should count this record: already expired, or due within [Expiry.NOTICE_DAYS]. */
+fun VaultRecord.needsNotice(today: LocalDate = LocalDate.now()): Boolean = expiryDate?.let { !it.isAfter(today.plusDays(Expiry.NOTICE_DAYS)) } == true
 enum class ExpiryState { none, ok, soon, expired }
 fun VaultRecord.expiryState(today: LocalDate = LocalDate.now()): ExpiryState {
     val date = expiryDate ?: return ExpiryState.none

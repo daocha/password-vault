@@ -50,7 +50,7 @@ public enum PasswordStrength {
         // Digits and symbols around a word ("Password123!", "!monkey") do not make it a new password.
         let core = String(lower.drop { !$0.isLetter }.reversed().drop { !$0.isLetter }.reversed())
         func unleet(_ s: String) -> String { String(s.map { leet[$0] ?? $0 }) }
-        return [lower, core, unleet(lower), unleet(core)].contains { $0.unicodeScalars.count >= 3 && common.contains($0) }
+        return [lower, core, unleet(lower), unleet(core)].contains { $0.utf16.count >= 3 && common.contains($0) }
     }
 }
 

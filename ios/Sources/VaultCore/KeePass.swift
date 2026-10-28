@@ -274,7 +274,11 @@ enum KeePassXml {
     /// KDBX 3.1 writes ISO times; KDBX 4 writes Base64 of int64 seconds since 0001-01-01.
     static func time(_ text: String?) -> Date? {
         guard let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
-        if t.contains("-") { return ISO8601DateFormatter().date(from: t) }
+        if t.contains("-") {
+            // Fractional seconds are accepted too, like Android's `Instant.parse`.
+            let plain = ISO8601DateFormatter(), fractional = ISO8601DateFormatter(); fractional.formatOptions.insert(.withFractionalSeconds)
+            return plain.date(from: t) ?? fractional.date(from: t)
+        }
         guard let b = Data(base64Encoded: t), b.count == 8 else { return nil }
         // In floating point: a damaged value near Int64.min would overflow (and crash) as integer arithmetic.
         return Date(timeIntervalSince1970: TimeInterval(Int64(bitPattern: Kdbx.u64(Array(b), 0))) - 62_135_596_800)

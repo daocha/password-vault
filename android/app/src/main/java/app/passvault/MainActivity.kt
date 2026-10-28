@@ -47,6 +47,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -506,6 +507,14 @@ class MainActivity : FragmentActivity() {
     @Composable private fun VaultScreen() {
         var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }; var creating by remember { mutableStateOf(false) }
         val selecting = selected.isNotEmpty(); val haptics = LocalHapticFeedback.current
+        // The search bar is opened from the top bar and tucks away once the user starts scrolling the results; the query stays applied.
+        var searchOpen by remember { mutableStateOf(false) }; val searchFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current; val listState = rememberLazyListState()
+        // The field keeps its own selection so reopening the bar puts the cursor after the text; [query] stays the source of truth.
+        var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(query)) }
+        LaunchedEffect(query) { if (field.text != query) field = androidx.compose.ui.text.input.TextFieldValue(query, androidx.compose.ui.text.TextRange(query.length)) }
+        LaunchedEffect(searchOpen) { if (searchOpen) { field = androidx.compose.ui.text.input.TextFieldValue(query, androidx.compose.ui.text.TextRange(query.length)); searchFocus.requestFocus() } }
+        LaunchedEffect(listState) { snapshotFlow { listState.isScrollInProgress }.collect { if (it && searchOpen) { focusManager.clearFocus(); searchOpen = false } } }
         val type = tab; val seedTab = tab == RecordType.seed; val totpTab = tab == RecordType.totp
         val ofType = records.filter { it.type.tab == type }
         val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
@@ -523,7 +532,7 @@ class MainActivity : FragmentActivity() {
                         if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { openHealth() }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, stringResource(R.string.main_search), tint = if (query.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current) }; IconButton(onClick = { openHealth() }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
             floatingActionButton = { if (!selecting) Box {
                 ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
@@ -535,12 +544,12 @@ class MainActivity : FragmentActivity() {
                 }
             } }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = if (searchOpen) 12.dp else 0.dp)) {
                     listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
-                        SegmentedButton(tab == t, { tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        SegmentedButton(tab == t, { if (tab != t) query = ""; tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
-                TextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(stringResource(R.string.main_search)) }, leadingIcon = { Icon(Icons.Default.Search, null) },
+                if (searchOpen) TextField(field, { field = it; query = it.text }, Modifier.fillMaxWidth().focusRequester(searchFocus), placeholder = { Text(stringResource(R.string.main_search)) }, leadingIcon = { Icon(Icons.Default.Search, null) },
                     trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, stringResource(R.string.main_clear_search)) } }, singleLine = true, shape = RoundedCornerShape(28.dp),
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
                 LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -556,8 +565,8 @@ class MainActivity : FragmentActivity() {
                     AttentionBanner(Icons.Outlined.SaveAlt, if (last == null) stringResource(R.string.backup_banner_never) else stringResource(R.string.backup_banner_due, backupAge(last), BackupReminder.changedSince(records, last)),
                         stringResource(R.string.backup_now), onDismiss = { backups.snooze(); loadBackupStatus() }) { settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }
                 }
-                val expiring = remember(records) { records.count { it.expiryState() == ExpiryState.expired || it.expiryState() == ExpiryState.soon } }
-                if (expiring > 0 && !selecting) AttentionBanner(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { openHealth(HealthSection.expiring) }
+                val expiring = remember(records) { records.count { it.needsNotice() } }
+                if (expiring > 0 && !selecting) SlimNotice(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { openHealth(HealthSection.expiring) }
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconBadge(when (tab) { RecordType.seed -> Icons.Outlined.AccountBalanceWallet; RecordType.totp -> Icons.Outlined.Pin; else -> Icons.Outlined.Key }, 72.dp); Spacer(Modifier.height(16.dp))
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_no_seed_phrases; RecordType.totp -> R.string.totp_empty_title; else -> R.string.main_peace_of_mind }), style = MaterialTheme.typography.titleLarge)
@@ -565,7 +574,7 @@ class MainActivity : FragmentActivity() {
                 } else Text(stringResource(when (tab) { RecordType.seed -> R.string.main_count_of_seeds; RecordType.totp -> R.string.totp_count; else -> R.string.main_count_of_entries }, visible.size, ofType.size), Modifier.padding(start = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 // One clock for every visible code, so they all change together.
                 val now = if (totpTab) rememberNowMillis() else 0L
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 96.dp)) {
+                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(visible, key = { it.id }) { record ->
                         val totp = if (record.type == RecordType.totp) remember(record) { record.totp } else null
                         val subtitle = when (record.type) {
