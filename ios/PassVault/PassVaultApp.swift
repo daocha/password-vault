@@ -170,6 +170,7 @@ struct UnlockView: View {
                     SecureField("Master passphrase", text: $password).textContentType(.password)
                     if !model.exists {
                         SecureField("Repeat passphrase", text: $confirmation)
+                        PasswordMismatch(password: password, repeated: confirmation)
                         Text("\(VaultCrypto.passwordProblem(password) ?? VaultCrypto.passwordRule) There is no password reset or cloud recovery.").font(.footnote)
                         Toggle("I understand: 10 failed password attempts erase the local vault", isOn: $acknowledge)
                     }
@@ -177,7 +178,7 @@ struct UnlockView: View {
                         let value = password; password = ""; confirmation = ""
                         let exists = model.exists
                         model.run { engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }
-                    }.disabled(password.isEmpty || (!model.exists && (password != confirmation || !acknowledge)))
+                    }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
                         Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { model.run { try $0.unlockBiometric() } }
                         Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(.secondary)
@@ -186,6 +187,18 @@ struct UnlockView: View {
             }
             .confirmationDialog("Start a new empty vault? Your erased records cannot be recovered without a backup.", isPresented: $resetConfirmation) { Button("Create new vault") { model.resetErased() } }
         }
+    }
+}
+
+/// The vault keys on the normalized password, so two spellings that normalize alike are the same password.
+func samePassword(_ a: String, _ b: String) -> Bool { PasswordText.normalize(a) == PasswordText.normalize(b) }
+
+/// "Passwords don't match." under a repeat field once something is typed in it.
+struct PasswordMismatch: View {
+    let password: String
+    let repeated: String
+    var body: some View {
+        if !repeated.isEmpty && !samePassword(password, repeated) { Text("Passwords don't match.").font(.footnote).foregroundStyle(.red) }
     }
 }
 
@@ -464,11 +477,12 @@ struct TransferView: View {
                             if model.canResetDecoy {
                                 SecureField("New decoy password", text: $decoyPassword)
                                 SecureField("Repeat decoy password", text: $confirmDecoy)
+                                PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
                                 if !decoyPassword.isEmpty { Text(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.").font(.footnote) }
                                 Button("Change decoy password") {
                                     let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
                                     model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: { model.message = "Decoy password changed." })
-                                }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || decoyPassword != confirmDecoy)
+                                }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
                             } else {
                                 Text("This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again.").font(.footnote)
                             }
@@ -476,11 +490,12 @@ struct TransferView: View {
                         } else {
                             SecureField("Decoy password", text: $decoyPassword)
                             SecureField("Repeat decoy password", text: $confirmDecoy)
+                            PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
                             if !decoyPassword.isEmpty { Text(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.").font(.footnote) }
                             Button("Set up decoy vault") {
                                 let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
                                 model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.canResetDecoy = true; model.message = "Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it." })
-                            }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || decoyPassword != confirmDecoy)
+                            }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
                         }
                     } header: { Text("Decoy vault") } footer: {
                         Text("A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden. To fill it, lock PassVault and unlock with the decoy password. This section is not shown inside the decoy vault. Face ID / Touch ID always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone could still tell that a second vault exists.")
@@ -489,10 +504,11 @@ struct TransferView: View {
                 Section("Change master password") {
                     SecureField("New passphrase", text: $newPassword)
                     SecureField("Repeat new passphrase", text: $confirmNew)
+                    PasswordMismatch(password: newPassword, repeated: confirmNew)
                     Button("Change password") {
                         let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
                         model.run { try $0.changePassword(current: current, new: next); return nil }
-                    }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || newPassword != confirmNew)
+                    }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || !samePassword(newPassword, confirmNew))
                     Text(model.decoy ? "Existing exported backups keep their original password." : "Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again above.").font(.footnote)
                 }
                 Section {
