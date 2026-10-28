@@ -37,7 +37,7 @@ No account · No server · No analytics · No cloud sync
 
 ## 📑 Contents
 
-[✨ Features](#-features) · [📥 Download](#-download-android) · [🍎 Build for iOS](#-build-for-ios) · [🤖 Build for Android](#-build-for-android) · [🚚 Moving your passwords in](#-moving-your-passwords-in) · [🔢 Adding 2FA codes](#-adding-2fa-codes) · [🛡️ Security checks](#%EF%B8%8F-security-checks) · [✅ Project status](#-project-status)
+[✨ Features](#-features) · [📥 Download](#-download-android) · [🍎 Build for iOS](#-build-for-ios) · [🤖 Build for Android](#-build-for-android) · [🚚 Moving your passwords in](#-moving-your-passwords-in) · [🔢 Adding 2FA codes](#-adding-2fa-codes) · [🛡️ Security checks](#%EF%B8%8F-security-checks) · [✅ Project status](#-project-status) · [📜 License](#-license)
 
 ---
 
@@ -263,3 +263,15 @@ With full Xcode you can also run `swift test --package-path ios`. Build tools ne
 
 - ⏳ Full iOS build in Xcode, on-device UI testing (including camera QR scanning) and biometric behavior.
 - ⏳ XCTest, which was unavailable on the development Mac (no full Xcode, Android SDK or JDK at first).
+
+---
+
+## 📜 License
+
+PassVault is licensed under the [GNU General Public License v3.0 only](LICENSE) (GPL-3.0-only). Third-party libraries keep their own licenses, and the KeePass test files in `fixtures/kdbxweb` are MIT-licensed by their authors (see [`fixtures/kdbxweb/LICENSE`](fixtures/kdbxweb/LICENSE)).
+
+**Name and icon.** The PassVault name and app icon are not covered by the license. A fork must use its own name, icon and app ID, so that nobody can mistake it for an official build.
+
+**Brand logos.** The logos of other services bundled with the app (`brand_*` images) are trademarks of their owners and are not covered by the license. They are only there to help you recognise your accounts and do not imply any endorsement.
+
+**Contributions.** By submitting a contribution, you license it under GPL-3.0-only and also allow DCHA to distribute it under other terms, including in official builds on the App Store and Google Play.
