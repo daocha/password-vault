@@ -3,6 +3,7 @@ package app.passvault
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
@@ -17,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.AnnotatedString
@@ -207,6 +209,16 @@ fun ExpiryField(value: String, change: (String) -> Unit) {
             dismissButton = { TextButton(onClick = { picking = false }) { Text(stringResource(R.string.main_cancel)) } }) {
             DatePicker(state, title = { Text(stringResource(R.string.rec_expiry_reminder), Modifier.padding(start = 24.dp, top = 16.dp)) })
         }
+    }
+}
+
+/** A slim, permanent one-line notice above the list; unlike [AttentionBanner] it cannot be dismissed. */
+@Composable
+fun SlimNotice(icon: ImageVector, text: String, action: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(18.dp))
+        Text(text, Modifier.weight(1f).padding(horizontal = 8.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
 

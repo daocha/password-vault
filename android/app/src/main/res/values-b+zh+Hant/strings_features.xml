@@ -48,7 +48,7 @@
     <string name="health_expiring_body">已到期，或將在 30 天內到期。</string>
     <string name="health_2fa">建議使用雙重驗證碼</string>
     <string name="health_2fa_body">這些常見服務在 PassVault 中沒有儲存雙重驗證碼。如果你已使用其他驗證器或簡訊驗證，可以忽略。</string>
-    <string name="health_banner_expiring">已到期或即將到期：%1$d 項</string>
+    <string name="health_banner_expiring">已到期或 14 天內到期：%1$d 項</string>
     <string name="health_review">查看</string>
     <string name="health_expand">展開</string>
     <string name="health_collapse">收合</string>

@@ -300,12 +300,12 @@ public final class VaultEngine: @unchecked Sendable {
         value.decoy = nil; value.decoyChanges = nil; try write(value)
         try storage.removeBlobs(keeping: [value.blob])
     } }
-    public func export(password: String, backupPassword: String?, csv: Bool) throws -> Data { try serialized {
+    /// Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password.
+    public func export(password: String, csv: Bool) throws -> Data { try serialized {
         guard key != nil else { throw VaultError.locked }
         var candidate = try authenticate(password).key; defer { candidate.resetBytes(in: 0..<candidate.count) }
         if csv { return Data(try VaultCSV.exportRecords(records).utf8) }
-        guard let backupPassword else { throw VaultError.invalid("A backup password is required.") }
-        return try VaultCrypto.exportBackup(records, password: backupPassword)
+        return try VaultCrypto.exportBackup(records, password: password)
     } }
     /// Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code.
     public func exportTransfer(password: String) throws -> (code: String, data: Data) { try serialized {

@@ -8,10 +8,8 @@ import VaultCore
 /// "123 456", "1234 5678": codes are easier to read and type in two halves.
 func formatTotpCode(_ code: String) -> String { code.count < 6 ? code : String(code.prefix(code.count / 2)) + " " + String(code.dropFirst(code.count / 2)) }
 
-/// Same clipboard policy as passwords: this device only, expiring after 30 seconds.
-func copyLocally(_ value: String) {
-    UIPasteboard.general.setItems([["public.utf8-plain-text": value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)])
-}
+/// Same clipboard policy as passwords: see `SecretClipboard`.
+@MainActor func copyLocally(_ value: String) { SecretClipboard.copy(value) }
 
 /// Ring that empties as the current code ages, with the seconds left inside; red for the last five seconds.
 struct TotpCountdown: View {
@@ -29,6 +27,7 @@ struct TotpCountdown: View {
 
 /// A list row with the live code; tapping the code copies it.
 struct TotpRow: View {
+    @ObservedObject private var settings = AppSettings.shared
     let record: VaultRecord
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -43,7 +42,7 @@ struct TotpRow: View {
                     let code = totp.code(at: context.date)
                     Button { copyLocally(code) } label: {
                         Text(formatTotpCode(code)).font(.title3.monospaced().weight(.semibold)).foregroundStyle(totp.remaining(at: context.date) <= 5 ? Color.red : Color.accentColor)
-                    }.buttonStyle(.borderless).accessibilityLabel("Copy code")
+                    }.buttonStyle(.borderless).disabled(!settings.allowCopy).accessibilityLabel("Copy code")
                     TotpCountdown(account: totp, date: context.date)
                 } else {
                     Image(systemName: "exclamationmark.triangle").foregroundStyle(.red).accessibilityLabel("This 2FA entry is damaged and cannot make codes.")
@@ -56,6 +55,7 @@ struct TotpRow: View {
 /// Adds or edits an authenticator account: scan its QR code, read it from a screenshot, or type the setup key.
 /// A Google Authenticator export QR holds several accounts and is offered for import instead of filling the form.
 struct TotpEditor: View {
+    @ObservedObject private var settings = AppSettings.shared
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
     let original: VaultRecord
@@ -129,7 +129,7 @@ struct TotpEditor: View {
                                 Text(formatTotpCode(candidate.code(at: context.date))).font(.title2.monospaced().weight(.semibold)).foregroundStyle(.tint)
                                 Spacer()
                                 TotpCountdown(account: candidate, date: context.date)
-                                Button("Copy", systemImage: "doc.on.doc") { copyLocally(candidate.code()) }.labelStyle(.iconOnly).buttonStyle(.borderless)
+                                if settings.allowCopy { Button("Copy", systemImage: "doc.on.doc") { copyLocally(candidate.code()) }.labelStyle(.iconOnly).buttonStyle(.borderless) }
                             }
                         }
                     }

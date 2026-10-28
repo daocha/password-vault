@@ -40,16 +40,32 @@ extension VaultRecord {
     }
 }
 
+extension VaultRecord {
+    /// Whether the list notice counts this record: already expired, or due within `Expiry.noticeDays`.
+    public func needsNotice(today: DateComponents = Expiry.today()) -> Bool {
+        guard let date = expiryDate else { return false }
+        return Expiry.dayNumber(date) <= Expiry.dayNumber(today) + Expiry.noticeDays
+    }
+}
+
 public enum ExpiryState: Sendable { case none, ok, soon, expired }
 
 /// Calendar days as `yyyy-MM-dd`, compared without time zones (Gregorian, like Android's `LocalDate`).
 public enum Expiry {
     public static let soonDays = 30
+    /// The notice above the list only appears for records expired or due within this many days.
+    public static let noticeDays = 14
     static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }()
     public static func parseDate(_ text: String) -> DateComponents? {
         let parts = text.split(separator: "-", omittingEmptySubsequences: false)
-        guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
-              let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
+        // Like `LocalDate.parse`: a year is four digits, or up to ten with a leading "+" (or "-").
+        guard parts.count == 3, parts[1].count == 2, parts[2].count == 2, parts[0].count >= 4,
+              parts[1].allSatisfy({ $0.isASCII && $0.isNumber }), parts[2].allSatisfy({ $0.isASCII && $0.isNumber }),
+              let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
+        let signed = parts[0].first == "+" || parts[0].first == "-", yearDigits = signed ? parts[0].dropFirst() : parts[0][...]
+        guard yearDigits.allSatisfy({ $0.isASCII && $0.isNumber }), yearDigits.count == 4 || (signed && (5...10).contains(yearDigits.count)),
+              let magnitude = Int(yearDigits) else { return nil }
+        let y = parts[0].first == "-" ? -magnitude : magnitude
         let components = DateComponents(year: y, month: m, day: d)
         guard let date = calendar.date(from: components), calendar.dateComponents([.year, .month, .day], from: date) == components else { return nil }
         return components
@@ -76,10 +92,15 @@ public enum Expiry {
     }
 }
 
+extension Character {
+    /// Unicode decimal digits only, like Kotlin's `isDigit` (`isNumber` also accepts fractions and numerals such as "½").
+    public var isDecimalDigit: Bool { unicodeScalars.count == 1 && unicodeScalars.first!.properties.generalCategory == .decimalNumber }
+}
+
 public enum Cards {
     /// The card network for a number, from its leading digits, or nil when unknown.
     public static func brand(_ number: String) -> String? {
-        let digits = number.filter(\.isNumber)
+        let digits = number.filter(\.isDecimalDigit)
         guard digits.count >= 2 else { return nil }
         func prefix(_ n: Int) -> Int { digits.count >= n ? Int(digits.prefix(n)) ?? -1 : -1 }
         if digits.hasPrefix("4") { return "Visa" }
@@ -93,14 +114,14 @@ public enum Cards {
     }
     /// Digits in groups of four (American Express: 4-6-5), for display only.
     public static func formatted(_ number: String) -> String {
-        let digits = Array(number.filter(\.isNumber))
+        let digits = Array(number.filter(\.isDecimalDigit))
         guard digits.count >= 8, digits.count == number.filter({ !$0.isWhitespace && $0 != "-" }).count else { return number }
         let groups = brand(String(digits)) == "American Express" && digits.count == 15 ? [4, 6, 5] : Array(repeating: 4, count: (digits.count + 3) / 4)
         var out = [String](), index = 0
         for size in groups where index < digits.count { out.append(String(digits[index..<min(digits.count, index + size)])); index += size }
         return out.joined(separator: " ")
     }
-    public static func lastFour(_ number: String) -> String { String(number.filter(\.isNumber).suffix(4)) }
+    public static func lastFour(_ number: String) -> String { String(number.filter(\.isDecimalDigit).suffix(4)) }
     /// Reads `MM/YY`, `MM/YYYY`, `MM-YY`, `YYYY-MM`, `MMYY` or `MMYYYY`, as printed on cards and exported by other managers.
     public static func parseExpiry(_ text: String) -> (year: Int, month: Int)? {
         let t = text.trimmingCharacters(in: .whitespaces)

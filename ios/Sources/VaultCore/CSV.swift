@@ -4,7 +4,8 @@ public enum VaultCSV {
     private static let contentColumns: Set<String> = ["url", "username", "password", "extra", "name", "grouping", "fav", "customFields", "vaultFields"]
     public static func parse(_ text: String) throws -> [[String]] {
         guard text.utf8.count <= Records.maxBytes else { throw VaultError.invalid("CSV exceeds 16 MiB.") }
-        let chars = Array(text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text)
+        // By scalar, not grapheme cluster, so a quote or comma followed by a combining mark still splits like it does on Android.
+        let chars = (text.hasPrefix("\u{FEFF}") ? Array(text.unicodeScalars.dropFirst()) : Array(text.unicodeScalars)).map(Character.init)
         var rows = [[String]](), row = [String](), value = "", quoted = false, closed = false, i = 0
         while i < chars.count {
             let c = chars[i]
@@ -39,7 +40,7 @@ public enum VaultCSV {
             if let native = cells["vaultFields"], !native.isEmpty {
                 var record = VaultRecord()
                 record.name = cells["name"] ?? ""; record.website = cells["url"] ?? ""
-                record.group = cells["grouping"] ?? ""; record.favorite = cells["fav"] == "1"
+                record.group = cells["grouping"] ?? ""; record.favorite = cells["fav"] == "1" || cells["fav"] == "true"
                 record.fields = try JSONDecoder().decode([VaultField].self, from: Data(native.utf8))
                 record.legacy = cells.filter { !contentColumns.contains($0.key) }
                 return record

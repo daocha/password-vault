@@ -123,15 +123,16 @@ public enum VaultCrypto {
         if password.utf8.count > PasswordText.maxBytes { return "Use at most 4096 UTF-8 bytes." }
         if !password.contains(where: \.isUppercase) { return "Add an uppercase letter." }
         if !password.contains(where: \.isLowercase) { return "Add a lowercase letter." }
-        if !password.contains(where: \.isNumber) { return "Add a number." }
-        if !password.contains(where: { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }) { return "Add a symbol." }
+        if !password.contains(where: \.isDecimalDigit) { return "Add a number." }
+        if !password.contains(where: { !$0.isLetter && !$0.isDecimalDigit && !$0.isWhitespace }) { return "Add a symbol." }
         return nil
     }
     public static func requireStrongPassword(_ password: String) throws {
         if let problem = passwordProblem(password) { throw VaultError.invalid(problem) }
     }
+    /// `password` is the verified app password, which met the policy in force when it was set, so it is not re-checked here.
     public static func exportBackup(_ records: [VaultRecord], password: String) throws -> Data {
-        try requireStrongPassword(password)
+        guard !password.isEmpty, PasswordText.normalize(password).utf8.count <= PasswordText.maxBytes else { throw VaultError.invalid("Unsupported password.") }
         let profile = KdfProfile.backup
         let salt = random(16), header = BackupFormat.header(profile: profile, salt: salt)
         var key = try passwordKey(password, salt: salt, profile: profile)
@@ -154,13 +155,25 @@ public enum VaultCrypto {
         }
         throw VaultError.authentication
     }
-    public static func generatePassword(length: Int = 24, symbols: Bool = true) throws -> String {
-        guard (12...128).contains(length) else { throw VaultError.invalid("Choose 12–128 characters.") }
-        let sets = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789"] + (symbols ? ["!@#$%^&*()-_=+[]{}:,.?"] : [])
+    public static func generatePassword(_ options: GeneratorOptions = GeneratorOptions()) throws -> String {
+        let sets = options.sets
+        guard !sets.isEmpty else { throw VaultError.invalid("Choose at least one character type.") }
+        guard (GeneratorOptions.minLength...GeneratorOptions.maxLength).contains(options.length), options.length >= sets.count else { throw VaultError.invalid("Choose \(GeneratorOptions.minLength)–\(GeneratorOptions.maxLength) characters.") }
         let alphabet = Array(sets.joined())
         while true {
-            let chars = (0..<length).map { _ in alphabet[Int(randombytes_uniform(UInt32(alphabet.count)))] }
+            let chars = (0..<options.length).map { _ in alphabet[Int(randombytes_uniform(UInt32(alphabet.count)))] }
             if sets.allSatisfy({ set in chars.contains { set.contains($0) } }) { return String(chars) }
         }
+    }
+}
+
+/// What the password generator may use; the same defaults and limits as Android's `GeneratorOptions`.
+public struct GeneratorOptions: Equatable, Sendable {
+    public static let minLength = 6, maxLength = 64
+    public var length = 10, letters = true, numbers = true, symbols = true
+    public init(length: Int = 10, letters: Bool = true, numbers: Bool = true, symbols: Bool = true) { self.length = length; self.letters = letters; self.numbers = numbers; self.symbols = symbols }
+    // Look-alike characters (O/0, l/1/I) are left out.
+    var sets: [String] {
+        (letters ? ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz"] : []) + (numbers ? ["23456789"] : []) + (symbols ? ["!@#$%^&*()-_=+[]{}:,.?"] : [])
     }
 }

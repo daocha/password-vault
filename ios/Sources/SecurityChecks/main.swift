@@ -163,9 +163,13 @@ do {
     try rejects("recreate over orphaned vault") { _ = try engine2.create(password: password) }
     for _ in 0..<50 {
         let value = try VaultCrypto.generatePassword()
-        try check(value.count == 24 && value.contains(where: { $0.isUppercase }) && value.contains(where: { $0.isLowercase }) && value.contains(where: { $0.isNumber }), "generator policy")
+        try check(value.count == 10 && value.contains(where: { $0.isUppercase }) && value.contains(where: { $0.isLowercase }) && value.contains(where: { $0.isNumber }) && value.contains(where: { !$0.isLetter && !$0.isNumber }), "generator policy")
+        let digits = try VaultCrypto.generatePassword(GeneratorOptions(length: 6, letters: false, numbers: true, symbols: false))
+        try check(digits.count == 6 && digits.allSatisfy(\.isNumber), "generator honours the enabled character types")
     }
-    try rejects("invalid generator length") { _ = try VaultCrypto.generatePassword(length: 0) }
+    try rejects("invalid generator length") { _ = try VaultCrypto.generatePassword(GeneratorOptions(length: 5)) }
+    try rejects("generator length above the limit") { _ = try VaultCrypto.generatePassword(GeneratorOptions(length: 65)) }
+    try rejects("generator with nothing enabled") { _ = try VaultCrypto.generatePassword(GeneratorOptions(letters: false, numbers: false, symbols: false)) }
     func brandId(_ website: String, _ name: String = "") -> String? { findBrand(website: website, name: name)?.id }
     try check(brandId("Spotify") == "spotify" && brandId("spotify.com") == "spotify" && brandId("https://open.spotify.com/track/1?x=y") == "spotify" && brandId("", "SPOTIFY") == "spotify", "brand by name or domain")
     try check(brandId("www.github.com") == "github" && brandId("mail.google.com") == "google" && brandId("Gmail") == "google" && brandId("twitter.com") == "x", "brand subdomains and aliases")
