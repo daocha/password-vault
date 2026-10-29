@@ -64,7 +64,13 @@ internal class AppUpdates(
             if (release != null) ui = UpdateUi(source, UpdatePhase.AVAILABLE, release!!.version)
             pendingApk = prefs.getString("pending_apk", null)?.takeIf { it.matches(Regex("PassVault-[0-9]+\\.apk")) }
                 ?.let { File(File(activity.cacheDir, "updates"), it) }?.takeIf(File::isFile)
+                // A download already installed (this build or older) is no longer needed.
+                ?.takeIf { it.name.removePrefix("PassVault-").removeSuffix(".apk").toLong() > BuildConfig.VERSION_CODE }
+            if (pendingApk == null) prefs.edit().remove("pending_apk").apply()
         }
+        // The installer reads the APK after we hand it over, so it cannot be deleted then: clear every earlier download (and
+        // interrupted .part files) here instead, keeping only one still waiting to be installed.
+        File(activity.cacheDir, "updates").listFiles()?.filter { it != pendingApk }?.forEach { it.delete() }
     }
 
     fun onResume() {
