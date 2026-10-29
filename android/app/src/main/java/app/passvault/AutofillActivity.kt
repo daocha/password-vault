@@ -173,7 +173,7 @@ class AutofillActivity : FragmentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun PickScreen(logins: List<VaultRecord>) {
         var query by remember { mutableStateOf("") }; var confirming by remember { mutableStateOf<VaultRecord?>(null) }
-        val suggested = remember(logins) { logins.filter { AutofillMatch.matches(it, form.target) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() })) }
+        val suggested = remember(logins) { logins.filter { AutofillMatch.matches(it, form.target, targetName.takeIf { form.target.site == null }) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() })) }
         val shown = if (query.isBlank()) (if (suggested.isEmpty()) logins.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() })) else suggested)
             else logins.filter { it.matches(query) }.sortedWith(compareBy({ it !in suggested }, { !it.favorite }, { it.name.lowercase() }))
         Scaffold(containerColor = MaterialTheme.colorScheme.background,

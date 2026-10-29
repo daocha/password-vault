@@ -9,6 +9,7 @@ import android.view.autofill.AutofillId
 class AutofillForm(val username: AutofillId?, val password: AutofillId?, val target: AutofillTarget) {
     val ids get() = listOfNotNull(username, password)
     companion object {
+        private val INPUT_CLASSES = setOf(InputType.TYPE_CLASS_TEXT, InputType.TYPE_CLASS_PHONE, InputType.TYPE_CLASS_NUMBER)
         /** The login fields in [structure], or null when it has none. */
         fun parse(structure: AssistStructure): AutofillForm? {
             val packageName = structure.activityComponent?.packageName ?: return null
@@ -20,8 +21,9 @@ class AutofillForm(val username: AutofillId?, val password: AutofillId?, val tar
                     val html = node.htmlInfo?.attributes.orEmpty().associate { it.first.lowercase() to it.second.orEmpty() }
                     val field = AutofillFields.classify(node.autofillHints?.toList().orEmpty(), node.inputType, html["type"].orEmpty(), html["autocomplete"].orEmpty(),
                         listOfNotNull(node.idEntry, node.hint, html["name"], html["id"], node.contentDescription?.toString()))
-                    // A field that says nothing of itself is kept as a possible username: native views if they take text, and HTML inputs.
-                    if (field != null && (field != AutofillField.other || (node.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT || node.htmlInfo?.tag.equals("input", true))) text += id to field
+                    // A field that says nothing of itself is kept as a possible username: native views if they take text (a phone number or
+                    // account number is a username too), and HTML inputs.
+                    if (field != null && (field != AutofillField.other || (node.inputType and InputType.TYPE_MASK_CLASS) in INPUT_CLASSES || node.htmlInfo?.tag.equals("input", true))) text += id to field
                 }
                 if (node.importantForAutofill != View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS && node.importantForAutofill != View.IMPORTANT_FOR_AUTOFILL_YES_EXCLUDE_DESCENDANTS)
                     for (i in 0 until node.childCount) visit(node.getChildAt(i))
@@ -60,9 +62,10 @@ object AutofillFields {
         val text = words.joinToString(" ").lowercase()
         if (excludedWords.any { it in text }) return null
         val variation = inputType and InputType.TYPE_MASK_VARIATION
-        val isText = (inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_TEXT
-        if (htmlType.equals("password", true) || (isText && variation in passwordVariations)) return AutofillField.password
-        if (htmlType.equals("email", true) || (isText && variation in emailVariations)) return AutofillField.username
+        val inputClass = inputType and InputType.TYPE_MASK_CLASS; val isText = inputClass == InputType.TYPE_CLASS_TEXT
+        val numberPassword = inputClass == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        if (htmlType.equals("password", true) || (isText && variation in passwordVariations) || numberPassword) return AutofillField.password
+        if (htmlType.equals("email", true) || htmlType.equals("tel", true) || (isText && variation in emailVariations) || inputClass == InputType.TYPE_CLASS_PHONE) return AutofillField.username
         if (passwordWords.any { it in text }) return AutofillField.password
         if (usernameWords.any { it in text }) return AutofillField.username
         return AutofillField.other
@@ -119,15 +122,21 @@ object AutofillMatch {
         return labels.takeLast(keep).joinToString(".")
     }
 
-    fun matches(record: VaultRecord, target: AutofillTarget): Boolean {
+    /** "Dive+" and "dive +" alike: lowercase letters and digits only. */
+    private fun plain(value: String) = value.lowercase().filter { it.isLetterOrDigit() }
+
+    /** [appLabel]: the requesting app's name as the launcher shows it; a record whose name or "Website/App name" is that name matches. */
+    fun matches(record: VaultRecord, target: AutofillTarget, appLabel: String? = null): Boolean {
         val website = record.website.trim()
         if (website.startsWith("androidapp://", ignoreCase = true)) return website.substringAfter("://").trimEnd('/').equals(target.packageName, ignoreCase = true)
         val host = hostOf(website)
         target.site?.let { site -> return host != null && baseDomain(host) == baseDomain(site) }
-        // An app: its package name ("com.netflix.mediaclient") names the service the record is for.
+        // An app: its name, or its package name ("com.netflix.mediaclient"), names the service the record is for.
+        val label = appLabel?.let(::plain)?.takeIf { it.length >= 3 }
+        if (label != null && (plain(record.name) == label || (host == null && plain(website) == label))) return true
         val parts = target.packageName.lowercase().split('.', '_').filter { it.length >= 3 && it !in genericParts }.toSet()
-        val label = host?.let { baseDomain(it).substringBefore('.') }
-        if (label != null && label.length >= 3 && label in parts) return true
+        val domainLabel = host?.let { baseDomain(it).substringBefore('.') }
+        if (domainLabel != null && domainLabel.length >= 3 && domainLabel in parts) return true
         val name = record.name.lowercase().filter { it.isLetterOrDigit() }
         if (name.length >= 4 && name in parts) return true
         return findBrand(website, record.name)?.let { brand -> brand.names.any { it.length >= 3 && it in parts } || brand.domains.any { baseDomain(it).substringBefore('.') in parts } } == true

@@ -77,6 +77,23 @@ class AutofillTest {
         assertTrue(AutofillMatch.matches(login("Google account", "accounts.google.com"), AutofillTarget("com.google.android.gm", null)))
     }
 
+    @Test fun matchesAppsByTheirName() {
+        val dive = AutofillTarget("com.example.scuba", null)
+        assertTrue(AutofillMatch.matches(login("Dive+"), dive, "Dive+"))
+        assertTrue(AutofillMatch.matches(login("Diving log", "Dive+"), dive, "Dive+"))
+        assertFalse(AutofillMatch.matches(login("Dive+"), dive, "Dive Shop"))
+        // On a site, only the address counts: a page cannot pass for an app by name.
+        assertFalse(AutofillMatch.matches(login("Dive+"), AutofillTarget("com.android.chrome", "evil.example"), "Dive+"))
+    }
+
+    @Test fun takesPhoneAndNumberFieldsForUsernames() {
+        assertEquals(AutofillField.username, AutofillFields.classify(emptyList(), InputType.TYPE_CLASS_PHONE, "", "", listOf("et_input")))
+        assertEquals(AutofillField.username, AutofillFields.classify(emptyList(), 0, "tel", "", emptyList()))
+        assertEquals(AutofillField.password, AutofillFields.classify(emptyList(), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD, "", "", emptyList()))
+        assertEquals(AutofillField.other, AutofillFields.classify(emptyList(), InputType.TYPE_CLASS_NUMBER, "", "", listOf("et_input")))
+        assertNull(AutofillFields.classify(emptyList(), InputType.TYPE_CLASS_NUMBER, "", "", listOf("sms_verification_code")))
+    }
+
     @Test fun offersOnlyLoginsWithSomethingToFill() {
         val empty = VaultRecord(name = "Empty", fields = listOf(VaultField(kind = FieldKind.username, label = "Username"), VaultField(kind = FieldKind.password, label = "Password")))
         val note = VaultRecord(name = "Note", type = RecordType.note, fields = listOf(VaultField(kind = FieldKind.password, label = "Password", value = "x")))
