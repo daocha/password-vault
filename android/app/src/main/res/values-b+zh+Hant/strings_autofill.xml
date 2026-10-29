@@ -15,4 +15,9 @@
     <string name="autofill_setting">自動填入</string>
     <string name="autofill_setting_on">PassVault 會在其他應用程式和瀏覽器中填入登入資料</string>
     <string name="autofill_setting_off">已關閉。開啟後可在其他應用程式和瀏覽器中填入登入資料</string>
+    <string name="autofill_help_title">設定自動填入</string>
+    <string name="autofill_help_step_service">1. 在此開啟自動填入，並在 Android 詢問時選擇 PassVault。</string>
+    <string name="autofill_help_step_chrome">2. 在 Chrome 中開啟「設定 → 自動填入和密碼 → 自動填入設定」，選擇「使用其他服務自動填入」，然後重新啟動 Chrome。否則 Chrome 不會向 PassVault 要求填入。</string>
+    <string name="autofill_help_step_use">3. 輕觸使用者名稱或密碼欄位，然後輕觸「解鎖 PassVault 以填入」。</string>
+    <string name="autofill_help_other_browsers">其他採用 Chrome 核心的瀏覽器（Edge、Brave、Samsung Internet 等）可能也有相同的設定。Firefox 無需此設定即可使用 PassVault。</string>
 </resources>

@@ -16,4 +16,9 @@
     <string name="autofill_setting">Autofill</string>
     <string name="autofill_setting_on">PassVault fills logins in other apps and browsers</string>
     <string name="autofill_setting_off">Off. Turn on to fill logins in other apps and browsers</string>
+    <string name="autofill_help_title">Setting up autofill</string>
+    <string name="autofill_help_step_service">1. Turn on Autofill here and choose PassVault when Android asks.</string>
+    <string name="autofill_help_step_chrome">2. In Chrome, open Settings → Autofill and passwords → Autofill settings, choose “Autofill using another service”, and restart Chrome. Without this, Chrome never asks PassVault.</string>
+    <string name="autofill_help_step_use">3. Tap a username or password field, then “Unlock PassVault to fill”.</string>
+    <string name="autofill_help_other_browsers">Other browsers that use Chrome’s engine (Edge, Brave, Samsung Internet and others) may have the same setting. Firefox asks PassVault without it.</string>
 </resources>

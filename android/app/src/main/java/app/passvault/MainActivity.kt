@@ -93,6 +93,7 @@ private sealed interface SettingsDialog {
     data object DecoyRemove : SettingsDialog
     data object DecoyManage : SettingsDialog
     data object DecoyReset : SettingsDialog
+    data object AutofillHelp : SettingsDialog
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
@@ -944,7 +945,8 @@ class MainActivity : FragmentActivity() {
                         if (biometricEnabled) { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } else dialog = SettingsDialog.EnableBiometrics
                     }
                     if (autofillManager?.isAutofillSupported == true) Row(Icons.Outlined.Keyboard, stringResource(R.string.autofill_setting), stringResource(if (autofillEnabled) R.string.autofill_setting_on else R.string.autofill_setting_off),
-                        trailing = { Switch(autofillEnabled, { setAutofill(it) }) }) { setAutofill(!autofillEnabled) }
+                        trailing = { androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { dialog = SettingsDialog.AutofillHelp }) { Icon(Icons.Outlined.Info, stringResource(R.string.autofill_help_title)) }; Switch(autofillEnabled, { setAutofill(it) }) } }) { setAutofill(!autofillEnabled) }
                     Row(Icons.Outlined.Password, stringResource(R.string.main_change_app_password)) { dialog = SettingsDialog.ChangePassword }
                     if (!decoySession) Row(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_title), if (decoyEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off)) { dialog = if (decoyEnabled) SettingsDialog.DecoyManage else SettingsDialog.DecoySetup }
                 }
@@ -1006,6 +1008,12 @@ class MainActivity : FragmentActivity() {
             SettingsDialog.ChangePassword -> ChangePasswordDialog { dialog = null }
             SettingsDialog.DecoySetup -> DecoySetupDialog(reset = false) { dialog = null }
             SettingsDialog.DecoyReset -> DecoySetupDialog(reset = true) { dialog = null }
+            // Browsers keep their own switch for handing forms to an autofill service; without it PassVault is never asked.
+            SettingsDialog.AutofillHelp -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.Info, null) }, title = { Text(stringResource(R.string.autofill_help_title)) },
+                text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.autofill_help_step_service)); Text(stringResource(R.string.autofill_help_step_chrome)); Text(stringResource(R.string.autofill_help_step_use))
+                    Text(stringResource(R.string.autofill_help_other_browsers), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
             SettingsDialog.DecoyManage -> {
                 val canReset = decoyResettable
                 AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(R.string.decoy_title)) },
