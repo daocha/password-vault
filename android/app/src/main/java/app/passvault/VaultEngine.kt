@@ -1,9 +1,17 @@
 package app.passvault
 
+import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
 import java.util.Base64
 import java.util.UUID
 import javax.crypto.Cipher
+
+/**
+ * Every engine call in the app runs on this one queue, so a lock can never interleave with the next unlock or save, and the app and its
+ * autofill screen (each with its own engine) never update the protected state at the same time.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+val vaultQueue = Dispatchers.IO.limitedParallelism(1)
 
 /**
  * The real vault's way back into the decoy, so it can give the decoy a new password without losing its contents: [owner] is an X25519

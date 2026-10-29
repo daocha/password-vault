@@ -52,6 +52,13 @@ fun PassVaultTheme(mode: ThemeMode, content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = if (dark) DarkColors else LightColors, content = content)
 }
 
+/** [base] in the in-app language override ("" follows the system), applied before any resources are read. */
+fun withAppLanguage(base: android.content.Context): android.content.Context {
+    val tag = base.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE).getString("language", "").orEmpty()
+    if (tag.isEmpty()) return base
+    return base.createConfigurationContext(android.content.res.Configuration(base.resources.configuration).apply { setLocale(java.util.Locale.forLanguageTag(tag)) })
+}
+
 /** Dialogs, sheets and popups get their own window: give it the activity's autofill, content-capture and tapjacking protection. */
 @androidx.compose.runtime.Composable
 fun HardenWindow() {

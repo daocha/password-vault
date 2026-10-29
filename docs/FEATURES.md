@@ -29,6 +29,7 @@ This repository is a native implementation under development, not an audited or 
 | Import safety | Bounded parse, full authentication before import, append confirmation |
 | 10 failures | Durable reservation before password checking; erasure tombstone precedes key/blob cleanup |
 | Recovery after wipe | Explicitly create a new vault, then restore an independent export |
+| Android autofill | Optional autofill service (Settings → Security → Autofill; its ⓘ button explains that Chrome also needs Settings → Autofill and passwords → Autofill settings → "Autofill using another service"). The service never opens the vault: on a login form it offers one locked suggestion; tapping it opens a hardened PassVault screen that unlocks with the app password or biometrics (counted attempts, as in the app), lists the logins for that app or site first, fills the chosen one's first username and password, and locks when it fills or is left. Sites are matched by registrable domain, and only for known browsers (other apps can claim any web domain); apps are matched by their name as the launcher shows it (record name or "Website/App name"), by package name, or exactly by an `androidapp://<package>` website. Filling a login saved for something else needs a second confirmation. One-time-code, new-password and sign-up forms are never filled; nothing is saved from other apps |
 | Auto-lock | Android: immediately / 1 min / 5 min after leaving the app, or when the device locks; screen-off always locks |
 | Capture protection | Android FLAG_SECURE; iOS inactive-scene privacy cover (iOS screenshots cannot be universally prevented) |
 | Cloud backup | Excluded; no sync service |
@@ -38,7 +39,7 @@ This repository is a native implementation under development, not an audited or 
 
 - A version-specific BlackBerry feature checklist and migration samples containing its different custom-field encodings. Current sample exercises basic fields only.
 - The vault health strength estimate is a deliberately simple offline heuristic (common list, character pool, pattern discounts), not a zxcvbn-grade model with dictionaries and names; the app-password rule still checks length and character classes only.
-- Decide whether OS autofill integrations are in the desired parity scope. Neither an iOS credential provider extension nor Android autofill service is included yet.
+- iOS AutoFill: Android has an autofill service; an iOS credential provider extension (with a shared keychain group) is not included yet.
 - Additional accessibility, large-vault performance, localization, and destructive-action UX review.
 - Real iOS and Android compilation, UI testing, device lifecycle tests, biometric and hardware-backed-storage verification, cross-platform backup exchange, signing and independent security review.
 

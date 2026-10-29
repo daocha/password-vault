@@ -93,6 +93,7 @@ private sealed interface SettingsDialog {
     data object DecoyRemove : SettingsDialog
     data object DecoyManage : SettingsDialog
     data object DecoyReset : SettingsDialog
+    data object AutofillHelp : SettingsDialog
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
@@ -112,9 +113,6 @@ private fun languageName(tag: String) = when (tag) { "en" -> R.string.main_langu
 class MainActivity : FragmentActivity() {
     private companion object { const val PICKER_GRACE_MILLIS = 120_000L; const val TRANSFER_KEEP_MILLIS = 10 * 60_000L }
     private lateinit var engine: VaultEngine
-    // Every engine call runs on this one queue, so a lock can never interleave with the next unlock or save.
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val vaultQueue = Dispatchers.IO.limitedParallelism(1)
     private var ready by mutableStateOf(false)
     private var records by mutableStateOf(emptyList<VaultRecord>())
     private var unlocked by mutableStateOf(false)
@@ -139,13 +137,12 @@ class MainActivity : FragmentActivity() {
     private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
     private var language by mutableStateOf("")
     /** Applies the in-app language override ("" follows the system) before any resources are read. */
-    override fun attachBaseContext(newBase: Context) {
-        val tag = newBase.getSharedPreferences("settings", MODE_PRIVATE).getString("language", "").orEmpty()
-        if (tag.isEmpty()) return super.attachBaseContext(newBase)
-        val config = android.content.res.Configuration(newBase.resources.configuration).apply { setLocale(java.util.Locale.forLanguageTag(tag)) }
-        super.attachBaseContext(newBase.createConfigurationContext(config))
-    }
+    override fun attachBaseContext(newBase: Context) = super.attachBaseContext(withAppLanguage(newBase))
     private var biometricEnabled by mutableStateOf(false)
+    /** Whether PassVault is the device's autofill service; read again whenever the app comes back. */
+    private var autofillEnabled by mutableStateOf(false)
+    private val autofillManager by lazy { getSystemService(android.view.autofill.AutofillManager::class.java) }
+    private val autofillSetup = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { systemPickerOpen = false; autofillEnabled = autofillManager?.hasEnabledAutofillServices() == true }
     private var biometricAutoPrompted = false
     private var enablingBiometric = false
     private var importPreview by mutableStateOf<List<VaultRecord>?>(null)
@@ -392,6 +389,7 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         updates?.onResume()
+        autofillEnabled = autofillManager?.hasEnabledAutofillServices() == true
         // Offer biometrics once per lock; cancelling the prompt must not re-trigger it on the next resume.
         if (ready && exists && !unlocked && !busy && !biometricAutoPrompted && biometricEnabled) { biometricAutoPrompted = true; biometrics() }
     }
@@ -946,6 +944,9 @@ class MainActivity : FragmentActivity() {
                     if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } }) }) {
                         if (biometricEnabled) { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } else dialog = SettingsDialog.EnableBiometrics
                     }
+                    if (autofillManager?.isAutofillSupported == true) Row(Icons.Outlined.Keyboard, stringResource(R.string.autofill_setting), stringResource(if (autofillEnabled) R.string.autofill_setting_on else R.string.autofill_setting_off),
+                        trailing = { androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { dialog = SettingsDialog.AutofillHelp }) { Icon(Icons.Outlined.Info, stringResource(R.string.autofill_help_title)) }; Switch(autofillEnabled, { setAutofill(it) }) } }) { setAutofill(!autofillEnabled) }
                     Row(Icons.Outlined.Password, stringResource(R.string.main_change_app_password)) { dialog = SettingsDialog.ChangePassword }
                     if (!decoySession) Row(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_title), if (decoyEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off)) { dialog = if (decoyEnabled) SettingsDialog.DecoyManage else SettingsDialog.DecoySetup }
                 }
@@ -1007,6 +1008,12 @@ class MainActivity : FragmentActivity() {
             SettingsDialog.ChangePassword -> ChangePasswordDialog { dialog = null }
             SettingsDialog.DecoySetup -> DecoySetupDialog(reset = false) { dialog = null }
             SettingsDialog.DecoyReset -> DecoySetupDialog(reset = true) { dialog = null }
+            // Browsers keep their own switch for handing forms to an autofill service; without it PassVault is never asked.
+            SettingsDialog.AutofillHelp -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.Info, null) }, title = { Text(stringResource(R.string.autofill_help_title)) },
+                text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.autofill_help_step_service)); Text(stringResource(R.string.autofill_help_step_chrome)); Text(stringResource(R.string.autofill_help_step_use))
+                    Text(stringResource(R.string.autofill_help_other_browsers), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
             SettingsDialog.DecoyManage -> {
                 val canReset = decoyResettable
                 AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(R.string.decoy_title)) },
@@ -1195,6 +1202,11 @@ class MainActivity : FragmentActivity() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
         prefs.edit().putBoolean("askedNotifications", true).apply()
         systemPickerOpen = true; notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+    /** Asks Android to make PassVault the autofill service (the system shows its own confirmation), or stops being it. */
+    private fun setAutofill(on: Boolean) {
+        if (!on) { runCatching { autofillManager?.disableAutofillServices() }; autofillEnabled = autofillManager?.hasEnabledAutofillServices() == true; return }
+        launchPicker { autofillSetup.launch(Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, android.net.Uri.parse("package:$packageName"))) }
     }
     private fun updateAllowCopy(on: Boolean) { allowCopy = on; prefs.edit().putBoolean("allowCopy", on).apply(); if (!on) clearCopiedText() }
     private fun updateClearOnLock(on: Boolean) { clearClipOnLock = on; prefs.edit().putBoolean("clearClipOnLock", on).apply() }
