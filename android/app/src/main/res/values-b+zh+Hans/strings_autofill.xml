@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="autofill_unlock">解锁 PassVault 以填充</string>
+    <string name="autofill_title">从 PassVault 填充</string>
+    <string name="autofill_for">用于 %1$s</string>
+    <string name="autofill_suggested">建议</string>
+    <string name="autofill_all_logins">所有登录信息</string>
+    <string name="autofill_no_match">没有为此应用或网站保存的登录信息。请选择一项或搜索。</string>
+    <string name="autofill_no_logins">还没有包含用户名或密码的登录信息。</string>
+    <string name="autofill_no_results">没有与搜索匹配的登录信息。</string>
+    <string name="autofill_nothing_to_fill">此条目没有可填入此表单的用户名或密码。</string>
+    <string name="autofill_other_title">填充为其他应用或网站保存的登录信息？</string>
+    <string name="autofill_other_body">“%1$s”并非为 %2$s 保存。仅在你信任此应用或网站时填充：虚假的登录页面会收到你的密码。</string>
+    <string name="autofill_fill">填充</string>
+    <string name="autofill_setting">自动填充</string>
+    <string name="autofill_setting_on">PassVault 会在其他应用和浏览器中填充登录信息</string>
+    <string name="autofill_setting_off">已关闭。开启后可在其他应用和浏览器中填充登录信息</string>
+</resources>

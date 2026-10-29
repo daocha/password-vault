@@ -71,6 +71,7 @@ The dotted "never connects" line is deliberate: PassVault has no network feature
 | 📤 **Backup and restore** | Export as CSV or as an encrypted file, and import them back after confirming. Exporting asks for your password first. 2FA setup keys (and seed phrases) are only ever included in the encrypted file, never in CSV. |
 | 🔄 **Change master password** | Update it any time from settings. |
 | 📋 **Careful clipboard** | Copied passwords are handled with care so they don't linger. |
+| ⌨️ **Autofill (Android)** | Fill logins into other apps and browsers. PassVault asks for your password or fingerprint each time, suggests the logins saved for that app or site, and locks again as soon as it has filled. |
 
 The app icon is shared by both platforms. See [`assets/README.md`](assets/README.md) for the prompt and asset details.
 

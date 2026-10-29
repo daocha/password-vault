@@ -26,6 +26,10 @@ Fingerprint and face unlock are handled by the operating system. PassVault never
 
 Passwords you copy are marked as sensitive and removed from the clipboard after the delay you choose.
 
+## Autofill
+
+If you turn on autofill on Android, PassVault reads the login form of the app or site you are signing in to, on your device only, to find its username and password fields and to suggest matching logins. It fills only the login you pick, after you unlock, and keeps nothing from the other app.
+
 ## Children
 
 PassVault is not directed at children and collects no data from anyone.

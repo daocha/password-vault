@@ -16,6 +16,8 @@ Swift/Kotlin strings, UI bindings, and managed arrays can leave transient copies
 
 Android window hardening: `FLAG_SECURE` (no screenshots or recents thumbnails), the whole UI is excluded from autofill services and content capture, other apps' overlays are hidden while the app is visible (API 31+), and touches are ignored while an untrusted window covers the app. Seed-phrase editors never write to the clipboard.
 
+Android autofill (opt-in): the autofill service holds no key and returns only a locked suggestion. The vault is unlocked in a separate hardened activity (same window protections), with the same counted attempts, and locked when it fills, is left, or the screen turns off. A filled value is handed to the requesting app, which can keep it; web domains are trusted only from known browsers, and filling a login not matched to the app or site needs a second confirmation.
+
 Debug builds are debuggable: with USB debugging enabled on an unlocked phone, `adb run-as` can act as the app (including using its Keystore keys) and a debugger can read its memory. Keep valuable data only in a signed release build.
 
 While one of the app's own system pickers (import/export file chooser) is open, auto-lock uses a fixed 2-minute grace period instead of the chosen timeout, so leaving the app from inside a picker still locks the vault. App passwords must be at least 12 characters, because encrypted backups use the same password and can be attacked offline without an attempt limit. The data key is zeroed when the activity is destroyed.

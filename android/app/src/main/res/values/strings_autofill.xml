@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Filling logins into other apps (Android autofill) -->
+    <string name="autofill_unlock">Unlock PassVault to fill</string>
+    <string name="autofill_title">Fill from PassVault</string>
+    <string name="autofill_for">For %1$s</string>
+    <string name="autofill_suggested">Suggested</string>
+    <string name="autofill_all_logins">All logins</string>
+    <string name="autofill_no_match">No login is saved for this app or site. Pick one or search.</string>
+    <string name="autofill_no_logins">No logins with a username or password yet.</string>
+    <string name="autofill_no_results">No logins match your search.</string>
+    <string name="autofill_nothing_to_fill">This entry has no username or password for this form.</string>
+    <string name="autofill_other_title">Fill a login saved for something else?</string>
+    <string name="autofill_other_body">“%1$s” is not saved for %2$s. Fill it only if you trust this app or site: a fake login page would receive your password.</string>
+    <string name="autofill_fill">Fill</string>
+    <string name="autofill_setting">Autofill</string>
+    <string name="autofill_setting_on">PassVault fills logins in other apps and browsers</string>
+    <string name="autofill_setting_off">Off. Turn on to fill logins in other apps and browsers</string>
+</resources>
