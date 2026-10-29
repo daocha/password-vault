@@ -26,8 +26,8 @@ android {
         applicationId = "app.passvault.mobile"
         minSdk = 30
         targetSdk = 36
-        versionCode = 8
-        versionName = "2026.10.26"
+        versionCode = 9
+        versionName = "2026.10.30"
         manifestPlaceholders["appLabel"] = "PassVault"
         buildConfigField("String", "DEV_UPDATE_URL", "\"\"")
     }
