@@ -1344,13 +1344,14 @@ class MainActivity : FragmentActivity() {
             var prepared: VaultExport? = null
             try {
                 val attemptsRemaining = withContext(vaultQueue) { prepared = engine.export(password, csv); engine.remainingAttempts() }
-                if (epoch != generation || !unlocked) return@launch
+                if (epoch != generation || !unlocked) { refreshUnlockScreen(); return@launch }
                 remaining = attemptsRemaining
                 val snapshot = checkNotNull(prepared)
                 discardPendingExport(); pendingExport = snapshot; prepared = null
                 if (!launchPicker { if (snapshot.csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) discardPendingExport()
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) { if (epoch == generation) reportWorkError(e) }
+            // After a lock, a wrong password still counted (and may have erased the vault): the unlock screen must show it.
+            catch (e: Exception) { if (epoch == generation) reportWorkError(e) else refreshUnlockScreen() }
             finally { prepared?.clear(); busy = false }
         }
     }
