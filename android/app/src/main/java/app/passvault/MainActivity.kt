@@ -40,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.automirrored.outlined.StickyNote2
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -106,6 +107,12 @@ private class PendingTransfer(val code: String, val bytes: ByteArray, val decoy:
     val frames: TransferFrames.Sender? = runCatching { TransferFrames.Sender(bytes) }.getOrNull()
 }
 private class ScannedImport(val records: List<VaultRecord>, val hotp: Int, val duplicates: Int)
+/** Like [ActivityResultContracts.CreateDocument], with the MIME type chosen per file (name to type). */
+private class CreateTypedDocument : androidx.activity.result.contract.ActivityResultContract<Pair<String, String>, android.net.Uri?>() {
+    override fun createIntent(context: Context, input: Pair<String, String>) =
+        Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(input.second).putExtra(Intent.EXTRA_TITLE, input.first)
+    override fun parseResult(resultCode: Int, intent: Intent?) = intent?.data?.takeIf { resultCode == android.app.Activity.RESULT_OK }
+}
 
 private val LANGUAGES = listOf("", "en", "zh-Hans", "zh-Hant")
 private fun languageName(tag: String) = when (tag) { "en" -> R.string.main_language_english; "zh-Hans" -> R.string.main_language_zh_hans; "zh-Hant" -> R.string.main_language_zh_hant; else -> R.string.main_language_system }
@@ -231,6 +238,7 @@ class MainActivity : FragmentActivity() {
                 receiving -> receiving = false
                 record != null && editing && records.any { it.id == record.id } -> editing = false
                 record != null -> { viewing = null; editing = false }
+                fileCrypt -> fileCrypt = false
                 health -> health = false
                 settings -> settings = false
             }
@@ -306,6 +314,92 @@ class MainActivity : FragmentActivity() {
         val fresh = migration.accounts.filter { a -> known.none { it.contentEquals(a.secret) } }.distinctBy { it.secretBase32 }
         scannedImport = ScannedImport(fresh.map { it.record() }, migration.skipped, migration.accounts.size - fresh.size)
     }
+    /** Settings › File encryption is open. */
+    private var fileCrypt by mutableStateOf(false)
+    private var fileProgress by mutableStateOf<FileProgress?>(null)
+    @Volatile private var fileCancelled = false
+    /** The file chosen to encrypt or decrypt, waiting for the user to pick where the result goes. */
+    private var fileSource: FileCrypt.Picked? = null
+    /** A file just encrypted whose plaintext original the user may delete. */
+    private var encryptedOriginal by mutableStateOf<Pair<FileCrypt.Picked, String>?>(null)
+    private val fileKeys get() = FileKeys.of(records)
+    private val encryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        systemPickerOpen = false
+        if (uri == null || !unlocked) return@registerForActivityResult
+        val picked = FileCrypt.describe(contentResolver, uri); fileSource = picked
+        if (!launchPicker { encryptTarget.launch(FileKeys.encryptedName(picked.name)) }) fileSource = null
+    }
+    private val encryptTarget = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        systemPickerOpen = false
+        val source = fileSource; fileSource = null
+        val identity = fileKeys.firstOrNull()?.ageIdentity
+        if (uri == null || source == null || identity == null || !unlocked) return@registerForActivityResult
+        runFileJob(false, source.size, { cancelled, progress -> FileCrypt.encrypt(contentResolver, source.uri, uri, Age.parseIdentity(identity).recipient, cancelled, progress) }) {
+            encryptedOriginal = source to (FileCrypt.describe(contentResolver, uri).name ?: FileKeys.encryptedName(source.name))
+        }
+    }
+    private val decryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        systemPickerOpen = false
+        if (uri == null || !unlocked) return@registerForActivityResult
+        val keys = fileKeys.mapNotNull { it.ageIdentity }; val epoch = generation
+        lifecycleScope.launch {
+            // Say "not your key" before asking where to save.
+            try { withContext(Dispatchers.IO) { FileCrypt.check(contentResolver, uri, keys.map(Age::parseIdentity)) } }
+            catch (e: AgeException) { messageError = true; message = ageError(e); return@launch }
+            catch (e: Exception) { messageError = true; message = getString(R.string.main_cannot_open_file); return@launch }
+            if (epoch != generation || !unlocked) return@launch
+            val picked = FileCrypt.describe(contentResolver, uri); fileSource = picked
+            val name = FileKeys.decryptedName(picked.name)
+            val type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
+            if (!launchPicker { decryptTarget.launch(name to type) }) fileSource = null
+        }
+    }
+    private val decryptTarget = registerForActivityResult(CreateTypedDocument()) { uri ->
+        systemPickerOpen = false
+        val source = fileSource; fileSource = null
+        val keys = fileKeys.mapNotNull { it.ageIdentity }
+        if (uri == null || source == null || !unlocked) return@registerForActivityResult
+        runFileJob(true, source.size, { cancelled, progress -> FileCrypt.decrypt(contentResolver, source.uri, uri, keys.map(Age::parseIdentity), cancelled, progress) }) { message = getString(R.string.files_decrypted) }
+    }
+    private val shareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { systemPickerOpen = false }
+    /** Runs a file job off the main thread with a progress dialog. Cancelling or locking the vault stops it, and its output is then deleted. */
+    private fun runFileJob(decrypting: Boolean, total: Long?, job: (cancelled: () -> Boolean, progress: (Long) -> Unit) -> Unit, done: () -> Unit) {
+        if (fileProgress != null) return
+        val epoch = generation; fileCancelled = false; fileProgress = FileProgress(decrypting, 0, total)
+        var shown = 0L
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { job({ fileCancelled || epoch != generation }) { n -> if (n - shown >= 256 * 1024) { shown = n; fileProgress = FileProgress(decrypting, n, total) } } }
+                if (epoch == generation) done()
+            } catch (e: FileCrypt.Cancelled) { if (epoch == generation) message = getString(R.string.files_cancelled) }
+            catch (e: AgeException) { messageError = true; message = ageError(e) }
+            catch (e: Exception) { messageError = true; message = getString(R.string.files_failed) }
+            finally { fileProgress = null }
+        }
+    }
+    private fun ageError(e: AgeException) = getString(when (e.kind) {
+        AgeException.Kind.noMatch -> R.string.files_no_match
+        AgeException.Kind.header, AgeException.Kind.armor -> R.string.files_not_age
+        AgeException.Kind.hmac, AgeException.Kind.payload -> R.string.files_damaged
+    })
+    private fun createFileKey() {
+        lifecycleScope.launch {
+            val identity = withContext(Dispatchers.Default) { Age.generateIdentity().encoded }
+            if (!unlocked) return@launch
+            saveRecord(FileKeys.record(getString(R.string.files_key_name), identity, getString(R.string.files_key_note))) { message = getString(R.string.files_key_created) }
+        }
+    }
+    private fun importFileKey(identity: String) {
+        if (fileKeys.any { it.ageIdentity.equals(identity, ignoreCase = true) }) { message = getString(R.string.files_key_exists); return }
+        saveRecord(FileKeys.record(getString(R.string.files_key_imported_name), identity.uppercase(), getString(R.string.files_key_note))) { message = getString(R.string.files_key_added) }
+    }
+    /** A public key is not secret: copied without the sensitive flag or the clearing timer. */
+    private fun copyPublicKey(key: String) {
+        getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("age public key", key)); message = getString(R.string.main_copied)
+    }
+    private fun sharePublicKey(key: String) {
+        launchPicker { shareLauncher.launch(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, key), getString(R.string.files_public_key))) }
+    }
     private val encryptedExport = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { writeExport(it) }
     private val csvExport = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { writeExport(it) }
 
@@ -342,7 +436,7 @@ class MainActivity : FragmentActivity() {
             }
         })
         onBackPressedDispatcher.addCallback(this, backCallback)
-        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || health || sending != null || receiving || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
+        lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || fileCrypt || health || sending != null || receiving || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         try { engine = VaultEngine(ProtectedStorage(this)); exists = engine.exists(); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric(); ready = true }
         catch (e: Exception) { message = errorText(e, R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
@@ -359,11 +453,17 @@ class MainActivity : FragmentActivity() {
                                 record != null -> RecordScreen(record, editing)
                                 health -> HealthScreen(records, healthOpen, onToggle = { key -> healthOpen = if (key in healthOpen) healthOpen - key else healthOpen + key }, healthList, healthFocus,
                                     onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { viewing = it; editing = false })
+                                fileCrypt -> { val keys = fileKeys
+                                    FileEncryptionScreen(keys, remember(keys, lastBackup) { FileKeys.needsBackup(keys, lastBackup) }, onBack = { fileCrypt = false }, onCreateKey = ::createFileKey, onImportKey = ::importFileKey,
+                                        onEncrypt = { launchPicker { encryptSource.launch(arrayOf("*/*")) } }, onDecrypt = { launchPicker { decryptSource.launch(arrayOf("*/*")) } },
+                                        onCopyPublic = ::copyPublicKey, onSharePublic = ::sharePublicKey, onOpenKey = { viewing = it; editing = false },
+                                        onBackup = { fileCrypt = false; settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }) }
                                 settings -> SettingsScreen()
                                 else -> VaultScreen()
                             }
                         }
                         if (unlocked) ImportDialogs()
+                        if (unlocked) FileDialogs()
                         if (busy) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background.copy(alpha = .92f)) { Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { CircularProgressIndicator(); Spacer(Modifier.height(16.dp)); Text(stringResource(R.string.main_securing)) } }
                         if (message.isNotEmpty()) {
                             val shown = message
@@ -411,6 +511,8 @@ class MainActivity : FragmentActivity() {
         // A transfer outlives the lock for a while, so its code is still there after sharing the file from another app.
         if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
         scannedImport = null; cameraGranted = null; imageRead = null
+        // A running file job sees the new generation and stops; its half-written output is deleted.
+        fileCrypt = false; fileSource = null; encryptedOriginal = null; fileCancelled = true
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -613,7 +715,7 @@ class MainActivity : FragmentActivity() {
         if (confirmDelete) {
             val doomed = records.filter { it.id in selected }; val seeds = doomed.count { it.type == RecordType.seed }; val totps = doomed.count { it.type == RecordType.totp }
             AlertDialog(onDismissRequest = { confirmDelete = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(if (doomed.size == 1) stringResource(R.string.main_delete_title_one, doomed.size) else stringResource(R.string.main_delete_title_many, doomed.size)) },
-                text = { HardenWindow(); Text(when { totps > 0 -> stringResource(R.string.totp_delete_body_many, totps); seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
+                text = { HardenWindow(); Text(when { doomed.any { it.ageIdentity != null } -> stringResource(R.string.files_delete_body_keys); totps > 0 -> stringResource(R.string.totp_delete_body_many, totps); seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
                 confirmButton = { TextButton(onClick = { confirmDelete = false; val ids = doomed.map { it.id }.toSet(); val updated = records.filter { it.id !in ids }; work({ engine.save(updated); updated }) { selected = emptySet(); message = if (ids.size == 1) getString(R.string.main_deleted_one, ids.size) else getString(R.string.main_deleted_many, ids.size) } }) { Text(stringResource(R.string.main_delete), color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.main_cancel)) } })
         }
@@ -693,11 +795,13 @@ class MainActivity : FragmentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun RecordDetail(record: VaultRecord) {
         var revealed by remember(record.id) { mutableStateOf(emptySet<String>()) }; var menu by remember { mutableStateOf(false) }; var deleting by remember { mutableStateOf(false) }; var historyFor by remember(record.id) { mutableStateOf<String?>(null) }
+        val fileKey = record.ageIdentity != null
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
             topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = { viewing = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
                 actions = {
                     IconButton(onClick = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, stringResource(R.string.main_edit)) }
+                    // Editing could damage a file key, and with it every file encrypted to it.
+                    if (!fileKey) IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, stringResource(R.string.main_edit)) }
                     Box { IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.main_more)) }
                         DropdownMenu(menu, { menu = false }) { DropdownMenuItem(text = { Text(stringResource(R.string.main_delete_entry)) }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; deleting = true }) } }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
@@ -716,6 +820,7 @@ class MainActivity : FragmentActivity() {
                         }
                     }
                 }
+                if (fileKey) item { Text(stringResource(R.string.files_record_hint), Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                 item {
                     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         if (record.fields.isEmpty()) Text(stringResource(R.string.main_no_fields), Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -744,7 +849,7 @@ class MainActivity : FragmentActivity() {
             }
         }
         record.fields.firstOrNull { it.id == historyFor }?.let { field -> PasswordHistorySheet(field) { historyFor = null } }
-        if (deleting) AlertDialog(onDismissRequest = { deleting = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(stringResource(R.string.main_delete_this_entry)) }, text = { HardenWindow(); Text(stringResource(R.string.main_delete_this_entry_body, record.name)) },
+        if (deleting) AlertDialog(onDismissRequest = { deleting = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(stringResource(R.string.main_delete_this_entry)) }, text = { HardenWindow(); Text(if (fileKey) stringResource(R.string.files_delete_key_body, record.name) else stringResource(R.string.main_delete_this_entry_body, record.name)) },
             confirmButton = { TextButton(onClick = { deleting = false; val updated = records.filter { it.id != record.id }; work({ engine.save(updated); updated }) { viewing = null } }) { Text(stringResource(R.string.main_delete)) } },
             dismissButton = { TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.main_cancel)) } })
     }
@@ -949,6 +1054,7 @@ class MainActivity : FragmentActivity() {
                             IconButton(onClick = { dialog = SettingsDialog.AutofillHelp }) { Icon(Icons.Outlined.Info, stringResource(R.string.autofill_help_title)) }; Switch(autofillEnabled, { setAutofill(it) }) } }) { setAutofill(!autofillEnabled) }
                     Row(Icons.Outlined.Password, stringResource(R.string.main_change_app_password)) { dialog = SettingsDialog.ChangePassword }
                     if (!decoySession) Row(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_title), if (decoyEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off)) { dialog = if (decoyEnabled) SettingsDialog.DecoyManage else SettingsDialog.DecoySetup }
+                    Row(Icons.AutoMirrored.Outlined.InsertDriveFile, stringResource(R.string.files_title), stringResource(R.string.files_settings_summary)) { fileCrypt = true }
                 }
                 SectionTitle(stringResource(R.string.main_random_password))
                 Group {
@@ -1157,6 +1263,17 @@ class MainActivity : FragmentActivity() {
                 TextButton(onClick = { start(true) }, Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.main_import_replace_all), textAlign = TextAlign.Center) }
                 TextButton(onClick = { start(false) }, Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)) { Text(stringResource(R.string.main_import_action), textAlign = TextAlign.Center) }
             } }) }
+    }
+    @Composable private fun FileDialogs() {
+        fileProgress?.let { FileProgressDialog(it) { fileCancelled = true } }
+        encryptedOriginal?.let { (original, saved) ->
+            AlertDialog(onDismissRequest = { encryptedOriginal = null }, icon = { Icon(Icons.Outlined.Lock, null) }, title = { Text(stringResource(R.string.files_encrypted_title)) },
+                text = { HardenWindow(); Text(stringResource(R.string.files_encrypted_body, saved)) },
+                confirmButton = { TextButton(onClick = { encryptedOriginal = null
+                    lifecycleScope.launch { val deleted = withContext(Dispatchers.IO) { FileCrypt.delete(contentResolver, original.uri) }; messageError = !deleted; message = getString(if (deleted) R.string.files_original_deleted else R.string.files_original_not_deleted) } }) {
+                    Text(stringResource(R.string.files_delete_original), color = MaterialTheme.colorScheme.error) } },
+                dismissButton = { TextButton(onClick = { encryptedOriginal = null }) { Text(stringResource(R.string.files_keep_original)) } })
+        }
     }
     /** Opens one of the app's own system pickers under the picker auto-lock grace period; false (with a message) when none is available. */
     private fun launchPicker(launch: () -> Unit): Boolean {

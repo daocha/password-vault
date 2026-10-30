@@ -58,6 +58,10 @@ Changing the app password replaces the data key as well as the wrapping: a new d
 
 iOS stores the state in device-only, passcode-protected Keychain, which an app-container file restore cannot roll back. Android keeps the state in a file under `noBackupFilesDir`, encrypted with AES-256-GCM under an Android Keystore key and authenticating UTF-8 `PassVault/state/v2` followed by the header. The file is `"PVS2" | u32be generation | iv 12 | ciphertext+tag`. Every state write that records a new attempt, a new vault file or a new password moves to a new Keystore key (alias `passvault-state-g<generation>`) and deletes all older ones after the file is committed, so a copied older state file has no key left to decrypt it and is refused as a missing key. Only the write that clears the counter after a proven password reuses the current key; it can never make an older copy more useful. Files from before generations (`iv | ciphertext`, fixed alias `passvault-state-v1`) are read once and migrated on the next write. Android erasure durably writes a nonsecret denial marker and deletes every state key, preventing reuse of previously copied state ciphertext. Interrupted cleanup resumes on next access. Biometric access protects a separate data-key copy with Keychain `biometryCurrentSet` or per-operation Android `BiometricPrompt.CryptoObject` + Keystore authentication. These device adapters intentionally differ; backups interoperate.
 
+## File encryption keys
+
+A file-encryption key is stored as an ordinary `note` record whose fields include one of kind `password` labelled `age secret key`, holding an age identity (`AGE-SECRET-KEY-PQ-1…` or `AGE-SECRET-KEY-1…`). No format changes: every reader keeps it as a note. Encrypted files are standard [age v1](https://c2sp.org/age) and are not part of the vault. See [FILE-ENCRYPTION.md](FILE-ENCRYPTION.md).
+
 ## CSV
 
 ### Password Keeper `.pkb2` import
