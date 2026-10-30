@@ -35,7 +35,8 @@ class FileKeysTest {
         assertEquals(listOf("new", "old"), FileKeys.of(listOf(regrouped, new)).map { it.name })
         // The stamp survives backups.
         assertEquals(listOf("new", "old"), FileKeys.of(Records.decode(Records.encode(listOf(regrouped, new)))).map { it.name })
-        assertFalse(FileKeys.needsBackup(listOf(regrouped, new), Instant.parse("2026-07-01T00:00:00Z"), null))
+        val backedUp = setOf(FileKeys.fingerprint(identity), FileKeys.fingerprint(new.ageIdentity!!))
+        assertFalse(FileKeys.needsBackup(listOf(regrouped, new), Instant.parse("2026-07-01T00:00:00Z"), backedUp))
     }
 
     @Test fun unstampedKeysAreStampedBeforeAnEdit() {
@@ -64,13 +65,21 @@ class FileKeysTest {
         assertEquals(32, FileKeys.fingerprint(identity).length); assertFalse(identity.contains(FileKeys.fingerprint(identity), ignoreCase = true))
     }
 
-    @Test fun backupWarningUntilBackedUpAfterTheNewestKey() {
+    @Test fun backupWarningUntilTheBackupHasKnownKeyCoverage() {
         val key = FileKeys.record("k", identity, "", Instant.parse("2026-06-01T00:00:00Z"))
-        // Backups made before key fingerprints were recorded: compared by time.
+        // A legacy backup's timestamp cannot prove that it held the current secret, even when the entry is older.
         assertFalse(FileKeys.needsBackup(emptyList(), null, null))
         assertTrue(FileKeys.needsBackup(listOf(key), null, null))
         assertTrue(FileKeys.needsBackup(listOf(key), Instant.parse("2026-05-31T00:00:00Z"), null))
-        assertFalse(FileKeys.needsBackup(listOf(key), Instant.parse("2026-06-02T00:00:00Z"), null))
+        val lastBackup = Instant.parse("2026-06-02T00:00:00Z")
+        assertTrue(FileKeys.needsBackup(listOf(key), lastBackup, null))
+        val replaced = key.copy(updatedAt = "2026-09-01T00:00:00Z", fields = key.fields.map {
+            if (it.label == AGE_KEY_LABEL) it.copy(value = Age.generateIdentity().encoded) else it
+        })
+        assertTrue(FileKeys.needsBackup(listOf(replaced), lastBackup, null))
+        val tracked = setOf(FileKeys.fingerprint(replaced.ageIdentity!!))
+        assertFalse(FileKeys.needsBackup(listOf(replaced), Instant.parse("2026-10-01T00:00:00Z"), tracked))
+        assertTrue("fingerprints without a completed backup do not count", FileKeys.needsBackup(listOf(replaced), null, tracked))
     }
 
     @Test fun fileNames() {

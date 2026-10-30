@@ -50,13 +50,12 @@ object FileKeys {
         .digest("PassVault/file-key/v1\n${identity.trim().uppercase()}".toByteArray()).take(16).joinToString("") { "%02x".format(it) }
     /**
      * Whether a key is not in the last encrypted backup, so it exists only on this phone. [backedUp] holds the fingerprints of the keys
-     * that backup contained; it compares the secrets themselves, so a key whose secret was replaced (on iOS, say) counts as new. For a
-     * backup made before fingerprints were recorded ([backedUp] null), keys added after [lastBackup] count.
+     * that backup contained; it compares the secrets themselves, so a key whose secret was replaced (on iOS, say) counts as new. A
+     * backup made before fingerprints were recorded ([backedUp] null) cannot establish which secrets it held: request a fresh backup.
      */
     fun needsBackup(keys: List<VaultRecord>, lastBackup: Instant?, backedUp: Set<String>?): Boolean {
         if (keys.isEmpty()) return false
-        if (backedUp != null) return keys.any { fingerprint(it.ageIdentity!!) !in backedUp }
-        return lastBackup == null || keys.any { created(it).isAfter(lastBackup) }
+        return lastBackup == null || backedUp == null || keys.any { fingerprint(it.ageIdentity!!) !in backedUp }
     }
     /** `report.pdf` → `report.pdf.age`. */
     fun encryptedName(original: String?) = (original?.takeIf { it.isNotBlank() } ?: "file") + ".age"
