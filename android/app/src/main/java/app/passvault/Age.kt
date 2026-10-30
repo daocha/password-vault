@@ -30,8 +30,8 @@ class AgeException(val kind: Kind, message: String) : Exception(message) {
 
 /**
  * age v1 file encryption (c2sp.org/age), so files PassVault encrypts open with the `age` command-line tool and vice versa. Supports the
- * X25519 and post-quantum hybrid (mlkem768x25519) recipient types and reads ASCII-armored files; passphrase (scrypt) and hardware
- * (tag) stanzas are ignored. Pure Kotlin on BouncyCastle's lightweight API, so the JVM unit tests check it against the age test kit.
+ * X25519 and post-quantum hybrid (mlkem768x25519) recipient types and reads ASCII-armored files; passphrase (scrypt) stanzas cannot
+ * be opened (but are rejected alongside other stanzas, as the spec requires) and hardware (tag) stanzas are ignored. Pure Kotlin on BouncyCastle's lightweight API, so the JVM unit tests check it against the age test kit.
  */
 object Age {
     const val CHUNK = 64 * 1024
@@ -187,6 +187,8 @@ object Age {
     /** The file key, after checking the header MAC. */
     private fun openHeader(input: InputStream, identities: List<Identity>): ByteArray {
         val header = readHeader(input)
+        // The spec requires an scrypt (passphrase) stanza to be alone, so a passphrase file cannot be silently re-addressed to a key.
+        if (header.stanzas.size > 1 && header.stanzas.any { it.args.firstOrNull() == "scrypt" }) header("A passphrase stanza must be the only one.")
         var fileKey: ByteArray? = null
         loop@ for (stanza in header.stanzas) for (identity in identities) { fileKey = identity.unwrap(stanza); if (fileKey != null) break@loop }
         fileKey ?: throw AgeException(AgeException.Kind.noMatch, "This file was not encrypted to any of your keys.")

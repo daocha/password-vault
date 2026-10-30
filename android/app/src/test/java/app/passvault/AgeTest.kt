@@ -10,14 +10,14 @@ import java.security.MessageDigest
 /** The age test kit (CCTV, see fixtures/age-testkit/README.md) and round trips through the encrypter. */
 class AgeTest {
     private val dir = File("../../fixtures/age-testkit")
-    private class Vector(val name: String, val expect: String, val payload: String?, val identities: List<String>, val armored: Boolean, val passphrase: Boolean, val file: ByteArray)
+    private class Vector(val name: String, val expect: String, val payload: String?, val identities: List<String>, val armored: Boolean, val passphrase: Boolean, val comment: String?, val file: ByteArray)
     private fun vectors(): List<Vector> = dir.listFiles()!!.filter { it.isFile && it.name != "README.md" }.sortedBy { it.name }.map { f ->
         val bytes = f.readBytes(); val split = (0 until bytes.size - 1).first { bytes[it] == '\n'.code.toByte() && bytes[it + 1] == '\n'.code.toByte() }
         val headers = String(bytes, 0, split, Charsets.UTF_8).lines().map { it.substringBefore(": ") to it.substringAfter(": ") }
         fun value(key: String) = headers.firstOrNull { it.first == key }?.second
         var body = bytes.copyOfRange(split + 2, bytes.size)
         if (value("compressed") == "zlib") body = java.util.zip.InflaterInputStream(ByteArrayInputStream(body)).readBytes()
-        Vector(f.name, value("expect")!!, value("payload"), headers.filter { it.first == "identity" }.map { it.second }, value("armored") == "yes", value("passphrase") != null, body)
+        Vector(f.name, value("expect")!!, value("payload"), headers.filter { it.first == "identity" }.map { it.second }, value("armored") == "yes", value("passphrase") != null, value("comment"), body)
     }
     private fun outcome(kind: AgeException.Kind) = when (kind) {
         AgeException.Kind.header -> "header failure"; AgeException.Kind.noMatch -> "no match"; AgeException.Kind.hmac -> "HMAC failure"
@@ -25,12 +25,23 @@ class AgeTest {
     }
     private fun sha256(data: ByteArray) = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
 
+    /**
+     * Acceptable outcomes. Passphrase (scrypt) files cannot be opened by design (PassVault encrypts only to the vault's keys), so a
+     * passphrase vector never succeeds: it ends in "no match", or in "header failure" when its header is malformed (PassVault checks the
+     * stanza grammar shared by all types, not scrypt's own arguments). Headers mixing scrypt with other stanzas must be rejected (spec).
+     */
+    private fun expected(v: Vector) = when {
+        !v.passphrase -> setOf(v.expect)
+        v.comment?.contains("must be alone") == true -> setOf("header failure")
+        v.expect == "header failure" -> setOf("header failure", "no match")
+        else -> setOf("no match")
+    }
     @Test fun testKit() {
-        // Passphrase (scrypt) files are not supported by design: PassVault encrypts only to the vault's key.
-        val usable = vectors().filter { !it.passphrase }
-        assertTrue("test kit present", usable.size > 100)
-        assertTrue("post-quantum files decrypt", usable.count { it.name.startsWith("hybrid") && it.expect == "success" } >= 4)
-        val failures = usable.mapNotNull { v ->
+        val all = vectors()
+        assertTrue("test kit present", all.size > 140)
+        assertTrue("post-quantum files decrypt", all.count { it.name.startsWith("hybrid") && it.expect == "success" } >= 4)
+        assertEquals("mixed passphrase headers covered", 2, all.count { it.passphrase && expected(it) == setOf("header failure") })
+        val failures = all.mapNotNull { v ->
             val out = ByteArrayOutputStream()
             val got = try {
                 val identities = v.identities.map(Age::parseIdentity)
@@ -38,7 +49,7 @@ class AgeTest {
                 Age.decryptBinary(ByteArrayInputStream(input), out, identities); "success"
             } catch (e: AgeException) { outcome(e.kind) }
             when {
-                got != v.expect -> "${v.name}: expected ${v.expect}, got $got"
+                got !in expected(v) -> "${v.name}: expected ${expected(v)}, got $got"
                 got == "success" && v.payload != null && sha256(out.toByteArray()) != v.payload -> "${v.name}: wrong payload"
                 else -> null
             }

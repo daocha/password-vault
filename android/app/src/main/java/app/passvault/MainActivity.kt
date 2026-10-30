@@ -335,7 +335,7 @@ class MainActivity : FragmentActivity() {
         val source = fileSource; fileSource = null
         val identity = fileKeys.firstOrNull()?.ageIdentity
         if (uri == null || source == null || identity == null || !unlocked) return@registerForActivityResult
-        runFileJob(false, source.size, { cancelled, progress -> FileCrypt.encrypt(contentResolver, source.uri, uri, Age.parseIdentity(identity).recipient, cancelled, progress) }) {
+        runFileJob(false, source.size, uri, { cancelled, progress -> FileCrypt.encrypt(contentResolver, source.uri, uri, Age.parseIdentity(identity).recipient, cancelled, progress) }) {
             encryptedOriginal = source to (FileCrypt.describe(contentResolver, uri).name ?: FileKeys.encryptedName(source.name))
         }
     }
@@ -360,19 +360,32 @@ class MainActivity : FragmentActivity() {
         val source = fileSource; fileSource = null
         val keys = fileKeys.mapNotNull { it.ageIdentity }
         if (uri == null || source == null || !unlocked) return@registerForActivityResult
-        runFileJob(true, source.size, { cancelled, progress -> FileCrypt.decrypt(contentResolver, source.uri, uri, keys.map(Age::parseIdentity), cancelled, progress) }) { message = getString(R.string.files_decrypted) }
+        runFileJob(true, source.size, uri, { cancelled, progress -> FileCrypt.decrypt(contentResolver, source.uri, uri, keys.map(Age::parseIdentity), cancelled, progress) }) { message = getString(R.string.files_decrypted) }
     }
     private val shareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { systemPickerOpen = false }
-    /** Runs a file job off the main thread with a progress dialog. Cancelling or locking the vault stops it, and its output is then deleted. */
-    private fun runFileJob(decrypting: Boolean, total: Long?, job: (cancelled: () -> Boolean, progress: (Long) -> Unit) -> Unit, done: () -> Unit) {
+    /**
+     * Runs a file job off the main thread with a progress dialog, writing [output]. Cancelling, locking the vault or destroying the
+     * activity stops it, and its output is then deleted, including when the stop lands just after the job finished.
+     */
+    private fun runFileJob(decrypting: Boolean, total: Long?, output: android.net.Uri, job: (cancelled: () -> Boolean, progress: (Long) -> Unit) -> Unit, done: () -> Unit) {
         if (fileProgress != null) return
         val epoch = generation; fileCancelled = false; fileProgress = FileProgress(decrypting, 0, total)
+        val cancelled = { fileCancelled || epoch != generation }
         var shown = 0L
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { job({ fileCancelled || epoch != generation }) { n -> if (n - shown >= 256 * 1024) { shown = n; fileProgress = FileProgress(decrypting, n, total) } } }
-                if (epoch == generation) done()
+                withContext(Dispatchers.IO) {
+                    job(cancelled) { n -> if (n - shown >= 256 * 1024) { shown = n; fileProgress = FileProgress(decrypting, n, total) } }
+                    // Stopped between the job's own last check and here: the file is complete, but whoever stopped it expects nothing kept.
+                    if (cancelled()) { if (!FileCrypt.discard(contentResolver, output)) throw FileCrypt.LeftBehind(FileCrypt.Cancelled()); throw FileCrypt.Cancelled() }
+                }
+                done()
             } catch (e: FileCrypt.Cancelled) { if (epoch == generation) message = getString(R.string.files_cancelled) }
+            catch (e: FileCrypt.LeftBehind) {
+                messageError = true
+                val name = withContext(Dispatchers.IO) { FileCrypt.describe(contentResolver, output).name } ?: getString(R.string.files_unknown_name)
+                message = getString(if (decrypting) R.string.files_left_behind_plain else R.string.files_left_behind, name)
+            }
             catch (e: AgeException) { messageError = true; message = ageError(e) }
             catch (e: Exception) { messageError = true; message = getString(R.string.files_failed) }
             finally { fileProgress = null }
@@ -543,6 +556,8 @@ class MainActivity : FragmentActivity() {
     }
     override fun onDestroy() {
         updates?.close()
+        // A running file job outlives this activity's coroutines; this makes it stop and delete its output.
+        fileCancelled = true
         unregisterReceiver(screenOff); discardTransfer(); exportBytes?.fill(0); importBytes?.fill(0); biometricCandidate?.fill(0)
         // The auto-lock coroutine dies with this activity, so zero the data key now (off the main thread: the engine may be mid-Argon2).
         if (::engine.isInitialized) { val e = engine; Thread { e.lock() }.start() }

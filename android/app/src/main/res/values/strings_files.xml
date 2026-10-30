@@ -54,4 +54,7 @@
     <string name="files_record_hint">This entry is your file encryption key. Encrypted files open only while it is in the vault. It cannot be edited.</string>
     <string name="files_delete_key_body">\"%1$s\" is a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it.</string>
     <string name="files_delete_body_keys">This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it.</string>
+    <string name="files_left_behind">The file could not be finished, and the incomplete encrypted file \"%1$s\" could not be removed. Delete it yourself.</string>
+    <string name="files_left_behind_plain">The file could not be finished, and \"%1$s\" could not be removed. It may contain decrypted data: delete it yourself now.</string>
+    <string name="files_unknown_name">the file you chose to save to</string>
 </resources>
