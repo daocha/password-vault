@@ -198,8 +198,6 @@ class MainActivity : FragmentActivity() {
     private var backupSnoozedUntil by mutableStateOf<Instant?>(null)
     private fun loadBackupStatus() { val b = backups; lastBackup = b.lastBackup; backupInterval = b.interval; backupSnoozedUntil = b.snoozedUntil; backedUpKeys = b.fileKeys }
     private var backedUpKeys by mutableStateOf<Set<String>?>(null)
-    /** Fingerprints of the file keys in the backup being saved; recorded once the file is written. */
-    private var exportKeys: Set<String>? = null
     private var tab by mutableStateOf(RecordType.login)
     /** Accounts read from a Google Authenticator export QR, waiting for the user to confirm adding them. */
     private var scannedImport by mutableStateOf<ScannedImport?>(null)
@@ -228,8 +226,9 @@ class MainActivity : FragmentActivity() {
             importKeyFile?.fill(0); importKeyFile = bytes
         }
     }
-    private var exportBytes: ByteArray? = null
-    private var exportIsCSV = false
+    /** Owned here only until the save picker returns; a running write owns its own snapshot. */
+    private var pendingExport: VaultExport? = null
+    private fun discardPendingExport() { pendingExport?.clear(); pendingExport = null }
     private lateinit var biometricPrompt: BiometricPrompt
     // System back walks up one screen (editor → entry → list, settings → list); on the list it leaves the app.
     private val backCallback = object : OnBackPressedCallback(false) {
@@ -528,7 +527,7 @@ class MainActivity : FragmentActivity() {
         // A running file job sees the new generation and stops; its half-written output is deleted.
         fileCrypt = false; fileSource = null; encryptedOriginal = null; fileCancelled = true
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
-        importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
+        importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; discardPendingExport()
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
         if (::engine.isInitialized) lifecycleScope.launch(vaultQueue) { engine.lock() }
@@ -537,7 +536,7 @@ class MainActivity : FragmentActivity() {
         updates?.close()
         // A running file job outlives this activity's coroutines; this makes it stop and delete its output.
         fileCancelled = true
-        unregisterReceiver(screenOff); discardTransfer(); exportBytes?.fill(0); importBytes?.fill(0); biometricCandidate?.fill(0)
+        unregisterReceiver(screenOff); discardTransfer(); discardPendingExport(); importBytes?.fill(0); biometricCandidate?.fill(0)
         // The auto-lock coroutine dies with this activity, so zero the data key now (off the main thread: the engine may be mid-Argon2).
         if (::engine.isInitialized) { val e = engine; Thread { e.lock() }.start() }
         super.onDestroy()
@@ -563,15 +562,16 @@ class MainActivity : FragmentActivity() {
                     sending?.let { if (it.decoy != decoySession || SystemClock.elapsedRealtime() >= it.expiresAt) discardTransfer() }
                 }
                 remaining = engine.remainingAttempts(); done()
-            } catch (e: Exception) {
-                if (!runCatching { engine.isUnlocked() }.getOrDefault(false)) lockVault()
-                remaining = runCatching { engine.remainingAttempts() }.getOrDefault(0); erased = runCatching { engine.isErased() }.getOrDefault(false)
-                if (erased) biometricEnabled = false
-                messageError = true
-                message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else errorText(e, R.string.main_operation_failed)
-            }
+            } catch (e: Exception) { reportWorkError(e) }
             finally { busy = false }
         }
+    }
+    private fun reportWorkError(e: Exception) {
+        if (!runCatching { engine.isUnlocked() }.getOrDefault(false)) lockVault()
+        remaining = runCatching { engine.remainingAttempts() }.getOrDefault(0); erased = runCatching { engine.isErased() }.getOrDefault(false)
+        if (erased) biometricEnabled = false
+        messageError = true
+        message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else errorText(e, R.string.main_operation_failed)
     }
     private fun saveRecord(saved: VaultRecord, done: () -> Unit = {}) {
         val updated = if (records.any { it.id == saved.id }) records.map { if (it.id == saved.id) saved else it } else records + saved
@@ -1165,8 +1165,7 @@ class MainActivity : FragmentActivity() {
                         Text(stringResource(R.string.main_csv_warning), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         CheckRow(consent, { consent = it }) { Text(stringResource(R.string.main_understand_risk), style = MaterialTheme.typography.bodyMedium) }
                     } }) { pass ->
-                    exportIsCSV = csv
-                    work({ exportBytes?.fill(0); exportBytes = engine.export(pass, csv); exportKeys = FileKeys.of(records).map { FileKeys.fingerprint(it.ageIdentity!!) }.toSet(); null }) { if (!launchPicker { if (csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) { exportBytes?.fill(0); exportBytes = null } }
+                    prepareExport(pass, csv)
                 }
             }
         }
@@ -1299,17 +1298,40 @@ class MainActivity : FragmentActivity() {
     }
     /** e.g. passvault_2026-09-29_10_31.pvault, in local time. */
     private fun exportFileName(extension: String) = "passvault_" + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HH_mm")) + "." + extension
+    private fun prepareExport(password: String, csv: Boolean) {
+        if (!ready || busy) return
+        busy = true; message = ""; messageError = false; val epoch = generation
+        lifecycleScope.launch {
+            // Keep ownership even if cancellation drops withContext's result on its way back to the main thread.
+            var prepared: VaultExport? = null
+            try {
+                withContext(vaultQueue) { prepared = engine.export(password, csv) }
+                if (epoch != generation || !unlocked) return@launch
+                remaining = engine.remainingAttempts()
+                val snapshot = checkNotNull(prepared)
+                discardPendingExport(); pendingExport = snapshot; prepared = null
+                if (!launchPicker { if (snapshot.csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) discardPendingExport()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { if (epoch == generation) reportWorkError(e) }
+            finally { prepared?.clear(); busy = false }
+        }
+    }
     private fun writeExport(uri: android.net.Uri?) {
         systemPickerOpen = false
-        val bytes = exportBytes ?: return; exportBytes = null
+        val snapshot = pendingExport ?: return; pendingExport = null
+        val epoch = generation
         lifecycleScope.launch {
             try {
-                if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }
+                if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(snapshot.bytes) } ?: error(getString(R.string.main_export_could_not_write)) }
                 // Only a saved encrypted backup counts: CSV leaves out 2FA keys, seed phrases, cards and notes.
-                if (uri != null && !exportIsCSV) { backups.lastBackup = Instant.now(); exportKeys?.let { backups.fileKeys = it }; loadBackupStatus() }
-                message = if (uri == null) getString(R.string.main_export_cancelled) else if (exportIsCSV) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done) }
-            catch (e: Exception) { message = e.message ?: getString(R.string.main_export_failed) }
-            finally { bytes.fill(0) }
+                if (uri != null) snapshot.recordBackup(prefs, Instant.now())
+                if (epoch == generation && unlocked) {
+                    loadBackupStatus()
+                    message = if (uri == null) getString(R.string.main_export_cancelled) else if (snapshot.csv) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { if (epoch == generation) { messageError = true; message = e.message ?: getString(R.string.main_export_failed) } }
+            finally { snapshot.clear() }
         }
     }
     /** "today", "yesterday" or "12 days ago". */

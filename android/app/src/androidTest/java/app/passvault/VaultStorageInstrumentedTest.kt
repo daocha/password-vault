@@ -240,7 +240,10 @@ class VaultStorageInstrumentedTest {
         assertThrows(IllegalStateException::class.java) { engine.biometricKey(decoyPassword) }
         assertThrows(IllegalStateException::class.java) { engine.removeDecoy(decoyPassword) }
         assertThrows(AuthenticationFailure::class.java) { engine.export(password, csv = true) } // the main password is not accepted in the decoy vault
-        val csv = engine.export(decoyPassword, csv = true).toString(Charsets.UTF_8)
+        val export = engine.export(decoyPassword, csv = true)
+        assertTrue(export.csv); assertTrue(export.decoy); assertTrue(export.fileKeys.isEmpty())
+        val csv = export.bytes.toString(Charsets.UTF_8)
+        export.clear()
         assertTrue(csv.contains("Shopping")); assertFalse(csv.contains("Real bank"))
         engine.lock()
 

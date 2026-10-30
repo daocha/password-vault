@@ -27,8 +27,26 @@ object BackupReminder {
     }
 }
 
+/** One export owns its bytes and the metadata for those exact records, even while another export is prepared or the vault locks. */
+class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, val decoy: Boolean, val fileKeys: Set<String>) {
+    fun clear() { bytes.fill(0) }
+    /** Called only after a successful write. CSV is not a backup, and the destination history belongs to the source vault. */
+    fun recordBackup(prefs: SharedPreferences, savedAt: Instant) {
+        if (!csv) BackupStatus(prefs, if (decoy) "decoy." else "").record(savedAt, fileKeys)
+    }
+
+    companion object {
+        /** Called under the engine's lock; the encoder and the fingerprints see the same record snapshot. */
+        fun prepare(records: List<VaultRecord>, csv: Boolean, decoy: Boolean, encode: (List<VaultRecord>) -> ByteArray): VaultExport {
+            val snapshot = records.toList()
+            val keys = if (csv) emptySet() else FileKeys.of(snapshot).map { FileKeys.fingerprint(it.ageIdentity!!) }.toSet()
+            return VaultExport(encode(snapshot), csv, decoy, keys)
+        }
+    }
+}
+
 /**
- * When the last encrypted backup was saved and the reminder settings, kept in ordinary preferences (no secrets: only times and a choice).
+ * When the last encrypted backup was saved, its key fingerprints and reminder settings, kept in ordinary preferences (no secrets).
  * [prefix] keeps each vault's history apart (the decoy vault has its own).
  */
 class BackupStatus(private val prefs: SharedPreferences, private val prefix: String = "") {
@@ -45,5 +63,10 @@ class BackupStatus(private val prefs: SharedPreferences, private val prefix: Str
     var fileKeys: Set<String>?
         get() = prefs.getStringSet(prefix + "backupFileKeys", null)?.toSet()
         set(value) { prefs.edit().putStringSet(prefix + "backupFileKeys", value).apply() }
+    /** Timestamp and key coverage belong to the same completed backup; publish them together. */
+    fun record(savedAt: Instant, keys: Set<String>) {
+        prefs.edit().putLong(prefix + "lastBackupAt", savedAt.toEpochMilli()).putStringSet(prefix + "backupFileKeys", keys)
+            .remove(prefix + "backupSnoozeUntil").apply()
+    }
     fun snooze(now: Instant = Instant.now()) { snoozedUntil = now.plus(Duration.ofDays(BackupReminder.SNOOZE_DAYS)) }
 }
