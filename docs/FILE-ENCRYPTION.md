@@ -21,8 +21,10 @@ with the `age` command-line tool (1.3 or later), and files encrypted there to th
   plus a notes field. Nothing in the vault format changes, so backups, transfers, iOS and older Android builds keep the entry as a note
   (iOS shows it as a note with a hidden field). Android recognises it by that label and a valid identity, hides its Edit button, gives
   it a key icon and warns before it is deleted.
-- **Several keys.** Every key in the vault is tried when decrypting. New files are encrypted to the newest key only (by `updatedAt`);
-  age's rule is not to mix post-quantum and classic recipients in one file.
+- **Several keys.** Every key in the vault is tried when decrypting. New files are encrypted to the most recently added key only;
+  age's rule is not to mix post-quantum and classic recipients in one file. "Added" is a `fileKeyCreated` timestamp in the record's
+  hidden `legacy` metadata (kept by backups, transfers and iOS), not `updatedAt`: moving an old key into a group must not make it
+  active again after the user rotated away from it. An entry without the stamp falls back to `updatedAt`.
 - **Public key.** Derived from the secret key when the screen opens; never stored. It can be copied (not marked sensitive, not
   auto-cleared: it is not a secret) or shared through Android's share sheet so a computer can encrypt for the vault.
 
@@ -56,27 +58,33 @@ Settings › Security › File encryption.
   anything is saved → choose where to save (`name.age` → `name`; otherwise `name.decrypted`) → decrypt → reminder that the copy is not
   protected. ASCII-armored files (`age -a`) are read up to 16 MiB.
 - **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Any failure or cancellation empties and
-  deletes the output, so a partial plaintext is never left behind or mistaken for the whole file.
-- **Locking.** Locking the vault (screen off, auto-lock) cancels a running job, with the same clean-up. While the system file picker is
+  deletes the output, so a partial plaintext is never left behind or mistaken for the whole file. Cancellation is checked on every
+  write and again after the file is closed (a small or armored file is read in full before anything is written), and once more
+  when the job returns. If the output can be neither emptied nor deleted (its provider went away, say), the user is told its name
+  and that it may hold decrypted data, instead of "nothing was saved".
+- **Locking.** Locking the vault (screen off, auto-lock) or the activity being destroyed cancels a running job, with the same clean-up. While the system file picker is
   open the usual 2-minute picker grace period applies.
 
 ## Implementation
 
 - `Age.kt`: age v1 in Kotlin on BouncyCastle's lightweight API (already a dependency for KeePass import): X25519, ML-KEM-768,
   SHA3/SHAKE, HKDF and HMAC-SHA-256, ChaCha20-Poly1305. Streaming, 64 KiB chunks; header lines bounded to 16 KiB, header to 1 MiB,
-  256 stanzas. Passphrase (scrypt) and hardware (tag) stanzas are ignored, since PassVault only encrypts to the vault's own keys.
+  256 stanzas. Passphrase (scrypt) files cannot be opened, since PassVault only encrypts to the vault's own keys, but a header mixing an scrypt
+  stanza with any other is rejected, as the spec requires. Hardware (tag) stanzas are ignored.
 - `FileEncryption.kt`: the key entry, naming, the backup check, and streaming between document URIs.
 - `FileEncryptionUi.kt`: the screen and progress dialog.
 
 ## Tests
 
-- `AgeTest` (JVM) runs every non-passphrase vector of the age test kit (`fixtures/age-testkit`, from C2SP/CCTV) and checks the exact
-  outcome (success with the payload's SHA-256, header / HMAC / payload / armor failure, no match), including the post-quantum vectors.
+- `AgeTest` (JVM) runs every vector of the age test kit (`fixtures/age-testkit`, from C2SP/CCTV) and checks the exact
+  outcome (success with the payload's SHA-256, header / HMAC / payload / armor failure, no match), including the post-quantum vectors. Passphrase vectors must never decrypt, and the two that mix scrypt with other stanzas must
+  be rejected as header failures.
   It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
   boundaries, wrong keys, tampering and truncation.
-- `FileKeysTest` (JVM): the key entry survives backup encoding, newest-first order, the backup warning, file names.
+- `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), the backup warning, file
+  names.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
-  output is emptied.
+  output is emptied, including a stop that lands after a small file was read in full.
 - Not yet done: decrypting a PassVault-made file with the `age` CLI. Because PassVault decrypts the official vectors and derives the
   spec's public key exactly, the encrypt direction should interoperate, but it has not been checked against the tool itself.
 

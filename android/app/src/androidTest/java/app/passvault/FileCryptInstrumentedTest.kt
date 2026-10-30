@@ -40,6 +40,12 @@ class FileCryptInstrumentedTest {
         val cancelled = File(directory, "cancelled.bin")
         assertThrows(FileCrypt.Cancelled::class.java) { FileCrypt.decrypt(context.contentResolver, Uri.fromFile(sealed), Uri.fromFile(cancelled), listOf(identity), { true }) {} }
         assertTrue(!cancelled.exists() || cancelled.length() == 0L)
+        // A small file is read in full before any plaintext is written, so a stop that lands after the last read must still discard the output.
+        val small = File(directory, "small.age"); File(directory, "small.bin").writeBytes(ByteArray(1000) { 7 })
+        FileCrypt.encrypt(context.contentResolver, Uri.fromFile(File(directory, "small.bin")), Uri.fromFile(small), identity.recipient, { false }) {}
+        val late = File(directory, "late.bin"); var stop = false
+        assertThrows(FileCrypt.Cancelled::class.java) { FileCrypt.decrypt(context.contentResolver, Uri.fromFile(small), Uri.fromFile(late), listOf(identity), { stop }) { if (it >= small.length()) stop = true } }
+        assertTrue("late stop leaves nothing", !late.exists() || late.length() == 0L)
         assertEquals(AgeException.Kind.noMatch, assertThrows(AgeException::class.java) { FileCrypt.check(context.contentResolver, Uri.fromFile(sealed), listOf(Age.generateIdentity())) }.kind)
     }
 }
