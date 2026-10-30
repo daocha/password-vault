@@ -35,15 +35,42 @@ class FileKeysTest {
         assertEquals(listOf("new", "old"), FileKeys.of(listOf(regrouped, new)).map { it.name })
         // The stamp survives backups.
         assertEquals(listOf("new", "old"), FileKeys.of(Records.decode(Records.encode(listOf(regrouped, new)))).map { it.name })
-        assertFalse(FileKeys.needsBackup(listOf(regrouped, new), Instant.parse("2026-07-01T00:00:00Z")))
+        assertFalse(FileKeys.needsBackup(listOf(regrouped, new), Instant.parse("2026-07-01T00:00:00Z"), null))
+    }
+
+    @Test fun unstampedKeysAreStampedBeforeAnEdit() {
+        // Entries from the first build, or made by hand on iOS, have no stamp until the vault next loads them.
+        val old = FileKeys.record("old", identity, "").copy(legacy = emptyMap(), updatedAt = "2026-01-01T00:00:00Z")
+        val new = FileKeys.record("new", Age.generateIdentity().encoded, "", Instant.parse("2026-06-01T00:00:00Z"))
+        val other = VaultRecord(name = "login")
+        val stamped = FileKeys.stamp(listOf(old, new, other))
+        assertEquals("2026-01-01T00:00:00Z", stamped[0].legacy[FileKeys.CREATED]); assertEquals("2026-01-01T00:00:00Z", stamped[0].updatedAt)
+        assertSame(new, stamped[1]); assertSame(other, stamped[2])
+        // Already stamped: the same list comes back, so nothing is saved.
+        assertSame(stamped, FileKeys.stamp(stamped))
+        val regrouped = stamped.map { if (it.name == "old") it.copy(group = "Archive", updatedAt = "2026-09-01T00:00:00Z") else it }
+        assertEquals("new", FileKeys.of(regrouped).first().name)
+    }
+
+    @Test fun backupWarningFollowsTheSecretItself() {
+        val key = FileKeys.record("k", identity, "", Instant.parse("2026-01-01T00:00:00Z"))
+        val inBackup = setOf(FileKeys.fingerprint(identity))
+        assertFalse(FileKeys.needsBackup(listOf(key), Instant.parse("2026-02-01T00:00:00Z"), inBackup))
+        // The secret replaced in another app's editor: same entry, same creation stamp, not in the backup.
+        val replaced = key.copy(fields = key.fields.map { if (it.label == AGE_KEY_LABEL) it.copy(value = Age.generateIdentity().encoded) else it })
+        assertTrue(FileKeys.needsBackup(listOf(replaced), Instant.parse("2026-02-01T00:00:00Z"), inBackup))
+        // Case and spacing do not change the fingerprint; it does not contain the key.
+        assertEquals(FileKeys.fingerprint(identity), FileKeys.fingerprint(" " + identity.lowercase() + "\n"))
+        assertEquals(32, FileKeys.fingerprint(identity).length); assertFalse(identity.contains(FileKeys.fingerprint(identity), ignoreCase = true))
     }
 
     @Test fun backupWarningUntilBackedUpAfterTheNewestKey() {
         val key = FileKeys.record("k", identity, "", Instant.parse("2026-06-01T00:00:00Z"))
-        assertFalse(FileKeys.needsBackup(emptyList(), null))
-        assertTrue(FileKeys.needsBackup(listOf(key), null))
-        assertTrue(FileKeys.needsBackup(listOf(key), Instant.parse("2026-05-31T00:00:00Z")))
-        assertFalse(FileKeys.needsBackup(listOf(key), Instant.parse("2026-06-02T00:00:00Z")))
+        // Backups made before key fingerprints were recorded: compared by time.
+        assertFalse(FileKeys.needsBackup(emptyList(), null, null))
+        assertTrue(FileKeys.needsBackup(listOf(key), null, null))
+        assertTrue(FileKeys.needsBackup(listOf(key), Instant.parse("2026-05-31T00:00:00Z"), null))
+        assertFalse(FileKeys.needsBackup(listOf(key), Instant.parse("2026-06-02T00:00:00Z"), null))
     }
 
     @Test fun fileNames() {
