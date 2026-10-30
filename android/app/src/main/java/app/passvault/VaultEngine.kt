@@ -198,9 +198,11 @@ class VaultEngine(private val storage: ProtectedStorage) {
         save(imported); return@serialized imported
     }
     /** Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. */
-    fun export(password: String, csv: Boolean): ByteArray = VaultAccess.serialized {
+    fun export(password: String, csv: Boolean): VaultExport = VaultAccess.serialized {
         check(key != null) { "Vault is locked." }; authenticate(password).key.fill(0)
-        return@serialized if (csv) VaultCSV.exportRecords(records).toByteArray() else VaultCrypto.exportBackup(records, password)
+        return@serialized VaultExport.prepare(records, csv, activeDecoy) { snapshot ->
+            if (csv) VaultCSV.exportRecords(snapshot).toByteArray() else VaultCrypto.exportBackup(snapshot, password)
+        }
     }
     /** Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code. */
     fun exportTransfer(password: String): Pair<String, ByteArray> = VaultAccess.serialized {

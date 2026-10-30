@@ -47,7 +47,9 @@ Like any private key, losing it loses the files. PassVault reduces the chance:
 - Creating a key requires ticking "I understand and will back up my vault".
 - The File encryption screen shows a "Back up" banner while any key is not in the last encrypted backup. Saving a backup records
   a fingerprint of each key it holds (truncated SHA-256 of the 256-bit secret, in ordinary preferences, per vault), so a key whose
-  secret was replaced elsewhere counts as new. Backups saved before fingerprints were recorded fall back to comparing times.
+  secret was replaced elsewhere counts as new. Backups saved before fingerprints were recorded cannot establish key coverage, so the
+  banner stays visible until a fresh encrypted backup is saved. Each export keeps its bytes, fingerprints, format and source vault
+  together: another export or a vault lock cannot change which keys or vault a completed backup is recorded for.
 - Deleting a key entry (alone or in a bulk delete) shows a specific warning.
 - Changing the app password keeps the key: it is vault content, re-encrypted with the vault.
 
