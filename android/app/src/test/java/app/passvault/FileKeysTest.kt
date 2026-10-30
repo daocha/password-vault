@@ -20,13 +20,26 @@ class FileKeysTest {
     }
 
     @Test fun newestKeyComesFirst() {
-        val old = FileKeys.record("old", identity, "").copy(updatedAt = "2026-01-01T00:00:00Z")
-        val new = FileKeys.record("new", Age.generateIdentity().encoded, "").copy(updatedAt = "2026-06-01T00:00:00.5Z")
-        assertEquals(listOf("new", "old"), FileKeys.of(listOf(old, VaultRecord(name = "x"), new)).map { it.name })
+        val old = FileKeys.record("old", identity, "", Instant.parse("2026-01-01T00:00:00Z"))
+        val new = FileKeys.record("new", Age.generateIdentity().encoded, "", Instant.parse("2026-06-01T00:00:00.5Z"))
+        // An entry without the stamp (made by hand on another app) falls back to updatedAt.
+        val unstamped = FileKeys.record("unstamped", Age.generateIdentity().encoded, "").copy(legacy = emptyMap(), updatedAt = "2026-03-01T00:00:00Z")
+        assertEquals(listOf("new", "unstamped", "old"), FileKeys.of(listOf(old, VaultRecord(name = "x"), new, unstamped)).map { it.name })
+    }
+
+    @Test fun editingAnOldKeyDoesNotMakeItActive() {
+        val old = FileKeys.record("old", identity, "", Instant.parse("2026-01-01T00:00:00Z"))
+        val new = FileKeys.record("new", Age.generateIdentity().encoded, "", Instant.parse("2026-06-01T00:00:00Z"))
+        // Moving the old key to a group (or any other edit) bumps updatedAt; the key added last stays active.
+        val regrouped = old.copy(group = "Archive", updatedAt = "2026-09-01T00:00:00Z")
+        assertEquals(listOf("new", "old"), FileKeys.of(listOf(regrouped, new)).map { it.name })
+        // The stamp survives backups.
+        assertEquals(listOf("new", "old"), FileKeys.of(Records.decode(Records.encode(listOf(regrouped, new)))).map { it.name })
+        assertFalse(FileKeys.needsBackup(listOf(regrouped, new), Instant.parse("2026-07-01T00:00:00Z")))
     }
 
     @Test fun backupWarningUntilBackedUpAfterTheNewestKey() {
-        val key = FileKeys.record("k", identity, "").copy(updatedAt = "2026-06-01T00:00:00Z")
+        val key = FileKeys.record("k", identity, "", Instant.parse("2026-06-01T00:00:00Z"))
         assertFalse(FileKeys.needsBackup(emptyList(), null))
         assertTrue(FileKeys.needsBackup(listOf(key), null))
         assertTrue(FileKeys.needsBackup(listOf(key), Instant.parse("2026-05-31T00:00:00Z")))

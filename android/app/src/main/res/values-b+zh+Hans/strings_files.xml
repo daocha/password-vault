@@ -54,4 +54,7 @@
     <string name="files_record_hint">这个条目是你的文件加密密钥。只要它在保险库中，加密的文件就能打开。它不能编辑。</string>
     <string name="files_delete_key_body">“%1$s”是文件加密密钥。用它加密的文件将永远无法再打开，除非你还有包含它的备份。</string>
     <string name="files_delete_body_keys">其中包含文件加密密钥。用它加密的文件将永远无法再打开，除非你还有包含它的备份。</string>
+    <string name="files_left_behind">文件未能完成，而且无法删除未完成的加密文件“%1$s”。请自行删除。</string>
+    <string name="files_left_behind_plain">文件未能完成，而且无法删除“%1$s”。它可能包含已解密的数据：请立即自行删除。</string>
+    <string name="files_unknown_name">你选择保存的文件</string>
 </resources>
