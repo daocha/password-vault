@@ -551,8 +551,7 @@ class MainActivity : FragmentActivity() {
                 if (epoch != generation) {
                     withContext(vaultQueue) { engine.lock() }
                     // The action itself completed (e.g. a vault was created or reset), so refresh what the unlock screen shows.
-                    exists = runCatching { engine.exists() }.getOrDefault(exists); erased = runCatching { engine.isErased() }.getOrDefault(erased)
-                    remaining = runCatching { engine.remainingAttempts() }.getOrDefault(remaining)
+                    refreshUnlockScreen()
                     return@launch
                 }
                 if (result != null) {
@@ -565,6 +564,11 @@ class MainActivity : FragmentActivity() {
             } catch (e: Exception) { reportWorkError(e) }
             finally { busy = false }
         }
+    }
+    /** Locking does not re-read the attempt count or erasure; a task that ran past a lock may have changed both. */
+    private fun refreshUnlockScreen() {
+        exists = runCatching { engine.exists() }.getOrDefault(exists); erased = runCatching { engine.isErased() }.getOrDefault(erased)
+        remaining = runCatching { engine.remainingAttempts() }.getOrDefault(remaining)
     }
     private fun reportWorkError(e: Exception) {
         if (!runCatching { engine.isUnlocked() }.getOrDefault(false)) lockVault()
@@ -1306,13 +1310,14 @@ class MainActivity : FragmentActivity() {
             var prepared: VaultExport? = null
             try {
                 withContext(vaultQueue) { prepared = engine.export(password, csv) }
-                if (epoch != generation || !unlocked) return@launch
+                if (epoch != generation || !unlocked) { refreshUnlockScreen(); return@launch }
                 remaining = engine.remainingAttempts()
                 val snapshot = checkNotNull(prepared)
                 discardPendingExport(); pendingExport = snapshot; prepared = null
                 if (!launchPicker { if (snapshot.csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) discardPendingExport()
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) { if (epoch == generation) reportWorkError(e) }
+            // After a lock, a wrong password still counted (and may have erased the vault): the unlock screen must show it.
+            catch (e: Exception) { if (epoch == generation) reportWorkError(e) else refreshUnlockScreen() }
             finally { prepared?.clear(); busy = false }
         }
     }
