@@ -41,5 +41,9 @@ class BackupStatus(private val prefs: SharedPreferences, private val prefix: Str
     var snoozedUntil: Instant?
         get() = prefs.getLong(prefix + "backupSnoozeUntil", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
         set(value) { prefs.edit().putLong(prefix + "backupSnoozeUntil", value?.toEpochMilli() ?: 0L).apply() }
+    /** Fingerprints of the file-encryption keys the last encrypted backup contained (see [FileKeys.fingerprint]); null before tracking. */
+    var fileKeys: Set<String>?
+        get() = prefs.getStringSet(prefix + "backupFileKeys", null)?.toSet()
+        set(value) { prefs.edit().putStringSet(prefix + "backupFileKeys", value).apply() }
     fun snooze(now: Instant = Instant.now()) { snoozedUntil = now.plus(Duration.ofDays(BackupReminder.SNOOZE_DAYS)) }
 }

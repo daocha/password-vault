@@ -24,7 +24,8 @@ with the `age` command-line tool (1.3 or later), and files encrypted there to th
 - **Several keys.** Every key in the vault is tried when decrypting. New files are encrypted to the most recently added key only;
   age's rule is not to mix post-quantum and classic recipients in one file. "Added" is a `fileKeyCreated` timestamp in the record's
   hidden `legacy` metadata (kept by backups, transfers and iOS), not `updatedAt`: moving an old key into a group must not make it
-  active again after the user rotated away from it. An entry without the stamp falls back to `updatedAt`.
+  active again after the user rotated away from it. An entry without the stamp (from the first test build, or made by
+  hand on iOS) is stamped from its `updatedAt` as soon as the vault loads or saves it, before an edit can change that.
 - **Public key.** Derived from the secret key when the screen opens; never stored. It can be copied (not marked sensitive, not
   auto-cleared: it is not a secret) or shared through Android's share sheet so a computer can encrypt for the vault.
 
@@ -44,7 +45,9 @@ rename it, and the screen says so).
 Like any private key, losing it loses the files. PassVault reduces the chance:
 
 - Creating a key requires ticking "I understand and will back up my vault".
-- The File encryption screen shows a "Back up" banner while any key is newer than the last encrypted backup.
+- The File encryption screen shows a "Back up" banner while any key is not in the last encrypted backup. Saving a backup records
+  a fingerprint of each key it holds (truncated SHA-256 of the 256-bit secret, in ordinary preferences, per vault), so a key whose
+  secret was replaced elsewhere counts as new. Backups saved before fingerprints were recorded fall back to comparing times.
 - Deleting a key entry (alone or in a bulk delete) shows a specific warning.
 - Changing the app password keeps the key: it is vault content, re-encrypted with the vault.
 
@@ -60,7 +63,9 @@ Settings › Security › File encryption.
 - **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Any failure or cancellation empties and
   deletes the output, so a partial plaintext is never left behind or mistaken for the whole file. Cancellation is checked on every
   write and again after the file is closed (a small or armored file is read in full before anything is written), and once more
-  when the job returns. If the output can be neither emptied nor deleted (its provider went away, say), the user is told its name
+  on the main thread just before success is accepted (`FileCrypt.guarded`). Locking runs on the main thread too, so nothing can
+  lock in between; a complete output that is never accepted, including when the coroutine is cancelled on its way back from the
+  worker thread, is removed. If the output can be neither emptied nor deleted (its provider went away, say), the user is told its name
   and that it may hold decrypted data, instead of "nothing was saved".
 - **Locking.** Locking the vault (screen off, auto-lock) or the activity being destroyed cancels a running job, with the same clean-up. While the system file picker is
   open the usual 2-minute picker grace period applies.
@@ -81,8 +86,10 @@ Settings › Security › File encryption.
   be rejected as header failures.
   It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
   boundaries, wrong keys, tampering and truncation.
-- `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), the backup warning, file
-  names.
+- `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), stamping of older
+  entries, the backup warning following the secret itself, file names.
+- `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed
+  removal, job failure) leaves no unaccepted output.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
   output is emptied, including a stop that lands after a small file was read in full.
 - Not yet done: decrypting a PassVault-made file with the `age` CLI. Because PassVault decrypts the official vectors and derives the

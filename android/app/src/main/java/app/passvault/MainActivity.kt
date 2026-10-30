@@ -196,7 +196,10 @@ class MainActivity : FragmentActivity() {
     private var lastBackup by mutableStateOf<Instant?>(null)
     private var backupInterval by mutableStateOf(BackupInterval.month)
     private var backupSnoozedUntil by mutableStateOf<Instant?>(null)
-    private fun loadBackupStatus() { val b = backups; lastBackup = b.lastBackup; backupInterval = b.interval; backupSnoozedUntil = b.snoozedUntil }
+    private fun loadBackupStatus() { val b = backups; lastBackup = b.lastBackup; backupInterval = b.interval; backupSnoozedUntil = b.snoozedUntil; backedUpKeys = b.fileKeys }
+    private var backedUpKeys by mutableStateOf<Set<String>?>(null)
+    /** Fingerprints of the file keys in the backup being saved; recorded once the file is written. */
+    private var exportKeys: Set<String>? = null
     private var tab by mutableStateOf(RecordType.login)
     /** Accounts read from a Google Authenticator export QR, waiting for the user to confirm adding them. */
     private var scannedImport by mutableStateOf<ScannedImport?>(null)
@@ -365,7 +368,9 @@ class MainActivity : FragmentActivity() {
     private val shareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { systemPickerOpen = false }
     /**
      * Runs a file job off the main thread with a progress dialog, writing [output]. Cancelling, locking the vault or destroying the
-     * activity stops it, and its output is then deleted, including when the stop lands just after the job finished.
+     * activity stops it, and its output is then deleted. The job deletes its output when it stops itself; a stop that lands after the
+     * job finished (including the coroutine being cancelled on its way back to the main thread) is caught here. Success counts only
+     * once it is accepted on the main thread, where locking also runs, so nothing can lock between the last check and [done].
      */
     private fun runFileJob(decrypting: Boolean, total: Long?, output: android.net.Uri, job: (cancelled: () -> Boolean, progress: (Long) -> Unit) -> Unit, done: () -> Unit) {
         if (fileProgress != null) return
@@ -374,17 +379,13 @@ class MainActivity : FragmentActivity() {
         var shown = 0L
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    job(cancelled) { n -> if (n - shown >= 256 * 1024) { shown = n; fileProgress = FileProgress(decrypting, n, total) } }
-                    // Stopped between the job's own last check and here: the file is complete, but whoever stopped it expects nothing kept.
-                    if (cancelled()) { if (!FileCrypt.discard(contentResolver, output)) throw FileCrypt.LeftBehind(FileCrypt.Cancelled()); throw FileCrypt.Cancelled() }
-                }
-                done()
-            } catch (e: FileCrypt.Cancelled) { if (epoch == generation) message = getString(R.string.files_cancelled) }
+                FileCrypt.guarded(Dispatchers.IO, cancelled, { FileCrypt.discard(contentResolver, output) },
+                    { job(cancelled) { n -> if (n - shown >= 256 * 1024) { shown = n; fileProgress = FileProgress(decrypting, n, total) } } }, done)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } // The activity is gone; the output was already removed.
+            catch (e: FileCrypt.Cancelled) { if (epoch == generation) message = getString(R.string.files_cancelled) }
             catch (e: FileCrypt.LeftBehind) {
-                messageError = true
                 val name = withContext(Dispatchers.IO) { FileCrypt.describe(contentResolver, output).name } ?: getString(R.string.files_unknown_name)
-                message = getString(if (decrypting) R.string.files_left_behind_plain else R.string.files_left_behind, name)
+                messageError = true; message = getString(if (decrypting) R.string.files_left_behind_plain else R.string.files_left_behind, name)
             }
             catch (e: AgeException) { messageError = true; message = ageError(e) }
             catch (e: Exception) { messageError = true; message = getString(R.string.files_failed) }
@@ -484,7 +485,7 @@ class MainActivity : FragmentActivity() {
                                 health -> HealthScreen(records, healthOpen, onToggle = { key -> healthOpen = if (key in healthOpen) healthOpen - key else healthOpen + key }, healthList, healthFocus,
                                     onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { viewing = it; editing = false })
                                 fileCrypt -> { val keys = fileKeys
-                                    FileEncryptionScreen(keys, remember(keys, lastBackup) { FileKeys.needsBackup(keys, lastBackup) }, onBack = { fileCrypt = false }, onCreateKey = ::createFileKey, onImportKey = ::importFileKey,
+                                    FileEncryptionScreen(keys, remember(keys, lastBackup, backedUpKeys) { FileKeys.needsBackup(keys, lastBackup, backedUpKeys) }, onBack = { fileCrypt = false }, onCreateKey = ::createFileKey, onImportKey = ::importFileKey,
                                         onEncrypt = { launchPicker { encryptSource.launch(arrayOf("*/*")) } }, onDecrypt = { launchPicker { decryptSource.launch(arrayOf("*/*")) } },
                                         onCopyPublic = ::copyPublicKey, onSharePublic = ::sharePublicKey, onOpenKey = { viewing = it; editing = false },
                                         onBackup = { fileCrypt = false; settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }) }
@@ -568,9 +569,10 @@ class MainActivity : FragmentActivity() {
         busy = true; message = ""; messageError = false; val epoch = generation
         lifecycleScope.launch {
             try {
+                // Key entries get their creation stamp as soon as they are loaded or saved, before any edit can bump updatedAt.
                 var decoy = false; var hasDecoy = false; var canResetDecoy = false; var attemptsRemaining = 10
                 val result = withContext(vaultQueue) { VaultAccess.serialized {
-                    val result = action()
+                    val result = action()?.let { records -> FileKeys.stamp(records).also { if (it !== records) engine.save(it) } }
                     if (result != null) { decoy = engine.isDecoy(); hasDecoy = engine.hasDecoy(); canResetDecoy = engine.canResetDecoy() }
                     attemptsRemaining = engine.remainingAttempts()
                     result
@@ -1203,7 +1205,7 @@ class MainActivity : FragmentActivity() {
                         CheckRow(consent, { consent = it }) { Text(stringResource(R.string.main_understand_risk), style = MaterialTheme.typography.bodyMedium) }
                     } }) { pass ->
                     exportIsCSV = csv
-                    work({ exportBytes?.fill(0); exportBytes = engine.export(pass, csv); null }) { if (!launchPicker { if (csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) { exportBytes?.fill(0); exportBytes = null } }
+                    work({ exportBytes?.fill(0); exportBytes = engine.export(pass, csv); exportKeys = FileKeys.of(records).map { FileKeys.fingerprint(it.ageIdentity!!) }.toSet(); null }) { if (!launchPicker { if (csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) { exportBytes?.fill(0); exportBytes = null } }
                 }
             }
         }
@@ -1343,7 +1345,7 @@ class MainActivity : FragmentActivity() {
             try {
                 if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }
                 // Only a saved encrypted backup counts: CSV leaves out 2FA keys, seed phrases, cards and notes.
-                if (uri != null && !exportIsCSV) { backups.lastBackup = Instant.now(); loadBackupStatus() }
+                if (uri != null && !exportIsCSV) { backups.lastBackup = Instant.now(); exportKeys?.let { backups.fileKeys = it }; loadBackupStatus() }
                 message = if (uri == null) getString(R.string.main_export_cancelled) else if (exportIsCSV) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done) }
             catch (e: Exception) { message = e.message ?: getString(R.string.main_export_failed) }
             finally { bytes.fill(0) }
