@@ -1,0 +1,88 @@
+# File encryption
+
+Status: Android. Not on iOS: no maintained age library exists for Swift, and building one is left for later (see "iOS" below).
+
+## What it does
+
+PassVault encrypts any file to a key kept in the vault. The encrypted file is written wherever the user chooses (Downloads, a USB
+drive, cloud storage) and is never stored by PassVault. Only the key is in the vault, so it moves with what already moves the vault:
+encrypted `.pvault` backups and phone-to-phone transfers. A vault backup stays small however many files are encrypted.
+
+Files use [age v1](https://c2sp.org/age), an open format with a published specification and test vectors. Files PassVault encrypts open
+with the `age` command-line tool (1.3 or later), and files encrypted there to the vault's public key open in PassVault.
+
+## Keys
+
+- **Type.** New keys are age's post-quantum hybrid type: ML-KEM-768 combined with X25519 (X-Wing), wrapped with HPKE
+  (`AGE-SECRET-KEY-PQ-1…`, public key `age1pq1…`, as made by `age-keygen -pq`). A file stays secret unless both ML-KEM-768 and X25519 are
+  broken, so files kept for years are not exposed by a future quantum computer. Classic X25519 keys (`AGE-SECRET-KEY-1…`) made with
+  `age-keygen` can be added and are used for decryption and, if newest, encryption.
+- **Where it lives.** A key is an ordinary secure note: one password-kind field labelled `age secret key` holding the identity string,
+  plus a notes field. Nothing in the vault format changes, so backups, transfers, iOS and older Android builds keep the entry as a note
+  (iOS shows it as a note with a hidden field). Android recognises it by that label and a valid identity, hides its Edit button, gives
+  it a key icon and warns before it is deleted.
+- **Several keys.** Every key in the vault is tried when decrypting. New files are encrypted to the newest key only (by `updatedAt`);
+  age's rule is not to mix post-quantum and classic recipients in one file.
+- **Public key.** Derived from the secret key when the screen opens; never stored. It can be copied (not marked sensitive, not
+  auto-cleared: it is not a secret) or shared through Android's share sheet so a computer can encrypt for the vault.
+
+## Strength
+
+- The encrypted file alone cannot be brute-forced: it has no password. Opening it means recovering the 128-bit file key from the header,
+  which needs the private key (or breaking both ML-KEM-768 and X25519).
+- The private key is as safe as the vault. On the phone it is behind the app password, the device-bound secret and the 10-attempt erase.
+  In a `.pvault` backup it is behind the app password with Argon2id at 256 MiB / 4 passes, the only place offline guessing is possible.
+- The payload is ChaCha20-Poly1305 in 64 KiB chunks (age's STREAM), so truncation, reordering and changes are detected.
+
+What encryption does not hide: the file's size (roughly), and its name, which is kept with `.age` added (the save dialog lets the user
+rename it, and the screen says so).
+
+## Losing the key
+
+Like any private key, losing it loses the files. PassVault reduces the chance:
+
+- Creating a key requires ticking "I understand and will back up my vault".
+- The File encryption screen shows a "Back up" banner while any key is newer than the last encrypted backup.
+- Deleting a key entry (alone or in a bulk delete) shows a specific warning.
+- Changing the app password keeps the key: it is vault content, re-encrypted with the vault.
+
+## Flows (Android)
+
+Settings › Security › File encryption.
+
+- **Encrypt.** Pick a file → choose where to save `name.age` → encrypt with progress (cancellable) → offer to delete the plaintext
+  original (`DocumentsContract.deleteDocument`; if its provider refuses, the user is told to delete it there).
+- **Decrypt.** Pick a file → its header is checked first, so "not an age file" or "not for any key in this vault" is reported before
+  anything is saved → choose where to save (`name.age` → `name`; otherwise `name.decrypted`) → decrypt → reminder that the copy is not
+  protected. ASCII-armored files (`age -a`) are read up to 16 MiB.
+- **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Any failure or cancellation empties and
+  deletes the output, so a partial plaintext is never left behind or mistaken for the whole file.
+- **Locking.** Locking the vault (screen off, auto-lock) cancels a running job, with the same clean-up. While the system file picker is
+  open the usual 2-minute picker grace period applies.
+
+## Implementation
+
+- `Age.kt`: age v1 in Kotlin on BouncyCastle's lightweight API (already a dependency for KeePass import): X25519, ML-KEM-768,
+  SHA3/SHAKE, HKDF and HMAC-SHA-256, ChaCha20-Poly1305. Streaming, 64 KiB chunks; header lines bounded to 16 KiB, header to 1 MiB,
+  256 stanzas. Passphrase (scrypt) and hardware (tag) stanzas are ignored, since PassVault only encrypts to the vault's own keys.
+- `FileEncryption.kt`: the key entry, naming, the backup check, and streaming between document URIs.
+- `FileEncryptionUi.kt`: the screen and progress dialog.
+
+## Tests
+
+- `AgeTest` (JVM) runs every non-passphrase vector of the age test kit (`fixtures/age-testkit`, from C2SP/CCTV) and checks the exact
+  outcome (success with the payload's SHA-256, header / HMAC / payload / armor failure, no match), including the post-quantum vectors.
+  It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
+  boundaries, wrong keys, tampering and truncation.
+- `FileKeysTest` (JVM): the key entry survives backup encoding, newest-first order, the backup warning, file names.
+- `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
+  output is emptied.
+- Not yet done: decrypting a PassVault-made file with the `age` CLI. Because PassVault decrypts the official vectors and derives the
+  spec's public key exactly, the encrypt direction should interoperate, but it has not been checked against the tool itself.
+
+## iOS
+
+The key entry already travels to iOS as a secure note, and its secret key can be revealed there and used with any age tool, so files
+are never stranded on Android. Encrypting on iOS needs an age implementation in Swift: CryptoKit has X25519, HKDF, HMAC,
+ChaCha20-Poly1305 and (iOS 26) ML-KEM / X-Wing; SHA-3 and SHAKE would come from libsodium or a small implementation. The same test kit
+would gate it.

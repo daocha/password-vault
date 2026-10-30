@@ -69,6 +69,7 @@ The dotted "never connects" line is deliberate: PassVault has no network feature
 | 🔢 **2FA authenticator** | Built-in time-based one-time codes (TOTP), like Google Authenticator. Add an account by scanning the site's QR code with the camera, reading it from a screenshot, or typing the setup key. Codes are generated offline on your phone. |
 | 🎲 **Password generator** | Create strong passwords with adjustable length and character types. |
 | 📤 **Backup and restore** | Export as CSV or as an encrypted file, and import them back after confirming. Exporting asks for your password first. 2FA setup keys (and seed phrases) are only ever included in the encrypted file, never in CSV. |
+| 🗝️ **File encryption (Android)** | Encrypt any file so only your vault can open it. The file stays wherever you save it; only the key lives in the vault, so it moves with your backups. Uses the open [age](https://age-encryption.org) format with post-quantum keys, so the `age` tool on a computer can open it too. |
 | 🔄 **Change master password** | Update it any time from settings. |
 | 📋 **Careful clipboard** | Copied passwords are handled with care so they don't linger. |
 | ⌨️ **Autofill (Android)** | Fill logins into other apps and browsers. PassVault asks for your password or fingerprint each time, suggests the logins saved for that app or site, and locks again as soon as it has filled. |
