@@ -24,7 +24,14 @@ class FileCryptInstrumentedTest {
         assertFalse(FileCrypt.sameDocument(Uri.fromFile(File("/a")), Uri.fromFile(File("/b"))))
     }
 
-        @Test fun encryptsAndDecryptsLargeFiles() {
+    @Test fun anUnwrittenSaveTargetIsKeptWhenItHasContent() {
+        // The user picked an existing file to replace, then the job never started: the file must survive.
+        val existing = File(directory, "backup.pvault").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        FileCrypt.discardUnwritten(context.contentResolver, Uri.fromFile(existing))
+        assertArrayEquals(byteArrayOf(1, 2, 3), existing.readBytes())
+    }
+
+    @Test fun encryptsAndDecryptsLargeFiles() {
         val identity = Age.parseIdentity(Age.generateIdentity().encoded)
         val plain = File(directory, "plain.bin").apply { writeBytes(ByteArray(5 * Age.CHUNK + 123) { (it * 13).toByte() }) }
         val sealed = File(directory, "plain.bin.age"); val opened = File(directory, "opened.bin")

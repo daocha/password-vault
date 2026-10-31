@@ -414,10 +414,11 @@ class MainActivity : FragmentActivity() {
     }
     /**
      * The save picker has already created [uri] (empty) when it returns. When no job will write it (the vault locked while the picker was
-     * open, or another job is still running), remove it, so no empty file is left looking like an encrypted or decrypted one.
+     * open, or another job is still running), remove it, so no empty file is left looking like an encrypted or decrypted one. An existing
+     * file the user picked to replace still has its content, and is kept.
      */
     private fun discardUnwritten(uri: android.net.Uri) {
-        lifecycleScope.launch(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { FileCrypt.discard(contentResolver, uri) }
+        lifecycleScope.launch(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { FileCrypt.discardUnwritten(contentResolver, uri) }
     }
     private fun ageError(e: AgeException) = getString(when (e.kind) {
         AgeException.Kind.noMatch -> R.string.files_no_match

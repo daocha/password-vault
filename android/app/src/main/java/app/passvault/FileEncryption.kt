@@ -143,6 +143,14 @@ object FileCrypt {
             throw e
         }
     }
+    /**
+     * Deletes [uri], a save picker's result nothing was written to, but only while it is empty: the picker usually creates a new, empty
+     * document, but the user may have picked an existing file to replace, and that must not be deleted when the job never starts.
+     */
+    fun discardUnwritten(resolver: ContentResolver, uri: Uri) {
+        val empty = runCatching { open(resolver, uri).use { it.read() == -1 } }.getOrDefault(false)
+        if (empty) runCatching { DocumentsContract.deleteDocument(resolver, uri) }
+    }
     /** Deletes a file the user chose (the original of a file just encrypted); false when its app does not allow it. */
     fun delete(resolver: ContentResolver, uri: Uri) = runCatching { DocumentsContract.deleteDocument(resolver, uri) }.getOrDefault(false)
 

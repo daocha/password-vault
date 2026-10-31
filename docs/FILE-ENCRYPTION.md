@@ -97,7 +97,8 @@ Settings › Security › File encryption.
 - **Screen.** The progress dialog keeps the screen on: the screen turning off locks the vault, which would stop the job and delete its
   output.
 - **Locking.** Locking the vault (screen off, auto-lock) or the activity being destroyed cancels a running job, with the same clean-up. While the system file picker is
-  open the usual 2-minute picker grace period applies.
+  open the usual 2-minute picker grace period applies. If the vault locks while the save picker is open, the empty file the picker created is removed; an
+  existing file picked to be replaced still has its content and is left alone.
 
 ## Implementation
 
