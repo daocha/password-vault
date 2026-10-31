@@ -114,6 +114,8 @@ private class CreateTypedDocument : androidx.activity.result.contract.ActivityRe
     override fun parseResult(resultCode: Int, intent: Intent?) = intent?.data?.takeIf { resultCode == android.app.Activity.RESULT_OK }
 }
 
+/** Not a string resource: marks a password whose strength is still being estimated. */
+private const val PASSWORD_CHECKING = 0
 private val LANGUAGES = listOf("", "en", "zh-Hans", "zh-Hant")
 private fun languageName(tag: String) = when (tag) { "en" -> R.string.main_language_english; "zh-Hans" -> R.string.main_language_zh_hans; "zh-Hant" -> R.string.main_language_zh_hant; else -> R.string.main_language_system }
 
@@ -651,7 +653,7 @@ class MainActivity : FragmentActivity() {
                 Text(stringResource(R.string.main_no_password_reset), Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 CheckRow(consent, { consent = it }) { Text(stringResource(R.string.main_consent_erase)) }
             }
-            Button(onClick = { val value = password; password = ""; confirm = ""; work({ if (exists) engine.unlock(value) else engine.create(value) }) }, enabled = ready && password.isNotEmpty() && (exists || (samePassword(password, confirm) && consent && PasswordPolicy.problem(password) == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
+            Button(onClick = { val value = password; password = ""; confirm = ""; work({ if (exists) engine.unlock(value) else engine.create(value) }) }, enabled = ready && password.isNotEmpty() && (exists || (samePassword(password, confirm) && consent && passwordProblem(password) == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
             if (exists && biometricEnabled) OutlinedButton(onClick = { biometrics() }, enabled = ready, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Default.Fingerprint, null); Text("  " + stringResource(R.string.main_unlock_with_biometrics)) }
             if (exists) Text(stringResource(R.string.main_attempts_remaining, remaining), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1254,7 +1256,7 @@ class MainActivity : FragmentActivity() {
             } },
             confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; val decoy = decoySession; current = ""; next = ""; repeat = ""; dismiss()
                 // The decoy's password change leaves the real vault's biometric key alone, and must not mention it.
-                work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && PasswordPolicy.problem(next) == null && samePassword(next, repeat)) { Text(stringResource(R.string.main_change)) } },
+                work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && passwordProblem(next) == null && samePassword(next, repeat)) { Text(stringResource(R.string.main_change)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     /** Sets up the decoy vault, or with [reset] gives the existing one a new password (its contents are kept). */
@@ -1270,7 +1272,7 @@ class MainActivity : FragmentActivity() {
             confirmButton = { TextButton(onClick = { val c = current; val d = decoy; current = ""; decoy = ""; repeat = ""; dismiss()
                 if (reset) work({ engine.resetDecoyPassword(c, d); null }) { message = getString(R.string.decoy_password_changed) }
                 else work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; decoyResettable = true; message = getString(R.string.decoy_created) } },
-                enabled = current.isNotEmpty() && PasswordPolicy.problem(decoy) == null && samePassword(decoy, repeat)) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
+                enabled = current.isNotEmpty() && passwordProblem(decoy) == null && samePassword(decoy, repeat)) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun ImportDialogs() {
@@ -1366,7 +1368,8 @@ class MainActivity : FragmentActivity() {
                 if (uri != null) snapshot.recordBackup(prefs, Instant.now())
                 if (epoch == generation && unlocked) {
                     loadBackupStatus()
-                    message = if (uri == null) getString(R.string.main_export_cancelled) else if (snapshot.csv) getString(R.string.main_export_csv_done) else getString(R.string.main_export_encrypted_done)
+                    messageError = uri != null && snapshot.weakPassword
+                    message = if (uri == null) getString(R.string.main_export_cancelled) else if (snapshot.csv) getString(R.string.main_export_csv_done) else if (snapshot.weakPassword) getString(R.string.main_export_encrypted_done_weak) else getString(R.string.main_export_encrypted_done)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) { if (epoch == generation) { messageError = true; message = e.message ?: getString(R.string.main_export_failed) } }
@@ -1380,9 +1383,18 @@ class MainActivity : FragmentActivity() {
     }
     /** The vault keys on the normalized password, so two spellings that normalize alike are the same password. */
     private fun samePassword(a: String, b: String) = PasswordText.normalize(a) == PasswordText.normalize(b)
+    /**
+     * [PasswordPolicy.problem] for a new password, worked out off the main thread (the guessability estimate loads dictionaries on first
+     * use); [PASSWORD_CHECKING] until it is known, so a button never enables on a password that has not been checked yet.
+     */
+    @Composable private fun passwordProblem(value: String): Int? = produceState<Int?>(PASSWORD_CHECKING, value) {
+        this.value = PASSWORD_CHECKING
+        this.value = withContext(Dispatchers.Default) { PasswordPolicy.problem(value) }
+    }.value
     @Composable private fun PasswordHint(value: String) {
-        val problem = if (value.isEmpty()) null else PasswordPolicy.problem(value)
-        Text(stringResource(problem ?: if (value.isEmpty()) PasswordPolicy.RULE else R.string.main_password_meets), Modifier.fillMaxWidth().padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = if (problem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        val checked = passwordProblem(value)
+        val problem = if (value.isEmpty() || checked == PASSWORD_CHECKING) null else checked
+        Text(stringResource(problem ?: if (value.isEmpty() || checked == PASSWORD_CHECKING) PasswordPolicy.RULE else R.string.main_password_meets), Modifier.fillMaxWidth().padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = if (problem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     }
     @Composable private fun SecretInput(label: String, value: String, change: (String) -> Unit) {
         var visible by remember { mutableStateOf(false) }

@@ -35,6 +35,11 @@ with the `age` command-line tool (1.3 or later), and files encrypted there to th
   which needs the private key (or breaking both ML-KEM-768 and X25519).
 - The private key is as safe as the vault. On the phone it is behind the app password, the device-bound secret and the 10-attempt erase.
   In a `.pvault` backup it is behind the app password with Argon2id at 256 MiB / 4 passes, the only place offline guessing is possible.
+  Anyone holding a backup can guess at the app password on a computer, with no attempt limit, so its strength is what protects the files'
+  keys there. Two things make this matter more for files than for logins: a leaked website password can be changed, but a file someone
+  already has stays readable once its key is recovered; and changing the app password does not protect backups already saved, which
+  keep the old one. New app passwords must therefore be hard to guess, not just mixed in character types (see `SECURITY.md`); the
+  create-key and backup dialogs say so, and a backup made with an easily guessed older password warns.
 - The payload is ChaCha20-Poly1305 in 64 KiB chunks (age's STREAM), so truncation, reordering and changes are detected.
 
 What encryption does not hide: the file's size (roughly), and its name, which is kept with `.age` added (the save dialog lets the user

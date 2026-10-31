@@ -45,6 +45,14 @@ class VaultExportTest {
         assertTrue(first.bytes.all { it == 0.toByte() })
     }
 
+    @Test fun weakPasswordWarningBelongsToItsOwnEncryptedExport() {
+        val weak = VaultExport.prepare(listOf(key), csv = false, decoy = false, encode = Records::encode, weakPassword = true)
+        val strong = prepare(listOf(key))
+        // CSV has no password, so it never carries the warning.
+        val csv = VaultExport.prepare(listOf(key), csv = true, decoy = false, encode = Records::encode, weakPassword = true)
+        try { assertTrue(weak.weakPassword); assertFalse(strong.weakPassword); assertFalse(csv.weakPassword) } finally { weak.clear(); strong.clear(); csv.clear() }
+    }
+
     @Test fun csvDoesNotRecordBackupCoverage() {
         val prefs = preferences(); val status = BackupStatus(prefs)
         val before = savedAt.minusSeconds(60)

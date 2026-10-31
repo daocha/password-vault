@@ -15,8 +15,25 @@ object PasswordPolicy {
         password.none { it.isLowerCase() } -> R.string.app_pw_lower
         password.none { it.isDigit() } -> R.string.app_pw_digit
         password.none { !it.isLetterOrDigit() && !it.isWhitespace() } -> R.string.app_pw_symbol
+        guesses(password) < MIN_GUESSES_LOG10 -> R.string.app_pw_guessable
         else -> null
     } }
+    /**
+     * A stolen backup can be guessed at offline, without the phone's ten-attempt limit, so the password must also be hard to guess, not
+     * only mixed in character types: "Summer2026!!" passes those but is in every cracking wordlist. 10^10 guesses (zxcvbn's top score) is
+     * years for one GPU against the backup's Argon2id. Only the first [ESTIMATE_LENGTH] characters are estimated: zxcvbn slows down
+     * sharply on long input, and a longer password only gets stronger.
+     */
+    const val MIN_GUESSES_LOG10 = 10.0
+    private const val ESTIMATE_LENGTH = 64
+    /**
+     * log10 of zxcvbn's estimated guesses, entirely offline (its dictionaries are in the jar). If the estimator cannot run on a phone, the
+     * character rules alone decide, rather than no vault being creatable; the device tests check that it does run on Android.
+     */
+    fun guesses(password: String): Double = runCatching {
+        val end = if (password.codePointCount(0, password.length) > ESTIMATE_LENGTH) password.offsetByCodePoints(0, ESTIMATE_LENGTH) else password.length
+        com.nulabinc.zxcvbn.Zxcvbn().measure(password.substring(0, end), listOf("passvault", "vault", "password")).guessesLog10
+    }.getOrDefault(Double.MAX_VALUE)
 }
 data class GeneratorOptions(val length: Int = 10, val letters: Boolean = true, val numbers: Boolean = true, val symbols: Boolean = true) {
     val sets get() = (if (letters) listOf(UPPER, LOWER) else emptyList()) + (if (numbers) listOf(DIGITS) else emptyList()) + (if (symbols) listOf(SYMBOLS) else emptyList())

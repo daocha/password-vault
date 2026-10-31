@@ -23,7 +23,7 @@
     <string name="files_keys_body">这里的每个密钥都能解密文件。新文件使用最新的密钥。请保留旧密钥，否则用它们加密的文件将无法再打开。</string>
     <string name="files_backup_needed">你的文件密钥只在这部手机上。请备份保险库，这样即使手机丢失也能打开你的文件。</string>
     <string name="files_create_title">创建文件加密密钥？</string>
-    <string name="files_create_body">PassVault 会在保险库中添加一个“文件加密密钥”条目。你加密的文件只能用它打开。如果你丢失了这部手机，又没有保险库的加密备份或传输副本，这些文件将永远无法打开，包括你自己。</string>
+    <string name="files_create_body">PassVault 会在保险库中添加一个“文件加密密钥”条目。你加密的文件只能用它打开。如果你丢失了这部手机，又没有保险库的加密备份或传输副本，这些文件将永远无法打开，包括你自己。备份只用你的主密码保护这个密钥：任何拿到备份文件的人都能在电脑上不限次数地猜测这个密码。</string>
     <string name="files_create_another_body">新文件将使用新密钥加密。当前密钥仍保留在保险库中，旧文件依然可以打开。一个密钥就够了；只有在你想停用当前密钥时（例如泄露了它的私钥）才需要再创建一个。</string>
     <string name="files_create_understand">我明白，并会备份保险库</string>
     <string name="files_create_action">创建</string>

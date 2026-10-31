@@ -23,7 +23,7 @@
     <string name="files_keys_body">Every key here can decrypt files. New files use the newest key. Keep older keys, or the files encrypted with them can no longer be opened.</string>
     <string name="files_backup_needed">Your file key is only on this phone. Back up the vault so you can still open your files if you lose it.</string>
     <string name="files_create_title">Create a file encryption key?</string>
-    <string name="files_create_body">PassVault adds a \"File encryption key\" entry to your vault. Files you encrypt can only be opened with it. If you lose this phone and have no encrypted backup or transferred copy of the vault, those files can never be opened by anyone, including you.</string>
+    <string name="files_create_body">PassVault adds a \"File encryption key\" entry to your vault. Files you encrypt can only be opened with it. If you lose this phone and have no encrypted backup or transferred copy of the vault, those files can never be opened by anyone, including you. A backup protects the key only with your app password: anyone who gets a backup file can guess at that password on a computer, with no attempt limit.</string>
     <string name="files_create_another_body">New files will be encrypted with the new key. Your current key stays in the vault so older files still open. Only one key is needed; make another one only if you want to stop using the current one, for example after sharing its secret key.</string>
     <string name="files_create_understand">I understand and will back up my vault</string>
     <string name="files_create_action">Create</string>
