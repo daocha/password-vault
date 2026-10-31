@@ -13,6 +13,10 @@ import java.security.KeyStore
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 
 /**
  * Runs the real engine against the real Android Keystore on an emulator or device with a screen lock set
@@ -61,6 +65,55 @@ class VaultStorageInstrumentedTest {
         assertEquals(9, engine.remainingAttempts())
         assertEquals(listOf("one"), engine.unlock(password).map { it.name })
         assertEquals(10, engine.remainingAttempts())
+    }
+
+    @Test fun concurrentStatusReadWaitsForCorrectFinalAttempt() = concurrentFinalAttempt(correct = true)
+    @Test fun concurrentStatusReadStillErasesAfterWrongFinalAttempt() = concurrentFinalAttempt(correct = false)
+
+    private fun concurrentFinalAttempt(correct: Boolean) {
+        engine.create(password); engine.save(listOf(record("keep me"))); engine.lock()
+        // Reachable state after nine failures, without paying for nine extra derivations in each race regression.
+        storage.writeState(JSONObject(String(storage.readState()!!)).put("attempts", 9).toString().toByteArray())
+        val previous = generation()
+        val observer = VaultEngine(ProtectedStorage(context))
+        val result = AtomicReference<Result<List<VaultRecord>>>()
+        val unlock = thread { result.set(runCatching { engine.unlock(if (correct) password else "Wrong password 1!") }) }
+        try {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (StateFormat.generation(stateFile().readBytes()) == previous && unlock.isAlive && System.nanoTime() < deadline) Thread.yield()
+            assertTrue("the final attempt was reserved", StateFormat.generation(stateFile().readBytes()) > previous)
+            // Like the autofill service, this observer is a different engine on a thread outside vaultQueue.
+            val seen = runCatching { observer.exists() }
+            unlock.join(20_000); assertFalse("unlock completed", unlock.isAlive)
+            if (correct) {
+                assertTrue(seen.getOrThrow()); assertEquals(listOf("keep me"), result.get().getOrThrow().map { it.name })
+                assertFalse(observer.isErased()); assertEquals(10, observer.remainingAttempts())
+            } else {
+                assertTrue(seen.isFailure); assertTrue(result.get().isFailure); assertTrue(observer.isErased())
+            }
+        } finally { unlock.join(20_000); engine.lock() }
+    }
+
+    @Test fun statusReaderCannotRemoveAnUncommittedStateFile() {
+        engine.create(password)
+        val observer = VaultEngine(ProtectedStorage(context))
+        val started = CountDownLatch(1); val finished = CountDownLatch(1)
+        val result = AtomicReference<Result<Boolean>>()
+        lateinit var reader: Thread
+        VaultAccess.serialized {
+            val file = stateFile(); val writer = android.util.AtomicFile(file)
+            val pending = writer.startWrite()
+            try {
+                pending.write(file.readBytes())
+                reader = thread { started.countDown(); result.set(runCatching { observer.exists() }); finished.countDown() }
+                assertTrue(started.await(5, TimeUnit.SECONDS))
+                assertFalse("observer waits for the entire write transaction", finished.await(100, TimeUnit.MILLISECONDS))
+                assertTrue("the pending state has not been discarded", File(file.path + ".new").exists())
+                writer.finishWrite(pending)
+            } catch (e: Throwable) { writer.failWrite(pending); throw e }
+        }
+        reader.join(10_000); assertFalse(reader.isAlive); assertTrue(result.get().getOrThrow())
+        assertEquals(10, observer.remainingAttempts())
     }
 
     @Test fun everyStateWriteMovesToANewKeyAndOnlyOneKeyRemains() {
@@ -144,6 +197,34 @@ class VaultStorageInstrumentedTest {
         assertThrows(AuthenticationFailure::class.java) { engine.changePassword("Wrong password 1!", "Another long passphrase 2@") }
         assertArrayEquals(before, dataKey()); assertEquals(blob, blobs().single().name)
         engine.lock(); fresh(); assertEquals(1, engine.unlock(password).size)
+    }
+
+    @Test fun anotherEngineCannotSaveWithAKeyFromBeforePasswordRotation() {
+        engine.create(password); engine.save(listOf(record("keep me")))
+        val second = VaultEngine(ProtectedStorage(context)); second.unlock(password)
+        val changed = "Another long passphrase 2@"
+        second.changePassword(password, changed)
+        assertThrows(VaultChangedException::class.java) { engine.save(listOf(record("stale"))) }
+        assertFalse(engine.isUnlocked())
+        second.lock(); fresh(); assertEquals(listOf("keep me"), engine.unlock(changed).map { it.name })
+    }
+
+    @Test fun anotherEngineCannotOverwriteANewerRecordSnapshot() {
+        engine.create(password); engine.save(listOf(record("old")))
+        val second = VaultEngine(ProtectedStorage(context)); second.unlock(password)
+        second.save(listOf(record("new")))
+        assertThrows(VaultChangedException::class.java) { engine.save(listOf(record("stale"))) }
+        second.lock(); fresh(); assertEquals(listOf("new"), engine.unlock(password).map { it.name })
+    }
+
+    @Test fun anotherEnginesErasureInvalidatesAnOpenSession() {
+        engine.create(password); engine.save(listOf(record("secret")))
+        storage.writeState(JSONObject(String(storage.readState()!!)).put("attempts", 9).toString().toByteArray())
+        val second = VaultEngine(ProtectedStorage(context))
+        assertThrows(IllegalStateException::class.java) { second.unlock("Wrong password 1!") }
+        assertTrue(second.isErased()); assertFalse(engine.isUnlocked()); assertNull(dataKey())
+        assertThrows(IllegalStateException::class.java) { engine.save(listOf(record("stale"))) }
+        assertTrue(blobs().isEmpty())
     }
 
     @Test fun anEarlierStateFileLayoutIsMigratedOnFirstUnlock() {

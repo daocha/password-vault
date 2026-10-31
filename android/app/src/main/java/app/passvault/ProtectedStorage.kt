@@ -72,13 +72,13 @@ class ProtectedStorage(private val context: Context) {
             output.toByteArray()
         }
     }
-    fun readState(): ByteArray? {
+    fun readState(): ByteArray? = VaultAccess.serialized {
         if (File(directory, "erased").exists()) {
             finishErasure()
-            return "{\"version\":1,\"attempts\":10,\"erased\":true,\"salt\":\"\",\"secret\":\"\",\"wrapped\":\"\",\"blob\":\"00000000-0000-0000-0000-000000000000\"}".toByteArray()
+            return@serialized "{\"version\":1,\"attempts\":10,\"erased\":true,\"salt\":\"\",\"secret\":\"\",\"wrapped\":\"\",\"blob\":\"00000000-0000-0000-0000-000000000000\"}".toByteArray()
         }
         val file = File(directory, "state")
-        if (!file.exists() && !File(directory, "state.bak").exists()) { check(!hasBlobs()) { "Protected state is missing." }; return null }
+        if (!file.exists() && !File(directory, "state.bak").exists()) { check(!hasBlobs()) { "Protected state is missing." }; return@serialized null }
         val bytes = read(file, 16384); require(bytes.size >= 28)
         // An earlier-layout file that happens to start with these bytes still has its old key; a newer layout does not.
         if (StateFormat.isNewer(bytes) && secretKey(legacyStateAlias) == null) throw NewerVersionException(backup = false)
@@ -89,19 +89,19 @@ class ProtectedStorage(private val context: Context) {
             val header = bytes.copyOfRange(0, StateFormat.HEADER)
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(StateFormat.HEADER, StateFormat.HEADER + StateFormat.IV)))
             cipher.updateAAD(StateFormat.aad(header))
-            return cipher.doFinal(bytes.copyOfRange(StateFormat.HEADER + StateFormat.IV, bytes.size))
+            return@serialized cipher.doFinal(bytes.copyOfRange(StateFormat.HEADER + StateFormat.IV, bytes.size))
         }
         // A file from before generations. A newer file whose key is gone (a restored old copy) has no legacy key to fall back on and is refused.
         cipher.init(Cipher.DECRYPT_MODE, secretKey(legacyStateAlias) ?: missingKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
         cipher.updateAAD("PassVault/state/v1".toByteArray())
-        return cipher.doFinal(bytes.copyOfRange(12, bytes.size))
+        return@serialized cipher.doFinal(bytes.copyOfRange(12, bytes.size))
     }
     /**
      * With [ratchet] (the default) the state moves to a new Keystore key and every older key is deleted once the file is committed,
      * so copies of earlier state (with fewer failed attempts recorded) can no longer be decrypted. Skip it only for writes that never
      * make an old copy more useful to an attacker, such as clearing the counter after the password was proven.
      */
-    fun writeState(bytes: ByteArray, ratchet: Boolean = true) {
+    fun writeState(bytes: ByteArray, ratchet: Boolean = true): Unit = VaultAccess.serialized {
         val existing = if (stateFileExists()) read(File(directory, "state"), 16384) else null
         if (existing != null && StateFormat.isNewer(existing) && secretKey(legacyStateAlias) == null) throw NewerVersionException(backup = false)
         val held = existing?.let(StateFormat::generation)?.takeIf { it > 0 && keystore.containsAlias(stateAlias(it)) }
@@ -123,12 +123,12 @@ class ProtectedStorage(private val context: Context) {
         deleteStateKeys(keep = generation)
     }
     // Initialize the OS key before writing the first encrypted vault blob.
-    fun initializeKey() {
+    fun initializeKey(): Unit = VaultAccess.serialized {
         check(!stateFileExists() && !hasBlobs()) { "Protected device key is missing. Access is refused." }
         deleteStateKeys(); generate(stateAlias(1), false)
     }
-    fun deleteState() { AtomicFile(File(directory, "state")).delete(); AtomicFile(File(directory, "erased")).delete(); deleteStateKeys() }
-    fun finishErasure() {
+    fun deleteState(): Unit = VaultAccess.serialized { AtomicFile(File(directory, "state")).delete(); AtomicFile(File(directory, "erased")).delete(); deleteStateKeys() }
+    fun finishErasure(): Unit = VaultAccess.serialized {
         // A nonsecret tombstone only denies access. It is never an authorization token.
         // Persist it before removing the Keystore key so interrupted cleanup resumes safely.
         write(File(directory, "erased"), byteArrayOf(1))
@@ -138,15 +138,15 @@ class ProtectedStorage(private val context: Context) {
         removeBlobs(emptySet())
     }
     private fun blob(id: String): File { require(java.util.UUID.fromString(id).toString().equals(id, true)); return File(directory, "$id.vault") }
-    fun readBlob(id: String) = read(blob(id), Records.MAX_BYTES + 40)
-    fun writeBlob(id: String, bytes: ByteArray) = write(blob(id), bytes)
-    fun hasBlobs() = directory.listFiles()?.any { it.name.endsWith(".vault") || it.name.endsWith(".vault.bak") } ?: false
+    fun readBlob(id: String) = VaultAccess.serialized { read(blob(id), Records.MAX_BYTES + 40) }
+    fun writeBlob(id: String, bytes: ByteArray): Unit = VaultAccess.serialized { write(blob(id), bytes) }
+    fun hasBlobs() = VaultAccess.serialized { directory.listFiles()?.any { it.name.endsWith(".vault") || it.name.endsWith(".vault.bak") } ?: false }
     /** Deletes every vault file except those named in [keep]; also AtomicFile leftovers (<id>.vault.new from an interrupted write, legacy <id>.vault.bak). */
-    fun removeBlobs(keep: Set<String>) {
+    fun removeBlobs(keep: Set<String>): Unit = VaultAccess.serialized {
         directory.listFiles()?.filter { f -> listOf(".vault", ".vault.new", ".vault.bak").any { f.name.endsWith(it) } && f.name.substringBefore('.') !in keep }
             ?.forEach { check(it.delete() || !it.exists()) { "Could not remove old ciphertext." } }
     }
-    fun biometricCipher(encrypt: Boolean): Cipher {
+    fun biometricCipher(encrypt: Boolean): Cipher = VaultAccess.serialized {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         if (encrypt) {
             if (keystore.containsAlias(bioAlias)) keystore.deleteEntry(bioAlias)
@@ -157,14 +157,14 @@ class ProtectedStorage(private val context: Context) {
             require(bytes.size == 60)
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
         }
-        return cipher
+        return@serialized cipher
     }
     // The biometric key is auth-per-operation: AAD must be supplied only after BiometricPrompt authorizes the cipher.
     private val bioAAD = "PassVault/biometric/v1".toByteArray()
-    fun saveBiometric(cipher: Cipher, key: ByteArray) { cipher.updateAAD(bioAAD); val iv = cipher.iv; write(File(directory, "biometric"), iv + cipher.doFinal(key)) }
-    fun readBiometric(cipher: Cipher): ByteArray { val bytes = read(File(directory, "biometric"), 256); cipher.updateAAD(bioAAD); return cipher.doFinal(bytes.copyOfRange(12, bytes.size)) }
-    fun hasBiometric() = keystore.containsAlias(bioAlias) && File(directory, "biometric").exists()
-    fun deleteBiometric() {
+    fun saveBiometric(cipher: Cipher, key: ByteArray): Unit = VaultAccess.serialized { cipher.updateAAD(bioAAD); val iv = cipher.iv; write(File(directory, "biometric"), iv + cipher.doFinal(key)) }
+    fun readBiometric(cipher: Cipher): ByteArray = VaultAccess.serialized { val bytes = read(File(directory, "biometric"), 256); cipher.updateAAD(bioAAD); return@serialized cipher.doFinal(bytes.copyOfRange(12, bytes.size)) }
+    fun hasBiometric() = VaultAccess.serialized { keystore.containsAlias(bioAlias) && File(directory, "biometric").exists() }
+    fun deleteBiometric(): Unit = VaultAccess.serialized {
         if (keystore.containsAlias(bioAlias)) keystore.deleteEntry(bioAlias)
         AtomicFile(File(directory, "biometric")).delete()
     }
