@@ -48,7 +48,7 @@ val EncryptedFileIcon: ImageVector by lazy {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileEncryptionScreen(keys: List<VaultRecord>, backupNeeded: Boolean, onBack: () -> Unit, onCreateKey: () -> Unit, onImportKey: (String) -> Unit,
-    onEncrypt: () -> Unit, onDecrypt: () -> Unit, onCopyPublic: (String) -> Unit, onSharePublic: (String) -> Unit, onOpenKey: (VaultRecord) -> Unit, onBackup: () -> Unit) {
+    working: Boolean, onEncrypt: () -> Unit, onDecrypt: () -> Unit, onCopyPublic: (String) -> Unit, onSharePublic: (String) -> Unit, onOpenKey: (VaultRecord) -> Unit, onBackup: () -> Unit) {
     var creating by remember { mutableStateOf(false) }; var importing by remember { mutableStateOf(false) }
     val current = keys.firstOrNull()
     // Deriving a post-quantum public key expands the ML-KEM key: off the main thread.
@@ -77,8 +77,8 @@ fun FileEncryptionScreen(keys: List<VaultRecord>, backupNeeded: Boolean, onBack:
             }
             if (backupNeeded) AttentionBanner(Icons.Outlined.SaveAlt, stringResource(R.string.files_backup_needed), stringResource(R.string.backup_now), onClick = onBackup)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onEncrypt, Modifier.weight(1f).height(56.dp)) { Icon(Icons.Outlined.Lock, null); Text("  " + stringResource(R.string.files_encrypt)) }
-                FilledTonalButton(onClick = onDecrypt, Modifier.weight(1f).height(56.dp)) { Icon(Icons.Outlined.LockOpen, null); Text("  " + stringResource(R.string.files_decrypt)) }
+                Button(onClick = onEncrypt, Modifier.weight(1f).height(56.dp), enabled = !working) { Icon(Icons.Outlined.Lock, null); Text("  " + stringResource(R.string.files_encrypt)) }
+                FilledTonalButton(onClick = onDecrypt, Modifier.weight(1f).height(56.dp), enabled = !working) { Icon(Icons.Outlined.LockOpen, null); Text("  " + stringResource(R.string.files_decrypt)) }
             }
             Text(stringResource(R.string.files_names_visible), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SectionTitle(stringResource(R.string.files_public_key))

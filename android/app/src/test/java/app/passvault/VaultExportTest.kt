@@ -62,6 +62,19 @@ class VaultExportTest {
         assertEquals(savedAt, main.lastBackup); assertEquals(setOf("main key"), main.fileKeys)
     }
 
+    @Test fun aBackupFinishingAfterItsVaultWasRemovedIsNotCredited() {
+        val prefs = preferences(); val decoy = BackupStatus(prefs, "decoy.")
+        val old = VaultExport.prepare(listOf(key), csv = false, decoy = true, encode = { ByteArray(1) }, instance = { BackupStatus(prefs, if (it) "decoy." else "").instance })
+        // The decoy is removed (and perhaps created again) while that backup is still being written.
+        decoy.clear()
+        try { old.recordBackup(prefs, savedAt) } finally { old.clear() }
+        assertNull(decoy.lastBackup); assertNull(decoy.fileKeys)
+        // A backup of the new vault counts.
+        val fresh = VaultExport.prepare(emptyList(), csv = false, decoy = true, encode = { ByteArray(1) }, instance = { BackupStatus(prefs, if (it) "decoy." else "").instance })
+        try { fresh.recordBackup(prefs, savedAt) } finally { fresh.clear() }
+        assertEquals(savedAt, decoy.lastBackup)
+    }
+
     @Test fun csvDoesNotRecordBackupCoverage() {
         val prefs = preferences(); val status = BackupStatus(prefs)
         val before = savedAt.minusSeconds(60)

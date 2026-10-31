@@ -324,6 +324,16 @@ class MainActivity : FragmentActivity() {
     @Volatile private var fileCancelled = false
     /** The file chosen to encrypt or decrypt, waiting for the user to pick where the result goes. */
     private var fileSource: FileCrypt.Picked? = null
+    /**
+     * A pick, check and save flow is under way, from tapping Encrypt or Decrypt until the save picker returns (or the flow stops): only one
+     * at a time, since the flow keeps its source in [fileSource]. Encrypt and Decrypt are disabled meanwhile, as during a job.
+     */
+    private var fileFlow by mutableStateOf(false)
+    private fun startFileFlow(launch: () -> Unit) {
+        if (fileFlow || fileProgress != null) return
+        fileFlow = true
+        if (!launchPicker(launch)) fileFlow = false
+    }
     /** A file just encrypted whose plaintext original the user may delete. */
     private var encryptedOriginal by mutableStateOf<Pair<FileCrypt.Picked, String>?>(null)
     /** [FileKeys.of] for the current records, worked out once per change of [records] rather than on every read. */
@@ -335,17 +345,21 @@ class MainActivity : FragmentActivity() {
     }
     private val encryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         systemPickerOpen = false
-        if (uri == null || !unlocked) return@registerForActivityResult
+        if (uri == null || !unlocked) { fileFlow = false; return@registerForActivityResult }
         val epoch = generation
         lifecycleScope.launch {
-            val picked = withContext(Dispatchers.IO) { FileCrypt.describe(contentResolver, uri) }
-            if (epoch != generation || !unlocked) return@launch
-            fileSource = picked
-            if (!launchPicker { encryptTarget.launch(FileKeys.encryptedName(picked.name)) }) fileSource = null
+            var next = false
+            try {
+                val picked = withContext(Dispatchers.IO) { FileCrypt.describe(contentResolver, uri) }
+                if (epoch != generation || !unlocked) return@launch
+                fileSource = picked
+                next = launchPicker { encryptTarget.launch(FileKeys.encryptedName(picked.name)) }
+                if (!next) fileSource = null
+            } finally { if (!next && epoch == generation) fileFlow = false }
         }
     }
     private val encryptTarget = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        systemPickerOpen = false
+        systemPickerOpen = false; fileFlow = false
         val source = fileSource; fileSource = null
         val identity = fileKeys.firstOrNull()?.ageIdentity
         if (uri == null) return@registerForActivityResult
@@ -359,23 +373,29 @@ class MainActivity : FragmentActivity() {
     }
     private val decryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         systemPickerOpen = false
-        if (uri == null || !unlocked) return@registerForActivityResult
+        if (uri == null || !unlocked) { fileFlow = false; return@registerForActivityResult }
         val keys = fileKeys.mapNotNull { it.ageIdentity }; val epoch = generation
         lifecycleScope.launch {
-            // Say "not your key" before asking where to save.
-            val picked = try { withContext(Dispatchers.IO) { FileCrypt.check(contentResolver, uri, keys.map(Age::parseIdentity)); FileCrypt.describe(contentResolver, uri) } }
-            catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: AgeException) { if (epoch == generation && unlocked) { messageError = true; message = ageError(e) }; return@launch }
-            catch (e: Exception) { if (epoch == generation && unlocked) { messageError = true; message = getString(R.string.main_cannot_open_file) }; return@launch }
-            if (epoch != generation || !unlocked) return@launch
-            fileSource = picked
-            val name = FileKeys.decryptedName(picked.name)
-            val type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
-            if (!launchPicker { decryptTarget.launch(name to type) }) fileSource = null
+            var next = false
+            try { next = checkAndPickDecryptTarget(uri, keys, epoch) } finally { if (!next && epoch == generation) fileFlow = false }
         }
     }
+    /** Checks [uri] can be decrypted with [keys], then opens the save picker; true when the picker opened. */
+    private suspend fun checkAndPickDecryptTarget(uri: android.net.Uri, keys: List<String>, epoch: Int): Boolean {
+        // Say "not your key" before asking where to save.
+        val picked = try { withContext(Dispatchers.IO) { FileCrypt.check(contentResolver, uri, keys.map(Age::parseIdentity)); FileCrypt.describe(contentResolver, uri) } }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: AgeException) { if (epoch == generation && unlocked) { messageError = true; message = ageError(e) }; return false }
+        catch (e: Exception) { if (epoch == generation && unlocked) { messageError = true; message = getString(R.string.main_cannot_open_file) }; return false }
+        if (epoch != generation || !unlocked) return false
+        fileSource = picked
+        val name = FileKeys.decryptedName(picked.name)
+        val type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
+        if (!launchPicker { decryptTarget.launch(name to type) }) { fileSource = null; return false }
+        return true
+    }
     private val decryptTarget = registerForActivityResult(CreateTypedDocument()) { uri ->
-        systemPickerOpen = false
+        systemPickerOpen = false; fileFlow = false
         val source = fileSource; fileSource = null
         val keys = fileKeys.mapNotNull { it.ageIdentity }
         if (uri == null) return@registerForActivityResult
@@ -520,7 +540,8 @@ class MainActivity : FragmentActivity() {
                                     onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { viewing = it; editing = false })
                                 fileCrypt -> { val keys = fileKeys
                                     FileEncryptionScreen(keys, remember(keys, lastBackup, backedUpKeys) { FileKeys.needsBackup(keys, lastBackup, backedUpKeys) }, onBack = { fileCrypt = false }, onCreateKey = ::createFileKey, onImportKey = ::importFileKey,
-                                        onEncrypt = { launchPicker { encryptSource.launch(arrayOf("*/*")) } }, onDecrypt = { launchPicker { decryptSource.launch(arrayOf("*/*")) } },
+                                        working = fileFlow || fileProgress != null,
+                                        onEncrypt = { startFileFlow { encryptSource.launch(arrayOf("*/*")) } }, onDecrypt = { startFileFlow { decryptSource.launch(arrayOf("*/*")) } },
                                         onCopyPublic = ::copyPublicKey, onSharePublic = ::sharePublicKey, onOpenKey = { viewing = it; editing = false },
                                         onBackup = { fileCrypt = false; settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }) }
                                 settings -> SettingsScreen()
@@ -582,7 +603,7 @@ class MainActivity : FragmentActivity() {
         if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
         scannedImport = null; cameraGranted = null; imageRead = null
         // A running file job sees the new generation and stops; its half-written output is deleted.
-        fileCrypt = false; fileSource = null; encryptedOriginal = null; fileCancelled = true; fileKeysOf = null
+        fileCrypt = false; fileSource = null; fileFlow = false; encryptedOriginal = null; fileCancelled = true; fileKeysOf = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; discardPendingExport()
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
@@ -694,7 +715,7 @@ class MainActivity : FragmentActivity() {
             if (exists && biometricEnabled) OutlinedButton(onClick = { biometrics() }, enabled = ready, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Default.Fingerprint, null); Text("  " + stringResource(R.string.main_unlock_with_biometrics)) }
             if (exists) Text(stringResource(R.string.main_attempts_remaining, remaining), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (reset) AlertDialog(onDismissRequest = { reset = false }, title = { Text(stringResource(R.string.main_new_empty_vault_title)) }, text = { HardenWindow(); Text(stringResource(R.string.main_erased_cannot_recover)) }, confirmButton = { TextButton(onClick = { reset = false; work({ engine.resetErasedVault(); null }) { erased = false; exists = false; remaining = 10; message = getString(R.string.main_create_then_import) } }) { Text(stringResource(R.string.main_create_new_vault)) } }, dismissButton = { TextButton(onClick = { reset = false }) { Text(stringResource(R.string.main_cancel)) } })
+        if (reset) AlertDialog(onDismissRequest = { reset = false }, title = { Text(stringResource(R.string.main_new_empty_vault_title)) }, text = { HardenWindow(); Text(stringResource(R.string.main_erased_cannot_recover)) }, confirmButton = { TextButton(onClick = { reset = false; work({ engine.resetErasedVault(); null }) { BackupStatus(prefs).clear(); BackupStatus(prefs, "decoy.").clear(); erased = false; exists = false; remaining = 10; message = getString(R.string.main_create_then_import) } }) { Text(stringResource(R.string.main_create_new_vault)) } }, dismissButton = { TextButton(onClick = { reset = false }) { Text(stringResource(R.string.main_cancel)) } })
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -1387,7 +1408,7 @@ class MainActivity : FragmentActivity() {
             // Keep ownership even if cancellation drops withContext's result on its way back to the main thread.
             var prepared: VaultExport? = null
             try {
-                val attemptsRemaining = withContext(vaultQueue) { prepared = engine.export(password, csv); engine.remainingAttempts() }
+                val attemptsRemaining = withContext(vaultQueue) { prepared = engine.export(password, csv) { decoy -> BackupStatus(prefs, if (decoy) "decoy." else "").instance }; engine.remainingAttempts() }
                 if (epoch != generation || !unlocked) { refreshUnlockScreen(); return@launch }
                 remaining = attemptsRemaining
                 val snapshot = checkNotNull(prepared)

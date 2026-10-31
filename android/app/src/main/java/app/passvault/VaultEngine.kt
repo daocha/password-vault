@@ -203,17 +203,18 @@ class VaultEngine(private val storage: ProtectedStorage) {
         return@serialized save(imported)
     }
     /** Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. */
-    fun export(password: String, csv: Boolean): VaultExport {
+    /** [instance]: the source vault's [BackupStatus.instance] (the decoy's when it is open), read under the vault lock. */
+    fun export(password: String, csv: Boolean, instance: (decoy: Boolean) -> Long = { 0L }): VaultExport {
         // Passwords set before the guessability rule still work; an encrypted backup is where a weak one is worth warning about. Worked out
         // before taking the vault lock: it needs no vault state, and its first use loads zxcvbn's dictionaries.
         val weak = !csv && PasswordPolicy.guesses(PasswordText.normalize(password)) < PasswordPolicy.MIN_GUESSES_LOG10
-        return exportLocked(password, csv, weak)
+        return exportLocked(password, csv, weak, instance)
     }
-    private fun exportLocked(password: String, csv: Boolean, weak: Boolean): VaultExport = VaultAccess.serialized {
+    private fun exportLocked(password: String, csv: Boolean, weak: Boolean, instance: (Boolean) -> Long): VaultExport = VaultAccess.serialized {
         check(key != null) { "Vault is locked." }; authenticate(password).key.fill(0)
         return@serialized VaultExport.prepare(records, csv, activeDecoy, encode = { snapshot ->
             if (csv) VaultCSV.exportRecords(snapshot).toByteArray() else VaultCrypto.exportBackup(snapshot, password)
-        }, weakPassword = weak)
+        }, weakPassword = weak, instance = instance)
     }
     /** Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code. */
     fun exportTransfer(password: String): Pair<String, ByteArray> = VaultAccess.serialized {
