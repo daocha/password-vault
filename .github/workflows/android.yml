@@ -31,8 +31,8 @@ jobs:
         with: { name: PassVault-debug, path: android/app/build/outputs/apk/debug/app-debug.apk }
 
   # Instrumented tests (real Android Keystore, vault storage, file encryption on ART) on an emulator, using the emulator-only
-  # "qa" variant, which accepts software-backed keys. Keystore keys need a secure lock screen and an unlocked device, hence the PIN
-  # and the unlock (.github/scripts/unlock-emulator.sh).
+  # "qa" variant, which accepts software-backed keys and does not need the device unlocked. Keystore keys still need a secure lock
+  # screen, hence the PIN (.github/scripts/set-emulator-pin.sh).
   instrumented:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -60,7 +60,7 @@ jobs:
           disable-animations: true
           working-directory: android
           script: |
-            sh ../.github/scripts/unlock-emulator.sh
+            sh ../.github/scripts/set-emulator-pin.sh
             ./gradlew --no-daemon :app:connectedQaAndroidTest
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

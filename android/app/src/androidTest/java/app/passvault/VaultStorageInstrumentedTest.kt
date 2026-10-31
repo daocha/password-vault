@@ -233,7 +233,7 @@ class VaultStorageInstrumentedTest {
         // Recreate what a pre-ratchet install left behind: one fixed key and `iv | ciphertext`.
         val ks = keystore(); stateAliases().forEach(ks::deleteEntry)
         val spec = KeyGenParameterSpec.Builder("passvault-state-v1", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).setUnlockedDeviceRequired(true).build()
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).setUnlockedDeviceRequired(BuildConfig.REQUIRE_UNLOCKED_DEVICE).build()
         val key = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply { init(spec) }.generateKey()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key); updateAAD("PassVault/state/v1".toByteArray()) }
         stateFile().writeBytes(cipher.iv + cipher.doFinal(plain))
