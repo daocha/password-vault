@@ -89,9 +89,11 @@ Settings › Security › File encryption.
   anything is saved → choose where to save (`name.age` → `name`; otherwise `name.decrypted`) → decrypt → reminder that the copy is not
   protected. ASCII-armored files (`age -a`) are decoded line by line as they are read, so their size is not limited by memory. A
   passphrase file (`age -p`) is reported as such, not as "not for any key in this vault".
-- **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Any failure or cancellation empties and
-  deletes the output, so a partial plaintext is never left behind or mistaken for the whole file. Cancellation is checked on every
-  write and again after the file is closed (a small file is read in full before anything is written), and once more
+- **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Once the destination has been opened for
+  writing, any failure or cancellation empties and deletes the output, so a partial plaintext is never left behind or mistaken for the
+  whole file. If opening fails or the job is cancelled before opening, existing destination content is kept; only an empty save target is
+  removed. Cancellation is checked before opening, on every write and again after the file is closed (a small file is read in full
+  before anything is written), and once more
   on the main thread just before success is accepted (`FileCrypt.guarded`). Locking runs on the main thread too, so nothing can
   lock in between; a complete output that is never accepted, including when the coroutine is cancelled on its way back from the
   worker thread, is removed. If the output can be neither emptied nor deleted (its provider went away, say), the user is told its name
@@ -109,7 +111,7 @@ Settings › Security › File encryption.
   security-critical: the HPKE key schedule (RFC 9180) and X-Wing combiner for mlkem768x25519, the chunk nonces and the
   last-chunk rules. The age test kit and the interop test against the official tools (see Tests) are what check this composition.
   Plaintext buffers and derived keys are wiped when done, including on failure; this is best effort, since the JVM may already have
-  copied them. Streaming, 64 KiB chunks; header lines bounded to 16 KiB, header to 1 MiB,
+  copied them. Streaming, 64 KiB chunks; header parsing allocates in proportion to its size, with lines bounded to 16 KiB and the header to 1 MiB,
   256 stanzas. Passphrase (scrypt) files cannot be opened, since PassVault only encrypts to the vault's own keys, but a header mixing an scrypt
   stanza with any other is rejected, as the spec requires. Hardware (tag) stanzas are ignored.
 - `FileEncryption.kt`: the key entry, naming, the backup check, and streaming between document URIs.
@@ -122,13 +124,15 @@ Settings › Security › File encryption.
   be rejected as header failures.
   It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
   boundaries, wrong keys, tampering and truncation, that plaintext buffers are wiped when writing fails part way, that a multi-megabyte
-  armored file is decoded as it is read (checking its header reads about one buffer), and that passphrase files are reported as such.
+  armored file is decoded as it is read (checking its header reads about one buffer), that a near-limit header stays within an allocation
+  budget and oversized headers are rejected, and that passphrase files are reported as such.
 - `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), imported keys not
   taking over encryption, stamping of older entries, the backup warning following the secret itself, file names.
 - `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed
   removal, job failure) leaves no unaccepted output.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
-  output is emptied, including a stop that lands after a small file was read in full.
+  output is emptied, including a stop that lands after a small file was read in full. A provider that refuses writes but supports deletion
+  verifies that an existing destination survives a failed open (exception or null result); cancellation before opening preserves it too.
 - `AgeInteropTest` (JVM, in CI) runs against the official tools from filippo.io/age, pinned to v1.3.2 and installed with `go install`
   (Go checks the module against its checksum database). Files PassVault encrypts must open with `age -d`, for PassVault's own
   post-quantum key and a classic key from `age-keygen`; files `age` encrypts (binary and `-a`) must open in PassVault, for keys made by

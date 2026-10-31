@@ -235,17 +235,20 @@ object Age {
     internal fun readHeader(input: InputStream): Header {
         val raw = ByteArrayOutputStream()
         fun line(): String {
-            val start = raw.size()
+            // Keep only this line here: copying raw for every line makes a near-limit header allocate gigabytes before authentication.
+            val text = StringBuilder()
             while (true) {
                 val b = input.read()
                 if (b < 0) header("The file header is incomplete.")
                 if (b == '\n'.code) break
                 // Header lines are printable ASCII; a CR (CRLF line endings) is not allowed.
                 if (b !in 0x20..0x7E) header("Invalid character in the file header.")
-                raw.write(b)
-                if (raw.size() - start > MAX_LINE || raw.size() > MAX_HEADER) header("The file header is too long.")
+                raw.write(b); text.append(b.toChar())
+                if (text.length > MAX_LINE || raw.size() > MAX_HEADER) header("The file header is too long.")
             }
-            val text = String(raw.toByteArray(), start, raw.size() - start, Charsets.US_ASCII); raw.write('\n'.code); return text
+            raw.write('\n'.code)
+            if (raw.size() > MAX_HEADER) header("The file header is too long.")
+            return text.toString()
         }
         val version = line()
         if (version != VERSION) header(if (version.startsWith("age-encryption.org/")) "Unsupported age version." else "Not an age file.")

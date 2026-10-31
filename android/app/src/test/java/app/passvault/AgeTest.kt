@@ -72,6 +72,34 @@ class AgeTest {
         assertEquals(AgeException.Kind.passphrase, assertThrows(AgeException::class.java) { Age.decrypt(ByteArrayInputStream(v.file), ByteArrayOutputStream(), listOf(Age.generateIdentity())) }.kind)
     }
 
+    @Test fun largeHeadersUseBoundedAllocations() {
+        // An unrecognised stanza can fill almost the whole 1 MiB header limit before any identity or MAC is checked.
+        val encoded = ("age-encryption.org/v1\n-> ignored\n" + ("A".repeat(64) + "\n").repeat(16_000) + "\n--- " + "A".repeat(43) + "\n").toByteArray()
+        // Android's compile classpath omits JVM management APIs; the unit-test JVM supplies the counter at runtime.
+        val api = Class.forName("com.sun.management.ThreadMXBean")
+        val meter = Class.forName("java.lang.management.ManagementFactory").getMethod("getThreadMXBean").invoke(null)
+        org.junit.Assume.assumeTrue(api.isInstance(meter) && api.getMethod("isThreadAllocatedMemorySupported").invoke(meter) == true)
+        api.getMethod("setThreadAllocatedMemoryEnabled", Boolean::class.javaPrimitiveType).invoke(meter, true)
+        val allocatedBytes = api.getMethod("getThreadAllocatedBytes", Long::class.javaPrimitiveType)
+        val thread = Thread.currentThread().id
+        val before = allocatedBytes.invoke(meter, thread) as Long
+        val header = Age.readHeader(ByteArrayInputStream(encoded))
+        val allocated = (allocatedBytes.invoke(meter, thread) as Long) - before
+        // Allow generous runtime overhead, but reject the previous 8+ GiB of repeated full-header copies.
+        assertTrue("allocated $allocated bytes for a ${encoded.size}-byte header", allocated < encoded.size * 64L)
+        assertEquals(listOf("ignored"), header.stanzas.single().args)
+        assertEquals(768_000, header.stanzas.single().body.size)
+        assertArrayEquals(encoded.copyOf(encoded.size - 45), header.macInput)
+    }
+
+    @Test fun headerSizeAndLineLimitsAreEnforced() {
+        val tooLongLine = "age-encryption.org/v1\n-> " + "x".repeat(16 * 1024) + "\n"
+        val tooLargeHeader = "age-encryption.org/v1\n-> ignored\n" + ("A".repeat(64) + "\n").repeat(17_000)
+        for (input in listOf(tooLongLine, tooLargeHeader)) {
+            assertEquals(AgeException.Kind.header, assertThrows(AgeException::class.java) { Age.readHeader(ByteArrayInputStream(input.toByteArray())) }.kind)
+        }
+    }
+
     @Test fun armoredFilesAreDecodedAsTheyAreRead() {
         val identity = Age.generateIdentity(); val plain = ByteArray(3 * 1024 * 1024 + 5) { (it * 7).toByte() }
         val sealed = ByteArrayOutputStream().also { Age.encrypt(ByteArrayInputStream(plain), it, listOf(identity.recipient)) }.toByteArray()

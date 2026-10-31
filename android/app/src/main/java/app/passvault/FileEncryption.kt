@@ -115,14 +115,19 @@ object FileCrypt {
     }
     private fun open(resolver: ContentResolver, uri: Uri): InputStream = resolver.openInputStream(uri) ?: throw java.io.FileNotFoundException()
     /**
-     * Writes [to] and, if anything fails or is cancelled, empties and deletes it: a damaged file is only noticed at its end, and the part
-     * already written must not be left behind as plaintext (or as a file that looks complete). Cancellation is checked on every write
-     * and once more after the file is closed, since a small file is read in full before anything is written. Throws [LeftBehind] when
-     * the output could be neither emptied nor deleted.
+     * Once [to] has been opened for writing, any failure or cancellation empties and deletes it: a damaged file is only noticed at its
+     * end, and the part already written must not be left behind as plaintext (or as a file that looks complete). If opening fails, keep
+     * any existing content and remove only an empty save target. Cancellation is checked before opening, on every write and once more
+     * after the file is closed, since a small file is read in full before anything is written. Throws [LeftBehind] when written output
+     * could be neither emptied nor deleted.
      */
     private fun write(resolver: ContentResolver, to: Uri, cancelled: () -> Boolean, body: (OutputStream) -> Unit) {
+        val output = try {
+            if (cancelled()) throw Cancelled()
+            resolver.openOutputStream(to, "wt") ?: throw java.io.FileNotFoundException()
+        } catch (e: Exception) { discardUnwritten(resolver, to); throw e }
         try {
-            Checked((resolver.openOutputStream(to, "wt") ?: throw java.io.FileNotFoundException()).buffered(Age.CHUNK), cancelled).use(body)
+            Checked(output.buffered(Age.CHUNK), cancelled).use(body)
             if (cancelled()) throw Cancelled()
         } catch (e: Exception) { if (!discard(resolver, to)) throw LeftBehind(e); throw e }
     }
