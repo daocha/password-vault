@@ -34,6 +34,15 @@ object FileKeys {
         fields = listOf(VaultField(kind = FieldKind.password, label = AGE_KEY_LABEL, value = identity.trim()), VaultField(kind = FieldKind.note, label = "Notes", value = notes)),
         legacy = mapOf(CREATED to now.toString()))
     /**
+     * A key pasted in (from age-keygen, say) to open files encrypted to it. It does not take over encryption: it is stamped just before
+     * the oldest of [existing] (the vault's keys), so new files keep using the current key. It is used for new files only when it is the
+     * vault's first key.
+     */
+    fun imported(name: String, identity: String, notes: String, existing: List<VaultRecord>, now: Instant = Instant.now()): VaultRecord {
+        val added = existing.minOfOrNull(::created)?.minusMillis(1) ?: now
+        return record(name, identity, notes, now).let { it.copy(legacy = it.legacy + (CREATED to added.toString())) }
+    }
+    /**
      * Gives every key entry without a creation stamp one, from its `updatedAt` as it is now: entries made by earlier builds, by hand on
      * iOS, or restored from such backups. Run whenever records are loaded or saved, so the stamp exists before an edit can bump
      * `updatedAt`. Returns [records] itself when nothing needed stamping.

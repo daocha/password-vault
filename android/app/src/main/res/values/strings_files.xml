@@ -20,7 +20,7 @@
     <string name="files_key_pq">Post-quantum (ML-KEM-768 + X25519)</string>
     <string name="files_key_x25519">X25519</string>
     <string name="files_key_current">Used for new files · %1$s</string>
-    <string name="files_keys_body">Every key here can decrypt files. New files use the newest key. Keep older keys, or the files encrypted with them can no longer be opened.</string>
+    <string name="files_keys_body">Every key here can decrypt files. New files use the newest key you created; an imported key only opens files, unless it is your only key. Keep older keys, or the files encrypted with them can no longer be opened.</string>
     <string name="files_backup_needed">Your file key is only on this phone. Back up the vault so you can still open your files if you lose it.</string>
     <string name="files_create_title">Create a file encryption key?</string>
     <string name="files_create_body">PassVault adds a \"File encryption key\" entry to your vault. Files you encrypt can only be opened with it. If you lose this phone and have no encrypted backup or transferred copy of the vault, those files can never be opened by anyone, including you. A backup protects the key only with your app password: anyone who gets a backup file can guess at that password on a computer, with no attempt limit.</string>
@@ -32,8 +32,9 @@
     <string name="files_key_note">PassVault uses this key to decrypt files you encrypted. If you delete it, those files can no longer be opened.</string>
     <string name="files_key_created">File encryption key created. Back up your vault now.</string>
     <string name="files_key_added">Key added.</string>
+    <string name="files_key_added_for_opening">Key added. Files encrypted to it can be opened; new files still use your current key.</string>
     <string name="files_key_exists">That key is already in your vault.</string>
-    <string name="files_import_body">Paste an age secret key (AGE-SECRET-KEY-1… or AGE-SECRET-KEY-PQ-1…), for example one made with age-keygen. Files encrypted to it can then be opened here.</string>
+    <string name="files_import_body">Paste an age secret key (AGE-SECRET-KEY-1… or AGE-SECRET-KEY-PQ-1…), for example one made with age-keygen. Files encrypted to it can then be opened here. If you already have a key, new files keep using that one.</string>
     <string name="files_import_label">age secret key</string>
     <string name="files_import_invalid">This is not an age secret key.</string>
     <string name="files_import_action">Add</string>

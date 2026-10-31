@@ -39,7 +39,25 @@ class FileKeysTest {
         assertFalse(FileKeys.needsBackup(listOf(regrouped, new), Instant.parse("2026-07-01T00:00:00Z"), backedUp))
     }
 
-    @Test fun unstampedKeysAreStampedBeforeAnEdit() {
+    @Test fun importedKeyOpensFilesWithoutTakingOverEncryption() {
+        val now = Instant.parse("2026-10-31T00:00:00Z")
+        // The vault's first key is used for new files, imported or not.
+        val first = FileKeys.imported("imported", identity, "", emptyList(), now)
+        assertEquals(now, FileKeys.created(first)); assertEquals(listOf("imported"), FileKeys.of(listOf(first)).map { it.name })
+        // With keys already there, it goes after all of them, and stays there through stamping and backups.
+        val old = FileKeys.record("old", Age.generateIdentity().encoded, "", Instant.parse("2026-01-01T00:00:00Z"))
+        val current = FileKeys.record("current", Age.generateIdentity().encoded, "", Instant.parse("2026-06-01T00:00:00Z"))
+        val imported = FileKeys.imported("imported", identity, "", FileKeys.of(listOf(old, current)), now)
+        val vault = listOf(imported, old, current)
+        assertEquals(listOf("current", "old", "imported"), FileKeys.of(vault).map { it.name })
+        assertSame(vault, FileKeys.stamp(vault))
+        assertEquals(listOf("current", "old", "imported"), FileKeys.of(Records.decode(Records.encode(vault))).map { it.name })
+        // A key created later still takes over.
+        val newer = FileKeys.record("newer", Age.generateIdentity().encoded, "", now.plusSeconds(60))
+        assertEquals("newer", FileKeys.of(vault + newer).first().name)
+    }
+
+        @Test fun unstampedKeysAreStampedBeforeAnEdit() {
         // Entries from the first build, or made by hand on iOS, have no stamp until the vault next loads them.
         val old = FileKeys.record("old", identity, "").copy(legacy = emptyMap(), updatedAt = "2026-01-01T00:00:00Z")
         val new = FileKeys.record("new", Age.generateIdentity().encoded, "", Instant.parse("2026-06-01T00:00:00Z"))

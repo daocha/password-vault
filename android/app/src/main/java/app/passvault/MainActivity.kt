@@ -422,7 +422,10 @@ class MainActivity : FragmentActivity() {
     }
     private fun importFileKey(identity: String) {
         if (fileKeys.any { it.ageIdentity.equals(identity, ignoreCase = true) }) { message = getString(R.string.files_key_exists); return }
-        saveRecord(FileKeys.record(getString(R.string.files_key_imported_name), identity.uppercase(), getString(R.string.files_key_note))) { message = getString(R.string.files_key_added) }
+        val first = fileKeys.isEmpty()
+        saveRecord(FileKeys.imported(getString(R.string.files_key_imported_name), identity.uppercase(), getString(R.string.files_key_note), fileKeys)) {
+            message = getString(if (first) R.string.files_key_added else R.string.files_key_added_for_opening)
+        }
     }
     /** A public key is not secret: copied without the sensitive flag or the clearing timer. */
     private fun copyPublicKey(key: String) {

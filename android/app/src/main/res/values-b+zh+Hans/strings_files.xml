@@ -20,7 +20,7 @@
     <string name="files_key_pq">抗量子（ML-KEM-768 + X25519）</string>
     <string name="files_key_x25519">X25519</string>
     <string name="files_key_current">用于新文件 · %1$s</string>
-    <string name="files_keys_body">这里的每个密钥都能解密文件。新文件使用最新的密钥。请保留旧密钥，否则用它们加密的文件将无法再打开。</string>
+    <string name="files_keys_body">这里的每个密钥都能解密文件。新文件使用你最近创建的密钥；导入的密钥只用于打开文件，除非它是你唯一的密钥。请保留旧密钥，否则用它们加密的文件将无法再打开。</string>
     <string name="files_backup_needed">你的文件密钥只在这部手机上。请备份保险库，这样即使手机丢失也能打开你的文件。</string>
     <string name="files_create_title">创建文件加密密钥？</string>
     <string name="files_create_body">PassVault 会在保险库中添加一个“文件加密密钥”条目。你加密的文件只能用它打开。如果你丢失了这部手机，又没有保险库的加密备份或传输副本，这些文件将永远无法打开，包括你自己。备份只用你的主密码保护这个密钥：任何拿到备份文件的人都能在电脑上不限次数地猜测这个密码。</string>
@@ -32,8 +32,9 @@
     <string name="files_key_note">PassVault 用这个密钥解密你加密的文件。删除它后，这些文件将无法再打开。</string>
     <string name="files_key_created">文件加密密钥已创建。请立即备份保险库。</string>
     <string name="files_key_added">密钥已添加。</string>
+    <string name="files_key_added_for_opening">密钥已添加。用它加密的文件可以打开；新文件仍使用你当前的密钥。</string>
     <string name="files_key_exists">这个密钥已在你的保险库中。</string>
-    <string name="files_import_body">粘贴 age 私钥（AGE-SECRET-KEY-1… 或 AGE-SECRET-KEY-PQ-1…），例如用 age-keygen 生成的私钥。之后就能在这里打开用它加密的文件。</string>
+    <string name="files_import_body">粘贴 age 私钥（AGE-SECRET-KEY-1… 或 AGE-SECRET-KEY-PQ-1…），例如用 age-keygen 生成的私钥。之后就能在这里打开用它加密的文件。如果你已有密钥，新文件仍使用原来的密钥。</string>
     <string name="files_import_label">age 私钥</string>
     <string name="files_import_invalid">这不是 age 私钥。</string>
     <string name="files_import_action">添加</string>

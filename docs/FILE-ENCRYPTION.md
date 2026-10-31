@@ -32,7 +32,7 @@ Both directions, both key types, armored files and the chunk boundaries are chec
 - **Type.** New keys are age's post-quantum hybrid type: ML-KEM-768 combined with X25519 (X-Wing), wrapped with HPKE
   (`AGE-SECRET-KEY-PQ-1…`, public key `age1pq1…`, as made by `age-keygen -pq`). A file stays secret unless both ML-KEM-768 and X25519 are
   broken, so files kept for years are not exposed by a future quantum computer. Classic X25519 keys (`AGE-SECRET-KEY-1…`) made with
-  `age-keygen` can be added and are used for decryption and, if newest, encryption.
+  `age-keygen` can be imported. An imported key is used for decryption, and for encryption only when it is the vault's first key.
 - **Where it lives.** A key is an ordinary secure note: one password-kind field labelled `age secret key` holding the identity string,
   plus a notes field. Nothing in the vault format changes, so backups, transfers, iOS and older Android builds keep the entry as a note
   (iOS shows it as a note with a hidden field). Android recognises it by that label and a valid identity, hides its Edit button, gives
@@ -42,6 +42,9 @@ Both directions, both key types, armored files and the chunk boundaries are chec
   hidden `legacy` metadata (kept by backups, transfers and iOS), not `updatedAt`: moving an old key into a group must not make it
   active again after the user rotated away from it. An entry without the stamp (from the first test build, or made by
   hand on iOS) is stamped from its `updatedAt` as soon as the vault loads or saves it, before an edit can change that.
+- **Imported keys.** Importing a key is for opening files encrypted to it (old archives, say), so it must not silently become the key new
+  files use. It is stamped one millisecond before the vault's oldest key, unless the vault has none, and the app says new files keep using
+  the current key.
 - **Public key.** Derived from the secret key when the screen opens; never stored. It can be copied (not marked sensitive, not
   auto-cleared: it is not a secret) or shared through Android's share sheet so a computer can encrypt for the vault.
 
@@ -113,8 +116,8 @@ Settings › Security › File encryption.
   be rejected as header failures.
   It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
   boundaries, wrong keys, tampering and truncation, and that plaintext buffers are wiped when writing fails part way.
-- `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), stamping of older
-  entries, the backup warning following the secret itself, file names.
+- `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), imported keys not
+  taking over encryption, stamping of older entries, the backup warning following the secret itself, file names.
 - `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed
   removal, job failure) leaves no unaccepted output.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
