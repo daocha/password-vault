@@ -40,7 +40,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.automirrored.outlined.StickyNote2
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -689,7 +688,7 @@ class MainActivity : FragmentActivity() {
                         if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, stringResource(R.string.main_search), tint = if (query.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current) }; IconButton(onClick = { openHealth() }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, stringResource(R.string.main_search), tint = if (query.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current) }; IconButton(onClick = { openHealth() }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { fileCrypt = true }) { Icon(EncryptedFileIcon, stringResource(R.string.files_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
             floatingActionButton = { if (!selecting) Box {
                 ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
@@ -1111,7 +1110,7 @@ class MainActivity : FragmentActivity() {
                             IconButton(onClick = { dialog = SettingsDialog.AutofillHelp }) { Icon(Icons.Outlined.Info, stringResource(R.string.autofill_help_title)) }; Switch(autofillEnabled, { setAutofill(it) }) } }) { setAutofill(!autofillEnabled) }
                     Row(Icons.Outlined.Password, stringResource(R.string.main_change_app_password)) { dialog = SettingsDialog.ChangePassword }
                     if (!decoySession) Row(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_title), if (decoyEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off)) { dialog = if (decoyEnabled) SettingsDialog.DecoyManage else SettingsDialog.DecoySetup }
-                    Row(Icons.AutoMirrored.Outlined.InsertDriveFile, stringResource(R.string.files_title), stringResource(R.string.files_settings_summary)) { fileCrypt = true }
+                    Row(EncryptedFileIcon, stringResource(R.string.files_title), stringResource(R.string.files_settings_summary)) { fileCrypt = true }
                 }
                 SectionTitle(stringResource(R.string.main_random_password))
                 Group {

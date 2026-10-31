@@ -19,8 +19,27 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.addPathNodes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/**
+ * File encryption's icon: Material's outlined file (insert_drive_file) with a padlock inside, so it reads as an encrypted file rather
+ * than any file. 24 dp grid like the Material icons it sits next to; tinted by Icon like them.
+ */
+val EncryptedFileIcon: ImageVector by lazy {
+    fun ImageVector.Builder.shape(path: String) = addPath(addPathNodes(path), fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd)
+    ImageVector.Builder("EncryptedFile", 24.dp, 24.dp, 24f, 24f).apply {
+        shape("M14,2H6c-1.1,0 -1.99,0.9 -1.99,2L4,20c0,1.1 0.89,2 1.99,2H18c1.1,0 2,-0.9 2,-2V8l-6,-6zM6,20V4h7v5h5v11H6z")
+        // Padlock: the shackle, then the body with a keyhole cut out.
+        shape("M9.9,13.4V12.3a2.1,2.1 0 0 1 4.2,0V13.4h-1.3V12.3a0.8,0.8 0 0 0 -1.6,0V13.4z")
+        shape("M8.6,13.4h6.8v5.1h-6.8z M11.6,17.3V15.95a0.85,0.85 0 1 1 0.8,0V17.3z")
+    }.build()
+}
 
 /**
  * Settings › File encryption: encrypt files to the vault's age key and decrypt them again. Only the key is in the vault; the files are
