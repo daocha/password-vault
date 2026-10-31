@@ -56,7 +56,9 @@ android {
     buildTypes {
         // UPDATE_CHANNEL: "none" (qa, and debug without a LAN server: no update check), "lan" (debug with
         // PASSVAULT_DEV_UPDATE_HOST), "github" (sideload APK), "play" (Google Play AAB).
-        all { buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "false"); buildConfigField("String", "UPDATE_CHANNEL", "\"none\"") }
+        // REQUIRE_UNLOCKED_DEVICE: Keystore keys refuse to work while the phone is locked. Only qa (emulator tests) leaves it off: CI
+        // emulators cannot be unlocked reliably, and the tests only need a secure lock screen to exist.
+        all { buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "false"); buildConfigField("boolean", "REQUIRE_UNLOCKED_DEVICE", "true"); buildConfigField("String", "UPDATE_CHANNEL", "\"none\"") }
         // Own package name and label so the debug build installs next to (not over) a release build signed with a different key.
         debug {
             applicationIdSuffix = ".debug"; versionNameSuffix = "-debug"; manifestPlaceholders["appLabel"] = "PassVault Dev"
@@ -76,7 +78,7 @@ android {
         create("playRelease") { initWith(getByName("release")); matchingFallbacks += listOf("release"); buildConfigField("String", "UPDATE_CHANNEL", "\"play\"") }
         // Emulator-only build: emulators lack hardware-backed keys. Never distribute this variant.
         create("qa") { initWith(getByName("debug")); applicationIdSuffix = ".qa"; versionNameSuffix = "-qa"; manifestPlaceholders["appLabel"] = "PassVault QA"; buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "true")
-            buildConfigField("String", "UPDATE_CHANNEL", "\"none\""); buildConfigField("String", "DEV_UPDATE_URL", "\"\"") }
+            buildConfigField("boolean", "REQUIRE_UNLOCKED_DEVICE", "false"); buildConfigField("String", "UPDATE_CHANNEL", "\"none\""); buildConfigField("String", "DEV_UPDATE_URL", "\"\"") }
     }
     // Instrumented tests open transfers written by the iOS app (fixtures/transfer).
     sourceSets.getByName("androidTest") { assets.srcDir("../../fixtures/transfer") }
