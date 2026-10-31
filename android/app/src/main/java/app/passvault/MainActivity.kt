@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
@@ -179,11 +180,12 @@ class MainActivity : FragmentActivity() {
         systemPickerOpen = false
         if (uri == null) return@registerForActivityResult
         // A copy: turning the screen off mid-write zeroes the pending transfer's own bytes.
-        val bytes = sending?.bytes?.copyOf() ?: return@registerForActivityResult
+        val bytes = sending?.bytes?.copyOf() ?: run { discardUnwritten(uri); return@registerForActivityResult }
         lifecycleScope.launch {
             // A transfer file is not a backup: its code is shown once and not kept, so it does not count toward the backup reminder.
-            try { withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error(getString(R.string.main_export_could_not_write)) }; message = getString(R.string.transfer_saved) }
-            catch (e: Exception) { messageError = true; message = e.message ?: getString(R.string.main_export_failed) }
+            try { withContext(Dispatchers.IO) { FileCrypt.writeWhole(contentResolver, uri, bytes) }; message = getString(R.string.transfer_saved) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { messageError = true; message = exportError(e) }
             finally { bytes.fill(0) }
         }
     }
@@ -451,6 +453,8 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             val epoch = generation
             val identity = withContext(Dispatchers.Default) { Age.generateIdentity().encoded }
+            // Another change may still be saving: wait for it rather than have work() drop the key without a word.
+            snapshotFlow { busy }.first { !it }
             // Locked meanwhile, perhaps reopened as the other vault: the key must not land there.
             if (epoch != generation || !unlocked) return@launch
             saveRecord(FileKeys.newKey(getString(R.string.files_key_name), identity, getString(R.string.files_key_note), fileKeys)) { message = getString(R.string.files_key_created) }
@@ -1421,6 +1425,7 @@ class MainActivity : FragmentActivity() {
             finally { prepared?.clear(); busy = false }
         }
     }
+    private fun exportError(e: Exception) = if (e is FileCrypt.LeftBehind) getString(R.string.main_export_left_behind) else e.message ?: getString(R.string.main_export_failed)
     private fun writeExport(uri: android.net.Uri?) {
         systemPickerOpen = false
         // Locked while the picker was open: the export is gone, so remove the empty file the picker created.
@@ -1428,7 +1433,7 @@ class MainActivity : FragmentActivity() {
         val epoch = generation
         lifecycleScope.launch {
             try {
-                if (uri != null) withContext(Dispatchers.IO) { contentResolver.openOutputStream(uri, "wt")?.use { it.write(snapshot.bytes) } ?: error(getString(R.string.main_export_could_not_write)) }
+                if (uri != null) withContext(Dispatchers.IO) { FileCrypt.writeWhole(contentResolver, uri, snapshot.bytes) }
                 // Only a saved encrypted backup counts: CSV leaves out 2FA keys, seed phrases, cards and notes.
                 if (uri != null) snapshot.recordBackup(prefs, Instant.now())
                 if (epoch == generation && unlocked) {
@@ -1437,7 +1442,7 @@ class MainActivity : FragmentActivity() {
                     message = if (uri == null) getString(R.string.main_export_cancelled) else if (snapshot.csv) getString(R.string.main_export_csv_done) else if (snapshot.weakPassword) getString(R.string.main_export_encrypted_done_weak) else getString(R.string.main_export_encrypted_done)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) { if (epoch == generation) { messageError = true; message = e.message ?: getString(R.string.main_export_failed) } }
+            catch (e: Exception) { if (epoch == generation) { messageError = true; message = exportError(e) } }
             finally { snapshot.clear() }
         }
     }

@@ -187,6 +187,7 @@
     <string name="main_export_encrypted_done">Encrypted backup exported.</string>
     <string name="main_export_encrypted_done_weak">Encrypted backup exported, but your app password is easy to guess: someone who gets this file could crack it. Change the password in Settings, save a new backup, and delete this one.</string>
     <string name="main_export_failed">Export failed.</string>
+    <string name="main_export_left_behind">The file could not be finished, and the incomplete file could not be removed. Delete it yourself.</string>
     <string name="main_password_meets">Password meets the requirements.</string>
     <string name="main_clipboard_schedule_failed">Couldn\'t schedule clipboard clearing: %1$s</string>
     <string name="main_copied">Copied.</string>

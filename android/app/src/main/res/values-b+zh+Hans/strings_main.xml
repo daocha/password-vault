@@ -187,6 +187,7 @@
     <string name="main_export_encrypted_done">已导出加密备份。</string>
     <string name="main_export_encrypted_done_weak">已导出加密备份，但你的主密码容易被猜到：拿到这个文件的人可能破解它。请在设置中更改密码，保存一份新备份，再删除这一份。</string>
     <string name="main_export_failed">导出失败。</string>
+    <string name="main_export_left_behind">文件未能完成，而且无法删除未完成的文件。请自行删除。</string>
     <string name="main_password_meets">密码符合要求。</string>
     <string name="main_clipboard_schedule_failed">无法安排清除剪贴板：%1$s</string>
     <string name="main_copied">已复制。</string>

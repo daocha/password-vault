@@ -143,6 +143,15 @@ object FileCrypt {
             if (cancelled()) throw Cancelled()
         } catch (e: Exception) { if (!discard(resolver, to)) throw LeftBehind(e); throw e }
     }
+    /**
+     * Writes [bytes] as the whole of [uri] (a backup or transfer file the user chose). If writing fails part way, the partial file is
+     * emptied and deleted, so it is never left looking like a complete backup; if it cannot even be opened, only an empty save target is
+     * removed. Throws [LeftBehind] when the partial file could be neither emptied nor deleted.
+     */
+    fun writeWhole(resolver: ContentResolver, uri: Uri, bytes: ByteArray) {
+        val output = try { resolver.openOutputStream(uri, "wt") ?: throw java.io.FileNotFoundException() } catch (e: Exception) { discardUnwritten(resolver, uri); throw e }
+        try { output.use { it.write(bytes) } } catch (e: Exception) { if (!discard(resolver, uri)) throw LeftBehind(e); throw e }
+    }
     /** Empties and deletes [uri]; true when no content is left (it was emptied, deleted, or both). */
     fun discard(resolver: ContentResolver, uri: Uri): Boolean {
         val emptied = runCatching { resolver.openOutputStream(uri, "wt")?.use {} != null }.getOrDefault(false)

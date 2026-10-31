@@ -187,6 +187,7 @@
     <string name="main_export_encrypted_done">已匯出加密備份。</string>
     <string name="main_export_encrypted_done_weak">已匯出加密備份，但你的主密碼容易被猜到：拿到這個檔案的人可能破解它。請在設定中更改密碼，儲存一份新備份，再刪除這一份。</string>
     <string name="main_export_failed">匯出失敗。</string>
+    <string name="main_export_left_behind">檔案未能完成，而且無法刪除未完成的檔案。請自行刪除。</string>
     <string name="main_password_meets">密碼符合要求。</string>
     <string name="main_clipboard_schedule_failed">無法安排清除剪貼簿：%1$s</string>
     <string name="main_copied">已複製。</string>
