@@ -57,6 +57,23 @@ class FileKeysTest {
         assertEquals("newer", FileKeys.of(vault + newer).first().name)
     }
 
+    @Test fun importsNeverDeleteFileKeys() {
+        val current = FileKeys.record("current", identity, "")
+        val login = VaultRecord(name = "login")
+        // A full replacement from a backup made before the key: the key stays, and stays the one new files use.
+        val older = listOf(VaultRecord(name = "old login"))
+        val replaced = FileKeys.keepKeys(listOf(current, login), older)
+        assertEquals(listOf("old login", "current"), replaced.map { it.name })
+        // A key the import also holds (in any case) is not doubled.
+        val same = current.copy(id = "other id", fields = current.fields.map { if (it.label == AGE_KEY_LABEL) it.copy(value = identity.lowercase()) else it })
+        assertEquals(listOf(same), FileKeys.keepKeys(listOf(current), listOf(same)))
+        // An import reusing the key's id for another secret keeps both, under different ids.
+        val other = FileKeys.record("other", Age.generateIdentity().encoded, "").copy(id = current.id)
+        val merged = FileKeys.keepKeys(listOf(current), listOf(other))
+        assertEquals(2, merged.size); assertEquals(2, merged.map { it.id }.toSet().size)
+        assertEquals(setOf(identity.uppercase(), other.ageIdentity!!.uppercase()), merged.map { it.ageIdentity!!.uppercase() }.toSet())
+    }
+
     @Test fun aNewKeyTakesOverEvenWhenTheClockIsBehind() {
         // A restored key stamped in the future, or the clock set back since the current key was made.
         val future = FileKeys.record("future", Age.generateIdentity().encoded, "", Instant.parse("2030-01-01T00:00:00Z"))

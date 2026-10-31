@@ -51,6 +51,16 @@ object FileKeys {
         return record(name, identity, notes, now).let { it.copy(legacy = it.legacy + (CREATED to added.toString())) }
     }
     /**
+     * [result] (what an import would leave in the vault) plus every key of [before] whose secret it no longer holds: an import, even a
+     * full replacement from an older backup, must never delete a file key, since files encrypted to it could never be opened again. A
+     * kept key whose id the import reused (for another secret, or another entry) gets a new id. Deleting a key stays a deliberate act.
+     */
+    fun keepKeys(before: List<VaultRecord>, result: List<VaultRecord>): List<VaultRecord> {
+        val secrets = result.mapNotNull { it.ageIdentity?.uppercase() }.toSet(); val ids = result.map { it.id }.toSet()
+        val lost = before.filter { it.ageIdentity?.uppercase()?.let { s -> s !in secrets } == true }
+        return if (lost.isEmpty()) result else result + lost.map { if (it.id in ids) it.copy(id = java.util.UUID.randomUUID().toString()) else it }
+    }
+    /**
      * Gives every key entry without a creation stamp one, from its `updatedAt` as it is now: entries made by earlier builds, by hand on
      * iOS, or restored from such backups. Run whenever records are loaded or saved, so the stamp exists before an edit can bump
      * `updatedAt`. Returns [records] itself when nothing needed stamping.

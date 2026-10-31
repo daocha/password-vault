@@ -77,6 +77,8 @@ Like any private key, losing it loses the files. PassVault reduces the chance:
   banner stays visible until a fresh encrypted backup is saved. Each export keeps its bytes, fingerprints, format and source vault
   together: another export or a vault lock cannot change which keys or vault a completed backup is recorded for.
 - Deleting a key entry (alone or in a bulk delete) shows a specific warning.
+- Importing never deletes a key. A full replacement from a backup made before a key was created keeps that key (still the one new files
+  use if it is the newest), and an import reusing a key's entry id for something else keeps both, the old key under a new id.
 - Changing the app password keeps the key: it is vault content, re-encrypted with the vault.
 
 ## Flows (Android)

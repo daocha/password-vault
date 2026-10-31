@@ -195,15 +195,17 @@ class VaultEngine(private val storage: ProtectedStorage) {
         check(key != null) { "Vault is locked." }
         // Matched by record id only: a record already in the vault is replaced in place (whole, fields included), the rest are added with their ids.
         val incoming = imported.associateBy { it.id }; val known = records.map { it.id }.toSet()
-        return@serialized save(records.map { incoming[it.id] ?: it } + imported.filter { it.id !in known })
+        return@serialized save(FileKeys.keepKeys(records, records.map { incoming[it.id] ?: it } + imported.filter { it.id !in known }))
     }
-    /** Makes the imported records the whole vault: entries the file does not contain are deleted. */
+    /** Makes the imported records the whole vault: entries the file does not contain are deleted, except file keys ([FileKeys.keepKeys]). */
     fun replaceAll(imported: List<VaultRecord>): List<VaultRecord> = VaultAccess.serialized {
         check(key != null) { "Vault is locked." }
-        return@serialized save(imported)
+        return@serialized save(FileKeys.keepKeys(records, imported))
     }
-    /** Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. */
-    /** [instance]: the source vault's [BackupStatus.instance] (the decoy's when it is open), read under the vault lock. */
+    /**
+     * Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. [instance]: the source
+     * vault's [BackupStatus.instance] (the decoy's when it is open), read under the vault lock.
+     */
     fun export(password: String, csv: Boolean, instance: (decoy: Boolean) -> Long = { 0L }): VaultExport {
         // Passwords set before the guessability rule still work; an encrypted backup is where a weak one is worth warning about. Worked out
         // before taking the vault lock: it needs no vault state, and its first use loads zxcvbn's dictionaries.
