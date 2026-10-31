@@ -36,7 +36,7 @@ class PassVaultAutofillService : AutofillService() {
     }
     private suspend fun response(request: FillRequest): FillResponse? {
         val structure = request.fillContexts.lastOrNull()?.structure ?: return null
-        val form = withContext(Dispatchers.Default) { AutofillForm.parse(structure) }
+        val form = withContext(Dispatchers.Default) { AutofillForm.parse(structure) { AutofillBrowsers.verify(this@PassVaultAutofillService, it) } }
         if (form == null || form.target.packageName == packageName || !withContext(vaultQueue) { vaultExists() }) return null
         val unlock = presentation(this, getString(R.string.autofill_unlock), form.target.description(appLabel(this, form.target.packageName)))
         // Mutable: the system adds the form's structure to the intent when the user taps the suggestion.

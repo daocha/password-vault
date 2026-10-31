@@ -79,7 +79,7 @@ class AutofillActivity : FragmentActivity() {
         setResult(RESULT_CANCELED)
         @Suppress("DEPRECATION")
         val structure = if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(AutofillManager.EXTRA_ASSIST_STRUCTURE, AssistStructure::class.java) else intent.getParcelableExtra(AutofillManager.EXTRA_ASSIST_STRUCTURE)
-        form = structure?.let(AutofillForm::parse) ?: return finish()
+        form = structure?.let { AutofillForm.parse(it) { name -> AutofillBrowsers.verify(this, name) } } ?: return finish()
         val appName = PassVaultAutofillService.appLabel(this, form.target.packageName)
         targetName = form.target.description(appName)
         lifecycleScope.launch {
