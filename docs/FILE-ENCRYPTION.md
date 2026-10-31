@@ -9,7 +9,23 @@ drive, cloud storage) and is never stored by PassVault. Only the key is in the v
 encrypted `.pvault` backups and phone-to-phone transfers. A vault backup stays small however many files are encrypted.
 
 Files use [age v1](https://c2sp.org/age), an open format with a published specification and test vectors. Files PassVault encrypts open
-with the `age` command-line tool (1.3 or later), and files encrypted there to the vault's public key open in PassVault.
+with the official `age` command-line tool, and files encrypted there to the vault's public key open in PassVault (see "On a computer").
+
+> **The computer needs age 1.3.0 or later.** Keys PassVault creates are post-quantum (`AGE-SECRET-KEY-PQ-1…`, public key `age1pq1…`),
+> which age supports from 1.3.0; older versions do not recognise them. Classic keys imported from `age-keygen` (`AGE-SECRET-KEY-1…`)
+> work with any age version.
+
+## On a computer
+
+With age 1.3.0 or later (`age --version`):
+
+- **Open a PassVault file.** Reveal the key entry's secret in PassVault, save it as a file (here `key.txt`), and run
+  `age -d -i key.txt -o report.pdf report.pdf.age`. The secret is then outside the vault's protection: delete `key.txt` afterwards.
+- **Encrypt a file for the vault.** Copy or share the public key from the File encryption screen (`age1pq1…`; safe to share), and run
+  `age -r age1pq1… -o report.pdf.age report.pdf`. Add `-a` for a text (ASCII-armored) file. PassVault opens it with the vault's key.
+
+Both directions, both key types, armored files and the chunk boundaries are checked on every pull request against the official tools
+(`AgeInteropTest`, below).
 
 ## Keys
 
@@ -99,8 +115,13 @@ Settings › Security › File encryption.
   removal, job failure) leaves no unaccepted output.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
   output is emptied, including a stop that lands after a small file was read in full.
-- Not yet done: decrypting a PassVault-made file with the `age` CLI. Because PassVault decrypts the official vectors and derives the
-  spec's public key exactly, the encrypt direction should interoperate, but it has not been checked against the tool itself.
+- `AgeInteropTest` (JVM, in CI) runs against the official tools from filippo.io/age, pinned to v1.3.2 and installed with `go install`
+  (Go checks the module against its checksum database). Files PassVault encrypts must open with `age -d`, for PassVault's own
+  post-quantum key and a classic key from `age-keygen`; files `age` encrypts (binary and `-a`) must open in PassVault, for keys made by
+  either; a file for several recipients opens with each; `age-keygen -y` derives the same public key as PassVault; `age` refuses a
+  PassVault file for another key; and the tools must be 1.3.0 or later, as documented. Sizes cover empty, one byte and both sides of
+  the 64 KiB chunk boundary. Locally the test skips itself unless `AGE_BIN_DIR` points at the tools; CI sets `AGE_INTEROP_REQUIRED`
+  so it fails there instead of skipping.
 
 ## iOS
 

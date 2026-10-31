@@ -23,6 +23,15 @@ jobs:
       - name: Release script tests
         run: python3 -m unittest discover -s scripts/tests -v
 
+      # The official age tools (filippo.io/age), so AgeInteropTest checks both directions against them. The version is pinned and Go
+      # verifies the module against its checksum database; the runner's Go fetches the toolchain the module needs.
+      - name: Official age tools for the interop test
+        run: |
+          go install filippo.io/age/cmd/...@v1.3.2
+          echo "AGE_BIN_DIR=$(go env GOPATH)/bin" >> "$GITHUB_ENV"
+          echo "AGE_INTEROP_REQUIRED=1" >> "$GITHUB_ENV"
+          "$(go env GOPATH)/bin/age" --version
+
       - name: Build, unit tests and lint
         working-directory: android
         run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug

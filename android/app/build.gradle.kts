@@ -167,3 +167,9 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("org.json:json:20250517")
 }
+
+// AgeInteropTest runs against the official age tools when AGE_BIN_DIR points at them (CI); rerun the tests when that changes.
+tasks.withType<Test>().configureEach {
+    inputs.property("ageBinDir", providers.environmentVariable("AGE_BIN_DIR").orElse(""))
+    inputs.property("ageInteropRequired", providers.environmentVariable("AGE_INTEROP_REQUIRED").orElse(""))
+}

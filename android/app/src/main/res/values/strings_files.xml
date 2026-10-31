@@ -3,7 +3,7 @@
     <!-- File encryption (age) -->
     <string name="files_title">File encryption</string>
     <string name="files_settings_summary">Encrypt files that only this vault can open</string>
-    <string name="files_intro">Encrypted files stay wherever you save them: on this phone, a USB drive or cloud storage. Only the key is kept in the vault, so it moves with your encrypted backups and phone transfers. Files use the open age format, so the age tool on a computer can open them too.</string>
+    <string name="files_intro">Encrypted files stay wherever you save them: on this phone, a USB drive or cloud storage. Only the key is kept in the vault, so it moves with your encrypted backups and phone transfers. Files use the open age format, so the age tool on a computer can open them too (age 1.3.0 or later: PassVault keys are post-quantum).</string>
     <string name="files_no_key_title">Create your file encryption key</string>
     <string name="files_no_key_body">PassVault makes a post-quantum key and saves it in your vault. Nobody can open the files without it: not by guessing, and not with a future quantum computer.</string>
     <string name="files_create_key">Create key</string>
@@ -13,7 +13,7 @@
     <string name="files_decrypt">Decrypt</string>
     <string name="files_names_visible">The encrypted file keeps its name, which anyone can see. Rename it when you save if the name says too much.</string>
     <string name="files_public_key">Public key</string>
-    <string name="files_public_key_body">Share this to encrypt files for this vault on a computer (age 1.3 or later: age -r KEY). It can only encrypt, not decrypt, so it is safe to share.</string>
+    <string name="files_public_key_body">Share this to encrypt files for this vault on a computer (age 1.3.0 or later: age -r KEY). It can only encrypt, not decrypt, so it is safe to share.</string>
     <string name="files_copy">Copy</string>
     <string name="files_share">Share</string>
     <string name="files_keys">Keys</string>
