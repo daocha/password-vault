@@ -170,6 +170,9 @@ dependencies {
 
 // AgeInteropTest runs against the official age tools when AGE_BIN_DIR points at them (CI); rerun the tests when that changes.
 tasks.withType<Test>().configureEach {
-    inputs.property("ageBinDir", providers.environmentVariable("AGE_BIN_DIR").orElse(""))
-    inputs.property("ageInteropRequired", providers.environmentVariable("AGE_INTEROP_REQUIRED").orElse(""))
+    for (name in listOf("AGE_BIN_DIR", "AGE_INTEROP_REQUIRED")) {
+        val value = providers.environmentVariable(name).orElse("")
+        inputs.property(name, value)
+        environment(name, value.get())
+    }
 }
