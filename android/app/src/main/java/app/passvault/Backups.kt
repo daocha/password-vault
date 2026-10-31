@@ -27,8 +27,10 @@ object BackupReminder {
     }
 }
 
-/** One export owns its bytes and the metadata for those exact records, even while another export is prepared or the vault locks. */
-/** [weakPassword]: the password protecting an encrypted backup is easy to guess, which matters most once the file is out of the phone. */
+/**
+ * One export owns its bytes and the metadata for those exact records, even while another export is prepared or the vault locks.
+ * [weakPassword]: the password protecting an encrypted backup is easy to guess, which matters most once the file is out of the phone.
+ */
 class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, val decoy: Boolean, val fileKeys: Set<String>, val weakPassword: Boolean) {
     fun clear() { bytes.fill(0) }
     /** Called only after a successful write. CSV is not a backup, and the destination history belongs to the source vault. */
@@ -67,6 +69,10 @@ class BackupStatus(private val prefs: SharedPreferences, private val prefix: Str
     fun record(savedAt: Instant, keys: Set<String>) {
         prefs.edit().putLong(prefix + "lastBackupAt", savedAt.toEpochMilli()).putStringSet(prefix + "backupFileKeys", keys)
             .remove(prefix + "backupSnoozeUntil").apply()
+    }
+    /** Forgets this vault's backup history: the time, key coverage and reminder settings (when the decoy vault is removed). */
+    fun clear() {
+        prefs.edit().remove(prefix + "lastBackupAt").remove(prefix + "backupFileKeys").remove(prefix + "backupReminder").remove(prefix + "backupSnoozeUntil").apply()
     }
     fun snooze(now: Instant = Instant.now()) { snoozedUntil = now.plus(Duration.ofDays(BackupReminder.SNOOZE_DAYS)) }
 }

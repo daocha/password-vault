@@ -51,6 +51,7 @@
     <string name="files_failed">The file could not be processed. Nothing was saved.</string>
     <string name="files_not_age">This is not an encrypted file PassVault or age can open.</string>
     <string name="files_no_match">This file was not encrypted with any key in this vault.</string>
+    <string name="files_passphrase">This file is protected with a passphrase. PassVault opens only files encrypted to the keys in this vault.</string>
     <string name="files_damaged">The file is damaged or was changed after it was encrypted. Nothing was saved.</string>
     <string name="files_record_hint">This entry is your file encryption key. Encrypted files open only while it is in the vault. It cannot be edited.</string>
     <string name="files_delete_key_body">\"%1$s\" is a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it.</string>

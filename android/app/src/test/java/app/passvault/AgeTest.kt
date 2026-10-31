@@ -20,7 +20,7 @@ class AgeTest {
         Vector(f.name, value("expect")!!, value("payload"), headers.filter { it.first == "identity" }.map { it.second }, value("armored") == "yes", value("passphrase") != null, value("comment"), body)
     }
     private fun outcome(kind: AgeException.Kind) = when (kind) {
-        AgeException.Kind.header -> "header failure"; AgeException.Kind.noMatch -> "no match"; AgeException.Kind.hmac -> "HMAC failure"
+        AgeException.Kind.header -> "header failure"; AgeException.Kind.noMatch, AgeException.Kind.passphrase -> "no match"; AgeException.Kind.hmac -> "HMAC failure"
         AgeException.Kind.payload -> "payload failure"; AgeException.Kind.armor -> "armor failure"
     }
     private fun sha256(data: ByteArray) = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
@@ -64,6 +64,32 @@ class AgeTest {
         val binary = vectors().first { it.name == "stream_three_chunks" }
         val out2 = ByteArrayOutputStream(); Age.decrypt(ByteArrayInputStream(binary.file), out2, binary.identities.map(Age::parseIdentity))
         assertEquals(binary.payload, sha256(out2.toByteArray()))
+    }
+
+    @Test fun passphraseFilesSaySo() {
+        // Told apart from "not your key": the file uses a kind of protection PassVault does not open.
+        val v = vectors().first { it.name == "scrypt" }
+        assertEquals(AgeException.Kind.passphrase, assertThrows(AgeException::class.java) { Age.decrypt(ByteArrayInputStream(v.file), ByteArrayOutputStream(), listOf(Age.generateIdentity())) }.kind)
+    }
+
+    @Test fun armoredFilesAreDecodedAsTheyAreRead() {
+        val identity = Age.generateIdentity(); val plain = ByteArray(3 * 1024 * 1024 + 5) { (it * 7).toByte() }
+        val sealed = ByteArrayOutputStream().also { Age.encrypt(ByteArrayInputStream(plain), it, listOf(identity.recipient)) }.toByteArray()
+        val armored = ("-----BEGIN AGE ENCRYPTED FILE-----\r\n" + java.util.Base64.getEncoder().encodeToString(sealed).chunked(64).joinToString("\r\n") +
+            "\r\n-----END AGE ENCRYPTED FILE-----\n").toByteArray()
+        var read = 0L
+        fun counting() = object : java.io.FilterInputStream(ByteArrayInputStream(armored)) {
+            override fun read(): Int = super.read().also { if (it >= 0) read++ }
+            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it > 0) read += it }
+        }
+        // Checking the header reads about one buffer of a multi-megabyte armored file, not all of it.
+        Age.checkHeader(counting(), listOf(identity))
+        assertTrue("read $read bytes", read < 256 * 1024)
+        val out = ByteArrayOutputStream(); Age.decrypt(counting(), out, listOf(identity))
+        assertArrayEquals(plain, out.toByteArray())
+        // Damage near the end surfaces as an armor failure once the reader gets there.
+        val damaged = armored.copyOf().also { it[it.size - 60] = '!'.code.toByte() }
+        assertEquals(AgeException.Kind.armor, assertThrows(AgeException::class.java) { Age.decrypt(ByteArrayInputStream(damaged), ByteArrayOutputStream(), listOf(identity)) }.kind)
     }
 
     @Test fun roundTripsAtChunkBoundaries() {

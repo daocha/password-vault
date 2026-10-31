@@ -25,7 +25,8 @@ import java.util.Base64
 
 /** Why an age file could not be decrypted. [Kind] follows the age test kit's outcomes (CCTV), so tests can check the exact failure. */
 class AgeException(val kind: Kind, message: String) : Exception(message) {
-    enum class Kind { header, noMatch, hmac, payload, armor }
+    /** [passphrase]: a passphrase (scrypt) file, which PassVault does not open: it only encrypts to the vault's keys. */
+    enum class Kind { header, noMatch, passphrase, hmac, payload, armor }
 }
 
 /**
@@ -35,8 +36,6 @@ class AgeException(val kind: Kind, message: String) : Exception(message) {
  */
 object Age {
     const val CHUNK = 64 * 1024
-    /** Armored files are decoded in memory; they are meant for small text-safe files. */
-    const val MAX_ARMORED = 16 * 1024 * 1024
     private const val VERSION = "age-encryption.org/v1"
     private const val MAX_LINE = 16 * 1024; private const val MAX_HEADER = 1024 * 1024
     private const val BEGIN = "-----BEGIN AGE ENCRYPTED FILE-----"; private const val END = "-----END AGE ENCRYPTED FILE-----"
@@ -187,9 +186,7 @@ object Age {
         buffered.reset()
         val start = peek.indexOfFirst { it.toInt().toChar() !in " \t\r\n" }
         if (start < 0 || String(peek, start, minOf(10, peek.size - start), Charsets.ISO_8859_1) != "-----BEGIN") return buffered
-        val armored = ByteArray(MAX_ARMORED + 1).let { it.copyOf(readFully(buffered, it, 0, it.size)) }
-        if (armored.size > MAX_ARMORED) throw AgeException(AgeException.Kind.armor, "Armored file is too large.")
-        return ByteArrayInputStream(dearmor(armored))
+        return Dearmor(buffered)
     }
     /** The file key, after checking the header MAC. */
     private fun openHeader(input: InputStream, identities: List<Identity>): ByteArray {
@@ -198,7 +195,8 @@ object Age {
         if (header.stanzas.size > 1 && header.stanzas.any { it.args.firstOrNull() == "scrypt" }) header("A passphrase stanza must be the only one.")
         var fileKey: ByteArray? = null
         loop@ for (stanza in header.stanzas) for (identity in identities) { fileKey = identity.unwrap(stanza); if (fileKey != null) break@loop }
-        fileKey ?: throw AgeException(AgeException.Kind.noMatch, "This file was not encrypted to any of your keys.")
+        fileKey ?: if (header.stanzas.any { it.args.firstOrNull() == "scrypt" }) throw AgeException(AgeException.Kind.passphrase, "This file is protected with a passphrase.")
+            else throw AgeException(AgeException.Kind.noMatch, "This file was not encrypted to any of your keys.")
         try {
             if (fileKey.size != 16) header("Invalid file key.")
             val macKey = hkdf(fileKey, ByteArray(0), "header"); val mac = hmac(macKey, header.macInput); macKey.fill(0)
@@ -284,19 +282,64 @@ object Age {
         return text.append(body, i, body.length).append('\n').toString().toByteArray(Charsets.US_ASCII)
     }
 
-    /** Strict PEM (RFC 7468): whitespace is allowed only around the block, lines are 64 columns, LF or CRLF, canonical padded base64. */
-    internal fun dearmor(data: ByteArray): ByteArray {
-        fun armor(message: String): Nothing = throw AgeException(AgeException.Kind.armor, message)
-        if (data.any { it < 0 }) armor("Invalid character in armored file.")
-        val lines = String(data, Charsets.US_ASCII).trim { it in " \t\r\n" }.split('\n').map { it.removeSuffix("\r") }
-        if (lines.any { '\r' in it }) armor("Invalid line ending in armored file.")
-        if (lines.size < 2 || lines.first() != BEGIN || lines.last() != END) armor("Not an armored age file.")
-        val body = lines.subList(1, lines.size - 1)
-        if (body.withIndex().any { (i, l) -> if (i < body.lastIndex) l.length != 64 else l.length !in 1..64 }) armor("Invalid line length in armored file.")
-        val text = body.joinToString("")
-        val decoded = try { Base64.getDecoder().decode(text) } catch (e: IllegalArgumentException) { armor("Invalid base64 in armored file.") }
-        if (Base64.getEncoder().encodeToString(decoded) != text) armor("Non-canonical base64 in armored file.")
-        return decoded
+    internal fun dearmor(data: ByteArray): ByteArray = Dearmor(ByteArrayInputStream(data)).readBytes()
+
+    /**
+     * Strict PEM (RFC 7468), decoded line by line as it is read, so a large armored file never sits in memory: whitespace is allowed
+     * only around the block, lines are 64 columns (the last 1–64), LF or CRLF, canonical padded base64 with padding only on the last
+     * line. An error surfaces when the reader reaches it, as [AgeException] of kind `armor`, so like any failure part way through
+     * decryption it can leave a truncated output prefix behind.
+     */
+    private class Dearmor(private val input: InputStream) : InputStream() {
+        private var started = false; private var done = false
+        private var pending: String? = null
+        private var decoded = ByteArray(0); private var position = 0
+        private fun armor(message: String): Nothing = throw AgeException(AgeException.Kind.armor, message)
+        private fun whitespace(b: Int) = b == ' '.code || b == '\t'.code || b == '\r'.code || b == '\n'.code
+        /** The line starting with byte [first] (already read), without its LF or CRLF; null when [first] is the end of input. */
+        private fun line(first: Int = input.read()): String? {
+            if (first < 0) return null
+            val text = StringBuilder(); var b = first
+            while (b >= 0 && b != '\n'.code) {
+                if (b > 0x7E) armor("Invalid character in armored file.")
+                text.append(b.toChar())
+                if (text.length > 80) armor("Invalid line length in armored file.")
+                b = input.read()
+            }
+            val line = text.removeSuffix("\r").toString()
+            if ('\r' in line) armor("Invalid line ending in armored file.")
+            return line
+        }
+        private fun isEnd(line: String?) = line != null && line.trimEnd(' ', '\t') == END
+        /** Decodes the next body line; false at the end of the block. */
+        private fun fill(): Boolean {
+            if (done) return false
+            if (!started) {
+                started = true
+                var first = input.read(); while (first >= 0 && whitespace(first)) first = input.read()
+                if (line(first) != BEGIN) armor("Not an armored age file.")
+                pending = line()
+            }
+            val current = pending ?: armor("Not an armored age file.")
+            if (isEnd(current)) {
+                // Only whitespace may follow the block.
+                while (true) { val b = input.read(); if (b < 0) break; if (!whitespace(b)) armor("Not an armored age file.") }
+                done = true; return false
+            }
+            val next = line(); val last = next == null || isEnd(next)
+            if (if (last) current.length !in 1..64 else current.length != 64) armor("Invalid line length in armored file.")
+            if (!last && '=' in current) armor("Invalid base64 in armored file.")
+            val bytes = try { Base64.getDecoder().decode(current) } catch (e: IllegalArgumentException) { armor("Invalid base64 in armored file.") }
+            if (Base64.getEncoder().encodeToString(bytes) != current) armor("Non-canonical base64 in armored file.")
+            pending = next; decoded = bytes; position = 0
+            return true
+        }
+        override fun read(): Int { while (position >= decoded.size) if (!fill()) return -1; return decoded[position++].toInt() and 0xFF }
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (len == 0) return 0
+            while (position >= decoded.size) if (!fill()) return -1
+            val n = minOf(len, decoded.size - position); System.arraycopy(decoded, position, b, off, n); position += n; return n
+        }
     }
 
     private fun header(message: String): Nothing = throw AgeException(AgeException.Kind.header, message)

@@ -32,8 +32,11 @@ object PasswordPolicy {
      */
     fun guesses(password: String): Double = runCatching {
         val end = if (password.codePointCount(0, password.length) > ESTIMATE_LENGTH) password.offsetByCodePoints(0, ESTIMATE_LENGTH) else password.length
-        com.nulabinc.zxcvbn.Zxcvbn().measure(password.substring(0, end), listOf("passvault", "vault", "password")).guessesLog10
+        val estimator = zxcvbn
+        synchronized(estimator) { estimator.measure(password.substring(0, end), listOf("passvault", "vault", "password")).guessesLog10 }
     }.getOrDefault(Double.MAX_VALUE)
+    /** Built once: each `Zxcvbn()` reads all its dictionaries from the jar again. Used under its own lock, as its thread safety is not documented. */
+    private val zxcvbn by lazy { com.nulabinc.zxcvbn.Zxcvbn() }
 }
 data class GeneratorOptions(val length: Int = 10, val letters: Boolean = true, val numbers: Boolean = true, val symbols: Boolean = true) {
     val sets get() = (if (letters) listOf(UPPER, LOWER) else emptyList()) + (if (numbers) listOf(DIGITS) else emptyList()) + (if (symbols) listOf(SYMBOLS) else emptyList())

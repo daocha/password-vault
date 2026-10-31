@@ -58,7 +58,7 @@ object TransferCodeTransformation : VisualTransformation {
 private const val FRAME_MILLIS = 150L
 
 /** Keeps the screen on while it is shown. */
-@Composable private fun KeepScreenOn() {
+@Composable internal fun KeepScreenOn() {
     val view = LocalView.current
     DisposableEffect(view) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
 }

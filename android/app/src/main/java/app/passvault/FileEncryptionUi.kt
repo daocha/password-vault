@@ -135,6 +135,8 @@ fun FileEncryptionScreen(keys: List<VaultRecord>, backupNeeded: Boolean, onBack:
 /** Shown while a file is encrypted or decrypted. */
 @Composable
 fun FileProgressDialog(progress: FileProgress, onCancel: () -> Unit) {
+    // The screen turning off locks the vault, which stops the job and deletes its output: a long job must not depend on touching the screen.
+    KeepScreenOn()
     AlertDialog(onDismissRequest = {}, icon = { Icon(if (progress.decrypting) Icons.Outlined.LockOpen else Icons.Outlined.Lock, null) },
         title = { Text(stringResource(if (progress.decrypting) R.string.files_decrypting else R.string.files_encrypting)) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {

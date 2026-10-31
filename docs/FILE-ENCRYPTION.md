@@ -85,14 +85,17 @@ Settings › Security › File encryption.
   original (`DocumentsContract.deleteDocument`; if its provider refuses, the user is told to delete it there).
 - **Decrypt.** Pick a file → its header is checked first, so "not an age file" or "not for any key in this vault" is reported before
   anything is saved → choose where to save (`name.age` → `name`; otherwise `name.decrypted`) → decrypt → reminder that the copy is not
-  protected. ASCII-armored files (`age -a`) are read up to 16 MiB.
+  protected. ASCII-armored files (`age -a`) are decoded line by line as they are read, so their size is not limited by memory. A
+  passphrase file (`age -p`) is reported as such, not as "not for any key in this vault".
 - **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Any failure or cancellation empties and
   deletes the output, so a partial plaintext is never left behind or mistaken for the whole file. Cancellation is checked on every
-  write and again after the file is closed (a small or armored file is read in full before anything is written), and once more
+  write and again after the file is closed (a small file is read in full before anything is written), and once more
   on the main thread just before success is accepted (`FileCrypt.guarded`). Locking runs on the main thread too, so nothing can
   lock in between; a complete output that is never accepted, including when the coroutine is cancelled on its way back from the
   worker thread, is removed. If the output can be neither emptied nor deleted (its provider went away, say), the user is told its name
   and that it may hold decrypted data, instead of "nothing was saved".
+- **Screen.** The progress dialog keeps the screen on: the screen turning off locks the vault, which would stop the job and delete its
+  output.
 - **Locking.** Locking the vault (screen off, auto-lock) or the activity being destroyed cancels a running job, with the same clean-up. While the system file picker is
   open the usual 2-minute picker grace period applies.
 
@@ -115,7 +118,8 @@ Settings › Security › File encryption.
   outcome (success with the payload's SHA-256, header / HMAC / payload / armor failure, no match), including the post-quantum vectors. Passphrase vectors must never decrypt, and the two that mix scrypt with other stanzas must
   be rejected as header failures.
   It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
-  boundaries, wrong keys, tampering and truncation, and that plaintext buffers are wiped when writing fails part way.
+  boundaries, wrong keys, tampering and truncation, that plaintext buffers are wiped when writing fails part way, that a multi-megabyte
+  armored file is decoded as it is read (checking its header reads about one buffer), and that passphrase files are reported as such.
 - `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), imported keys not
   taking over encryption, stamping of older entries, the backup warning following the secret itself, file names.
 - `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed

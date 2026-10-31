@@ -326,7 +326,13 @@ class MainActivity : FragmentActivity() {
     private var fileSource: FileCrypt.Picked? = null
     /** A file just encrypted whose plaintext original the user may delete. */
     private var encryptedOriginal by mutableStateOf<Pair<FileCrypt.Picked, String>?>(null)
-    private val fileKeys get() = FileKeys.of(records)
+    /** [FileKeys.of] for the current records, worked out once per change of [records] rather than on every read. */
+    private var fileKeysOf: Pair<List<VaultRecord>, List<VaultRecord>>? = null
+    private val fileKeys: List<VaultRecord> get() {
+        val current = records
+        fileKeysOf?.let { (from, keys) -> if (from === current) return keys }
+        return FileKeys.of(current).also { fileKeysOf = current to it }
+    }
     private val encryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         systemPickerOpen = false
         if (uri == null || !unlocked) return@registerForActivityResult
@@ -386,10 +392,12 @@ class MainActivity : FragmentActivity() {
         val epoch = generation; fileCancelled = false; fileProgress = FileProgress(decrypting, 0, total)
         val cancelled = { fileCancelled || epoch != generation }
         var shown = 0L
+        // Progress is reported on the worker; UI state changes on the main thread, and never after this job ended.
+        var active = true
         lifecycleScope.launch {
             try {
                 FileCrypt.guarded(Dispatchers.IO, cancelled, { FileCrypt.discard(contentResolver, output) },
-                    { job(cancelled) { n -> if (n - shown >= 256 * 1024) { shown = n; fileProgress = FileProgress(decrypting, n, total) } } }, done)
+                    { job(cancelled) { n -> if (n - shown >= 256 * 1024) { shown = n; runOnUiThread { if (active) fileProgress = FileProgress(decrypting, n, total) } } } }, done)
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } // The activity is gone; the output was already removed.
             catch (e: FileCrypt.Cancelled) { if (epoch == generation) message = getString(R.string.files_cancelled) }
             catch (e: FileCrypt.LeftBehind) {
@@ -398,7 +406,7 @@ class MainActivity : FragmentActivity() {
             }
             catch (e: AgeException) { messageError = true; message = ageError(e) }
             catch (e: Exception) { messageError = true; message = getString(R.string.files_failed) }
-            finally { fileProgress = null }
+            finally { active = false; fileProgress = null }
         }
     }
     /**
@@ -410,13 +418,16 @@ class MainActivity : FragmentActivity() {
     }
     private fun ageError(e: AgeException) = getString(when (e.kind) {
         AgeException.Kind.noMatch -> R.string.files_no_match
+        AgeException.Kind.passphrase -> R.string.files_passphrase
         AgeException.Kind.header, AgeException.Kind.armor -> R.string.files_not_age
         AgeException.Kind.hmac, AgeException.Kind.payload -> R.string.files_damaged
     })
     private fun createFileKey() {
         lifecycleScope.launch {
+            val epoch = generation
             val identity = withContext(Dispatchers.Default) { Age.generateIdentity().encoded }
-            if (!unlocked) return@launch
+            // Locked meanwhile, perhaps reopened as the other vault: the key must not land there.
+            if (epoch != generation || !unlocked) return@launch
             saveRecord(FileKeys.record(getString(R.string.files_key_name), identity, getString(R.string.files_key_note))) { message = getString(R.string.files_key_created) }
         }
     }
@@ -1216,7 +1227,7 @@ class MainActivity : FragmentActivity() {
                 work({ sealed = engine.exportTransfer(pass); null }) { sealed?.let { (code, bytes) -> sending = PendingTransfer(code, bytes, decoySession, SystemClock.elapsedRealtime() + TRANSFER_KEEP_MILLIS) } }
             }
             SettingsDialog.DecoyRemove -> PasswordDialog(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_remove), stringResource(R.string.decoy_remove_body), stringResource(R.string.main_delete), { dialog = null }) { pass ->
-                work({ engine.removeDecoy(pass); null }) { decoyEnabled = false; decoyResettable = false; prefs.edit().remove("decoy.lastBackupAt").remove("decoy.backupReminder").remove("decoy.backupSnoozeUntil").apply(); message = getString(R.string.decoy_removed) }
+                work({ engine.removeDecoy(pass); null }) { decoyEnabled = false; decoyResettable = false; BackupStatus(prefs, "decoy.").clear(); message = getString(R.string.decoy_removed) }
             }
             is SettingsDialog.Exporting -> {
                 var consent by remember { mutableStateOf(false) }

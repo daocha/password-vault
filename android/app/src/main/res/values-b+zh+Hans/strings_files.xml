@@ -51,6 +51,7 @@
     <string name="files_failed">无法处理此文件，未保存任何内容。</string>
     <string name="files_not_age">这不是 PassVault 或 age 能打开的加密文件。</string>
     <string name="files_no_match">此文件不是用这个保险库中的任何密钥加密的。</string>
+    <string name="files_passphrase">此文件使用密码短语保护。PassVault 只能打开用这个保险库中的密钥加密的文件。</string>
     <string name="files_damaged">文件已损坏，或在加密后被修改过。未保存任何内容。</string>
     <string name="files_record_hint">这个条目是你的文件加密密钥。只要它在保险库中，加密的文件就能打开。它不能编辑。</string>
     <string name="files_delete_key_body">“%1$s”是文件加密密钥。用它加密的文件将永远无法再打开，除非你还有包含它的备份。</string>

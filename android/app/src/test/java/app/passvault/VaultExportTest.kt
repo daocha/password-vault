@@ -53,6 +53,15 @@ class VaultExportTest {
         try { assertTrue(weak.weakPassword); assertFalse(strong.weakPassword); assertFalse(csv.weakPassword) } finally { weak.clear(); strong.clear(); csv.clear() }
     }
 
+    @Test fun removingTheDecoyForgetsAllOfItsBackupHistory() {
+        val prefs = preferences(); val decoy = BackupStatus(prefs, "decoy."); val main = BackupStatus(prefs)
+        decoy.record(savedAt, setOf("decoy key")); decoy.interval = BackupInterval.week; decoy.snooze(savedAt)
+        main.record(savedAt, setOf("main key"))
+        decoy.clear()
+        assertNull(decoy.lastBackup); assertNull(decoy.fileKeys); assertNull(decoy.snoozedUntil); assertEquals(BackupInterval.month, decoy.interval)
+        assertEquals(savedAt, main.lastBackup); assertEquals(setOf("main key"), main.fileKeys)
+    }
+
     @Test fun csvDoesNotRecordBackupCoverage() {
         val prefs = preferences(); val status = BackupStatus(prefs)
         val before = savedAt.minusSeconds(60)
@@ -81,12 +90,12 @@ class VaultExportTest {
         val values = mutableMapOf<String, Any?>()
         return Proxy.newProxyInstance(SharedPreferences::class.java.classLoader, arrayOf(SharedPreferences::class.java)) { _, method, args ->
             when (method.name) {
-                "getLong", "getStringSet" -> values[args!![0]] ?: args[1]
+                "getLong", "getString", "getStringSet" -> values[args!![0]] ?: args[1]
                 "edit" -> {
                     val staged = mutableMapOf<String, Any?>()
                     Proxy.newProxyInstance(SharedPreferences.Editor::class.java.classLoader, arrayOf(SharedPreferences.Editor::class.java)) { editor, operation, input ->
                         when (operation.name) {
-                            "putLong", "putStringSet" -> { staged[input!![0] as String] = input[1]; editor }
+                            "putLong", "putString", "putStringSet" -> { staged[input!![0] as String] = input[1]; editor }
                             "remove" -> { staged[input!![0] as String] = null; editor }
                             "apply" -> { values.putAll(staged); null }
                             else -> error("Unexpected preference edit: ${operation.name}")
