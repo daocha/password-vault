@@ -45,6 +45,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Opened by a PassVault suggestion in another app: unlocks the vault (app password or biometrics), shows the logins for that app or site
@@ -57,6 +58,7 @@ class AutofillActivity : FragmentActivity() {
     /** The open vault's logins; null while locked. */
     private var records by mutableStateOf<List<VaultRecord>?>(null)
     private var busy by mutableStateOf(false)
+    private var ready by mutableStateOf(false)
     private var message by mutableStateOf("")
     private var remaining by mutableIntStateOf(10)
     private var biometricEnabled by mutableStateOf(false)
@@ -78,11 +80,22 @@ class AutofillActivity : FragmentActivity() {
         @Suppress("DEPRECATION")
         val structure = if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(AutofillManager.EXTRA_ASSIST_STRUCTURE, AssistStructure::class.java) else intent.getParcelableExtra(AutofillManager.EXTRA_ASSIST_STRUCTURE)
         form = structure?.let(AutofillForm::parse) ?: return finish()
-        targetName = form.target.site ?: PassVaultAutofillService.appLabel(this, form.target.packageName)
-        try { engine = VaultEngine(ProtectedStorage(this)); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric() }
-        catch (e: Exception) { message = e.message ?: getString(R.string.main_storage_unavailable) }
+        val appName = PassVaultAutofillService.appLabel(this, form.target.packageName)
+        targetName = form.target.description(appName)
+        lifecycleScope.launch {
+            try {
+                val status = withContext(vaultQueue) {
+                    engine = VaultEngine(ProtectedStorage(this@AutofillActivity))
+                    engine.remainingAttempts() to engine.hasBiometric()
+                }
+                remaining = status.first; biometricEnabled = status.second; ready = true
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) autoBiometrics()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { message = e.message ?: getString(R.string.main_storage_unavailable) }
+        }
         biometricPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                if (isFinishing || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return
                 val cipher = result.cryptoObject?.cipher ?: run { message = getString(R.string.main_biometric_no_key); return }
                 unlock { engine.unlockBiometric(cipher) }
             }
@@ -93,7 +106,7 @@ class AutofillActivity : FragmentActivity() {
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         val theme = runCatching { ThemeMode.valueOf(getSharedPreferences("settings", MODE_PRIVATE).getString("theme", null) ?: "") }.getOrDefault(ThemeMode.system)
         setContent {
-            PassVaultTheme(theme) {
+            PassVaultTheme(theme) { BlockTextCopy(block = true) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
                         val open = records
@@ -105,12 +118,15 @@ class AutofillActivity : FragmentActivity() {
                         }
                     }
                 }
-            }
+            } }
         }
     }
     override fun onResume() {
         super.onResume()
-        if (::engine.isInitialized && records == null && !busy && !biometricAutoPrompted && biometricEnabled) { biometricAutoPrompted = true; biometrics() }
+        autoBiometrics()
+    }
+    private fun autoBiometrics() {
+        if (ready && records == null && !busy && !biometricAutoPrompted && biometricEnabled) { biometricAutoPrompted = true; biometrics() }
     }
     // Leaving this screen ends it: the other app gets nothing, and the vault locks in onDestroy.
     override fun onStop() { super.onStop(); if (!isChangingConfigurations) finish() }
@@ -127,10 +143,13 @@ class AutofillActivity : FragmentActivity() {
         busy = true; message = ""
         lifecycleScope.launch {
             try { val loaded = withContext(vaultQueue) { action() }; records = AutofillMatch.candidates(loaded) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
-                withContext(vaultQueue) { runCatching { engine.lock() } }
-                remaining = runCatching { engine.remainingAttempts() }.getOrDefault(0)
-                val erased = runCatching { engine.isErased() }.getOrDefault(false)
+                val status = withContext(vaultQueue) {
+                    engine.lock()
+                    runCatching { engine.remainingAttempts() }.getOrDefault(0) to runCatching { engine.isErased() }.getOrDefault(false)
+                }
+                remaining = status.first; val erased = status.second
                 message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else e.message ?: getString(R.string.main_operation_failed)
             } finally { busy = false }
         }
@@ -148,9 +167,19 @@ class AutofillActivity : FragmentActivity() {
     }
     /** Hands [record]'s username and password to the waiting app and closes, which locks the vault. */
     private fun fill(record: VaultRecord) {
-        val dataset = PassVaultAutofillService.dataset(this, form, record) ?: run { message = getString(R.string.autofill_nothing_to_fill); return }
-        setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset))
-        finish()
+        if (busy || isFinishing) return
+        busy = true
+        lifecycleScope.launch {
+            try {
+                val valid = withContext(vaultQueue) { engine.isUnlocked() }
+                if (!valid || isFinishing || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) { finish(); return@launch }
+                val dataset = PassVaultAutofillService.dataset(this@AutofillActivity, form, record) ?: run { message = getString(R.string.autofill_nothing_to_fill); return@launch }
+                setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset))
+                finish()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { finish() }
+            finally { busy = false }
+        }
     }
 
     @Composable private fun UnlockScreen() {
@@ -163,7 +192,7 @@ class AutofillActivity : FragmentActivity() {
             OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.main_app_password)) }, visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password), singleLine = true, shape = RoundedCornerShape(12.dp),
                 trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (visible) stringResource(R.string.main_hide_password) else stringResource(R.string.main_show_password)) } })
-            Button(onClick = { val value = password; password = ""; unlock { engine.unlock(value) } }, enabled = ::engine.isInitialized && password.isNotEmpty(), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(stringResource(R.string.main_unlock_vault)) }
+            Button(onClick = { val value = password; password = ""; unlock { engine.unlock(value) } }, enabled = ready && password.isNotEmpty(), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(stringResource(R.string.main_unlock_vault)) }
             if (biometricEnabled) OutlinedButton(onClick = { biometrics() }, Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Default.Fingerprint, null); Text("  " + stringResource(R.string.main_unlock_with_biometrics)) }
             Text(stringResource(R.string.main_attempts_remaining, remaining), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { finish() }, Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.main_cancel)) }
@@ -173,7 +202,10 @@ class AutofillActivity : FragmentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun PickScreen(logins: List<VaultRecord>) {
         var query by remember { mutableStateOf("") }; var confirming by remember { mutableStateOf<VaultRecord?>(null) }
-        val suggested = remember(logins) { logins.filter { AutofillMatch.matches(it, form.target, targetName.takeIf { form.target.site == null }) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() })) }
+        val appName = remember { PassVaultAutofillService.appLabel(this, form.target.packageName) }
+        val suggested by produceState<List<VaultRecord>>(emptyList(), logins) {
+            value = withContext(Dispatchers.Default) { logins.filter { AutofillMatch.suggests(it, form.target, appName.takeIf { form.target.site == null }) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() })) }
+        }
         val shown = if (query.isBlank()) (if (suggested.isEmpty()) logins.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() })) else suggested)
             else logins.filter { it.matches(query) }.sortedWith(compareBy({ it !in suggested }, { !it.favorite }, { it.name.lowercase() }))
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
@@ -191,7 +223,7 @@ class AutofillActivity : FragmentActivity() {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
                     items(shown, key = { it.id }) { record ->
                         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                            Row(Modifier.clickable { if (record in suggested) fill(record) else confirming = record }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.clickable { confirming = record }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 RecordAvatar(record)
                                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                                     Text(record.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -203,10 +235,10 @@ class AutofillActivity : FragmentActivity() {
                 }
             }
         }
-        // A login saved for something else may be what a phishing app or page hopes to be given, so filling it takes a second tap.
+        // Suggested is not verified: names, package names and browser addresses can be spoofed. Every fill needs explicit consent.
         confirming?.let { record ->
-            AlertDialog(onDismissRequest = { confirming = null }, icon = { Icon(Icons.Default.Warning, null) }, title = { Text(stringResource(R.string.autofill_other_title)) },
-                text = { HardenWindow(); Text(stringResource(R.string.autofill_other_body, record.name, targetName)) },
+            AlertDialog(onDismissRequest = { confirming = null }, icon = { Icon(Icons.Default.Warning, null) }, title = { Text(stringResource(R.string.autofill_confirm_title)) },
+                text = { HardenWindow(); Text(stringResource(R.string.autofill_confirm_body, record.name, targetName)) },
                 confirmButton = { TextButton(onClick = { confirming = null; fill(record) }) { Text(stringResource(R.string.autofill_fill)) } },
                 dismissButton = { TextButton(onClick = { confirming = null }) { Text(stringResource(R.string.main_cancel)) } })
         }

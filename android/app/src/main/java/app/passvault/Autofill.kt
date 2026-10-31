@@ -13,9 +13,11 @@ class AutofillForm(val username: AutofillId?, val password: AutofillId?, val tar
         /** The login fields in [structure], or null when it has none. */
         fun parse(structure: AssistStructure): AutofillForm? {
             val packageName = structure.activityComponent?.packageName ?: return null
-            val text = mutableListOf<Pair<AutofillId, AutofillField>>(); var webDomain: String? = null
-            fun visit(node: AssistStructure.ViewNode) {
-                if (webDomain == null) node.webDomain?.takeIf { it.isNotBlank() }?.let { webDomain = it }
+            class Candidate(val id: AutofillId, val field: AutofillField, val domain: String?)
+            val text = mutableListOf<Candidate>(); var visited = 0; var overLimit = false
+            fun visit(node: AssistStructure.ViewNode, parentDomain: String?, depth: Int) {
+                if (++visited > 10_000 || depth > 64) { overLimit = true; return }
+                val domain = node.webDomain?.takeIf { it.isNotBlank() } ?: parentDomain
                 val id = node.autofillId
                 if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.importantForAutofill.let { it != View.IMPORTANT_FOR_AUTOFILL_NO && it != View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS }) {
                     val html = node.htmlInfo?.attributes.orEmpty().associate { it.first.lowercase() to it.second.orEmpty() }
@@ -23,14 +25,17 @@ class AutofillForm(val username: AutofillId?, val password: AutofillId?, val tar
                         listOfNotNull(node.idEntry, node.hint, html["name"], html["id"], node.contentDescription?.toString()))
                     // A field that says nothing of itself is kept as a possible username: native views if they take text (a phone number or
                     // account number is a username too), and HTML inputs.
-                    if (field != null && (field != AutofillField.other || (node.inputType and InputType.TYPE_MASK_CLASS) in INPUT_CLASSES || node.htmlInfo?.tag.equals("input", true))) text += id to field
+                    if (field != null && (field != AutofillField.other || (node.inputType and InputType.TYPE_MASK_CLASS) in INPUT_CLASSES || node.htmlInfo?.tag.equals("input", true))) text += Candidate(id, field, domain)
                 }
                 if (node.importantForAutofill != View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS && node.importantForAutofill != View.IMPORTANT_FOR_AUTOFILL_YES_EXCLUDE_DESCENDANTS)
-                    for (i in 0 until node.childCount) visit(node.getChildAt(i))
+                    for (i in 0 until node.childCount) { if (overLimit) return; visit(node.getChildAt(i), domain, depth + 1) }
             }
-            for (i in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(i).rootViewNode)
-            val chosen = AutofillFields.pick(text.map { it.second }) ?: return null
-            return AutofillForm(chosen.first?.let { text[it].first }, chosen.second?.let { text[it].first }, AutofillTarget(packageName, webDomain))
+            for (i in 0 until structure.windowNodeCount) { if (overLimit) return null; visit(structure.getWindowNodeAt(i).rootViewNode, null, 0) }
+            if (overLimit) return null
+            val chosen = AutofillFields.pick(text.map { it.field }) ?: return null
+            // The selected fields, rather than an unrelated first node, determine the claimed origin. Never fill across frames/origins.
+            val origin = AutofillOrigin.resolve(listOfNotNull(chosen.first, chosen.second).map { text[it].domain }) ?: return null
+            return AutofillForm(chosen.first?.let { text[it].id }, chosen.second?.let { text[it].id }, AutofillTarget(packageName, origin.host))
         }
     }
 }
@@ -89,11 +94,20 @@ object AutofillFields {
 
 /** Who wants to be filled: an app, and for browsers the site shown. */
 data class AutofillTarget(val packageName: String, val webDomain: String?) {
+    val reportedSite: String? get() = webDomain?.let(AutofillDomains::host)
     /**
-     * The site to match logins against. Any app can label its views with a web domain, so only browsers are believed; for other apps the
-     * domain is ignored and the app is matched by its package name instead.
+     * A claimed browser address for display and ranking only. Neither this package-name list nor a claimed address verifies the app's
+     * identity or authorizes a fill. Every selection needs an explicit destination confirmation, including known browser names.
      */
-    val site: String? get() = webDomain?.takeIf { packageName in BROWSERS }?.let(::hostOf)
+    val site: String? get() = reportedSite?.takeIf { packageName in BROWSERS }
+    /** Display the package as well as its unverified label, without allowing a label to hide it with control characters. */
+    fun description(label: String): String {
+        val name = label.map { if (it.isWhitespace()) ' ' else it }.filterNot { it.isISOControl() || Character.getType(it) == Character.FORMAT.toInt() }
+            .joinToString("").replace(Regex(" +"), " ").trim().take(80)
+        // Isolate these app-controlled identifiers from surrounding right-to-left text in the label or the UI language.
+        fun identifier(value: String) = "\u2066$value\u2069"
+        return listOfNotNull(reportedSite?.let(::identifier), "$name (${identifier(packageName)})").joinToString(" · ")
+    }
     companion object {
         val BROWSERS = setOf(
             "com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary", "org.chromium.chrome", "com.google.android.apps.chrome",
@@ -106,40 +120,34 @@ data class AutofillTarget(val packageName: String, val webDomain: String?) {
     }
 }
 
-/** Which saved logins fit a form. Only `login` records with a username or password are offered. */
+/** Suggestion ranking only; names, package fragments and claimed domains never authorize releasing a credential. */
 object AutofillMatch {
     // Package name parts that say nothing about whose app it is.
     private val genericParts = setOf("com", "org", "net", "io", "co", "app", "apps", "android", "mobile", "client", "www", "main", "prod", "release", "lite", "global", "intl")
-    private val secondLevel = setOf("co", "com", "org", "net", "gov", "edu", "ac", "or", "ne", "go")
 
     fun candidates(records: List<VaultRecord>) = records.filter { r -> r.type == RecordType.login && r.fields.any { (it.kind == FieldKind.password || it.kind == FieldKind.username) && it.value.isNotEmpty() } }
 
-    /** The registrable part of [host], roughly: "accounts.google.com" → "google.com", "www.bbc.co.uk" → "bbc.co.uk". */
-    fun baseDomain(host: String): String {
-        val labels = host.lowercase().trimEnd('.').split('.').filter { it.isNotEmpty() }
-        if (labels.size <= 2) return labels.joinToString(".")
-        val keep = if (labels.last().length == 2 && labels[labels.size - 2] in secondLevel) 3 else 2
-        return labels.takeLast(keep).joinToString(".")
-    }
+    /** Includes private hosting suffixes and treats IP addresses as complete literals. */
+    fun baseDomain(host: String): String? = AutofillDomains.host(host)?.let(AutofillDomains::registrable)
 
     /** "Dive+" and "dive +" alike: lowercase letters and digits only. */
     private fun plain(value: String) = value.lowercase().filter { it.isLetterOrDigit() }
 
     /** [appLabel]: the requesting app's name as the launcher shows it; a record whose name or "Website/App name" is that name matches. */
-    fun matches(record: VaultRecord, target: AutofillTarget, appLabel: String? = null): Boolean {
+    fun suggests(record: VaultRecord, target: AutofillTarget, appLabel: String? = null): Boolean {
         val website = record.website.trim()
         if (website.startsWith("androidapp://", ignoreCase = true)) return website.substringAfter("://").trimEnd('/').equals(target.packageName, ignoreCase = true)
-        val host = hostOf(website)
-        target.site?.let { site -> return host != null && baseDomain(host) == baseDomain(site) }
+        val host = AutofillDomains.host(website)
+        target.site?.let { site -> return AutofillDomains.sameSite(website, site) }
         // An app: its name, or its package name ("com.netflix.mediaclient"), names the service the record is for.
         val label = appLabel?.let(::plain)?.takeIf { it.length >= 3 }
         if (label != null && (plain(record.name) == label || (host == null && plain(website) == label))) return true
         val parts = target.packageName.lowercase().split('.', '_').filter { it.length >= 3 && it !in genericParts }.toSet()
-        val domainLabel = host?.let { baseDomain(it).substringBefore('.') }
+        val domainLabel = host?.let { baseDomain(it)?.substringBefore('.') }
         if (domainLabel != null && domainLabel.length >= 3 && domainLabel in parts) return true
         val name = record.name.lowercase().filter { it.isLetterOrDigit() }
         if (name.length >= 4 && name in parts) return true
-        return findBrand(website, record.name)?.let { brand -> brand.names.any { it.length >= 3 && it in parts } || brand.domains.any { baseDomain(it).substringBefore('.') in parts } } == true
+        return findBrand(website, record.name)?.let { brand -> brand.names.any { it.length >= 3 && it in parts } || brand.domains.any { baseDomain(it)?.substringBefore('.') in parts } } == true
     }
 
     fun username(record: VaultRecord) = record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotEmpty() }?.value
