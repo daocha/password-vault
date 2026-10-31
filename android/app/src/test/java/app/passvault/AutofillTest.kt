@@ -121,12 +121,33 @@ class AutofillTest {
         assertTrue(hidden.length < 160)
     }
 
-    @Test fun rejectsFieldsFromDifferentOrMalformedOrigins() {
-        assertEquals(AutofillOrigin("login.example.com"), AutofillOrigin.resolve(listOf("login.example.com", "LOGIN.EXAMPLE.COM.")))
-        assertEquals(AutofillOrigin(null), AutofillOrigin.resolve(listOf(null, null)))
-        assertNull(AutofillOrigin.resolve(listOf("bank.com", "attacker.com")))
-        assertNull(AutofillOrigin.resolve(listOf("login.example.com", "other.example.com")))
-        assertNull(AutofillOrigin.resolve(listOf(null, "bank.com")))
-        assertNull(AutofillOrigin.resolve(listOf("https://bank.com@attacker.com")))
+    @Test fun browsersFillOnlyFieldsFromTheSelectedSite() {
+        val u = AutofillField.username; val p = AutofillField.password; val o = AutofillField.other
+        fun browser(fields: List<AutofillField>, domains: List<String?>) = AutofillChoice.choose(fields, domains, browser = true)
+        assertEquals(AutofillChoice(0, 1, "login.example.com"), browser(listOf(u, p), listOf("login.example.com", "LOGIN.EXAMPLE.COM.")))
+        // Another frame's username is left out; the password's site is filled, with a username from that site when it has one.
+        assertEquals(AutofillChoice(null, 1, "bank.com"), browser(listOf(u, p), listOf("attacker.com", "bank.com")))
+        assertEquals(AutofillChoice(null, 1, "login.example.com"), browser(listOf(u, p), listOf("other.example.com", "login.example.com")))
+        assertEquals(AutofillChoice(1, 2, "bank.com"), browser(listOf(u, o, p), listOf("attacker.com", "bank.com", "bank.com")))
+        assertEquals(AutofillChoice(null, 1, "bank.com"), browser(listOf(u, p), listOf(null, "bank.com")))
+        assertEquals(AutofillChoice(0, null, "bank.com"), browser(listOf(u), listOf("bank.com")))
+        // The browser's own fields (no web domain) are filled only with each other, and with no site.
+        assertEquals(AutofillChoice(0, 1, null), browser(listOf(u, p), listOf(null, null)))
+        assertEquals(AutofillChoice(null, 1, null), browser(listOf(u, p), listOf("bank.com", null)))
+        // A site that cannot be named exactly is never filled.
+        assertNull(browser(listOf(u, p), listOf("bank.com", "https://bank.com@attacker.com")))
+        assertNull(browser(listOf(u, p), listOf("faß.de", "faß.de")))
+        assertNull(browser(listOf(o, o), listOf("bank.com", "bank.com")))
+    }
+
+    @Test fun appsFillTheirFieldsWhateverDomainsTheyReport() {
+        val u = AutofillField.username; val p = AutofillField.password
+        fun app(domains: List<String?>) = AutofillChoice.choose(listOf(u, p), domains, browser = false)
+        // A native username field above a WebView password field.
+        assertEquals(AutofillChoice(0, 1, null), app(listOf(null, "example.com")))
+        assertEquals(AutofillChoice(0, 1, null), app(listOf("faß.de", "faß.de")))
+        assertEquals(AutofillChoice(0, 1, null), app(listOf("intranet_host.corp", "bank.com")))
+        // Whatever an app reports, it is never treated as a site.
+        assertEquals(AutofillChoice(0, 1, null), app(listOf("bank.com", "bank.com")))
     }
 }
