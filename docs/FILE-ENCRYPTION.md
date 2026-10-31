@@ -112,7 +112,8 @@ Settings › Security › File encryption.
   The progress dialog closes on lock, but another file job cannot start until the old worker and its cleanup finish, including after
   activity recreation. Backup and transfer writes, original deletion and abandoned-target cleanup share that ownership. Cleanup
   warnings are queued separately for each vault and remain until acknowledged there; removing a vault
-  also removes its warnings. Private-key lists are not cached by the activity after locking.
+  also removes its warnings. Private-key lists are not cached by the activity after locking, and activity destruction clears the same
+  session state even when a worker is still finishing.
 
 ## Implementation
 
@@ -146,6 +147,9 @@ Settings › Security › File encryption.
   files encrypted to those keys still decrypt.
 - `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed
   removal, job failure) leaves no unaccepted output.
+- `FileOperationStateTest` (JVM): output ownership lasts through cleanup; backups and abandoned-target cleanup wait for it, and warnings
+  stay queued for their source vault until acknowledged. `MainActivityFileStateInstrumentedTest` checks that recreation releases the old
+  activity's decrypted records and visible messages while its cancelled worker still owns its output.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
   output is emptied, including a stop that lands after a small file was read in full. A provider that refuses writes but supports deletion
   verifies that an existing destination survives a failed open (exception or null result); cancellation before opening preserves it too.

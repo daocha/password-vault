@@ -637,10 +637,15 @@ class MainActivity : FragmentActivity() {
     /** [keepTransfer]: the lock comes from leaving the app (perhaps to share the transfer file), not from turning the screen off. */
     private fun lockVault(clearClipboard: Boolean = true, keepTransfer: Boolean = false) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
-        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; decoyResettable = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
-        message = ""; messageError = false
+        clearVaultSession()
         // A transfer outlives the lock for a while, so its code is still there after sharing the file from another app.
         if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
+        if (::engine.isInitialized) lifecycleScope.launch(vaultQueue) { engine.lock() }
+    }
+    /** A worker may retain this activity after destruction; release its decrypted records and every transient secret at once. */
+    private fun clearVaultSession() {
+        generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; decoyResettable = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
+        message = ""; messageError = false
         scannedImport = null; cameraGranted = null; imageRead = null
         // A running file job sees the new generation and stops; its half-written output is deleted.
         fileCrypt = false; fileSource = null; fileFlow = false; encryptedOriginal = null; fileJob?.cancel(); fileProgress = null
@@ -648,13 +653,11 @@ class MainActivity : FragmentActivity() {
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; discardPendingExport()
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
-        if (::engine.isInitialized) lifecycleScope.launch(vaultQueue) { engine.lock() }
     }
     override fun onDestroy() {
         updates?.close()
-        // A running file job outlives this activity's coroutines; this makes it stop and delete its output.
-        fileJob?.cancel()
-        unregisterReceiver(screenOff); discardTransfer(); discardPendingExport(); importBytes?.fill(0); biometricCandidate?.fill(0)
+        clearVaultSession()
+        unregisterReceiver(screenOff); discardTransfer()
         // The auto-lock coroutine dies with this activity, so zero the data key now (off the main thread: the engine may be mid-Argon2).
         if (::engine.isInitialized) { val e = engine; Thread { e.lock() }.start() }
         super.onDestroy()
