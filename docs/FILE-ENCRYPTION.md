@@ -77,8 +77,8 @@ Like any private key, losing it loses the files. PassVault reduces the chance:
   banner stays visible until a fresh encrypted backup is saved. Each export keeps its bytes, fingerprints, format and source vault
   together: another export or a vault lock cannot change which keys or vault a completed backup is recorded for. The ordinary backup
   reminder compares edits with the snapshot time captured before encoding, while its interval and displayed age use the completion
-  time. Edits made during saving stay pending. For older backups without a snapshot cutoff, coverage is treated as unknown and all
-  entries remain pending until a fresh backup is saved; the configured reminder interval still applies.
+  time. Edits made during saving stay pending. Older backups without a snapshot cutoff count from their completion time, as reminders always
+  did, so upgrading does not mark every entry as pending.
 - Deleting a key entry (alone or in a bulk delete) shows a specific warning.
 - Importing never deletes a key. A full replacement from a backup made before a key was created keeps that key (still the one new files
   use if it is the newest), and an import reusing a key's entry id for something else keeps both, the old key under a new id.
@@ -137,7 +137,7 @@ Settings › Security › File encryption.
   taking over encryption, stamping of older entries, preservation through full replacements and id collisions, the backup warning
   following the secret itself, file names.
 - `VaultExportTest` and `BackupReminderTest` (JVM): edits during a slow save remain pending, completion determines the reminder interval,
-  older backup coverage is unknown, and each completed export keeps its own cutoff, key coverage and source vault.
+  older backups count from their completion time, and each completed export keeps its own cutoff, key coverage and source vault.
 - `VaultStorageInstrumentedTest` (emulator): full replacements and merging colliding key ids keep the secrets after locking and unlocking;
   files encrypted to those keys still decrypt.
 - `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed

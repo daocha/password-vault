@@ -72,14 +72,15 @@ class VaultExportTest {
         } finally { backup.clear() }
     }
 
-    @Test fun aLegacyBackupWithoutACutoffDoesNotHideUnbackedRecords() {
+    @Test fun aLegacyBackupWithoutACutoffCountsFromItsCompletion() {
         val prefs = preferences(); val status = BackupStatus(prefs)
         prefs.edit().putLong("lastBackupAt", savedAt.toEpochMilli()).apply()
-        val records = listOf(VaultRecord(name = "unknown backup coverage", updatedAt = savedAt.minusSeconds(1).toString()))
-        assertNull(status.snapshotAt)
-        assertEquals(1, BackupReminder.changedSince(records, status.snapshotAt))
-        assertTrue(BackupReminder.due(records, status.lastBackup, BackupInterval.month, null,
-            savedAt.plus(java.time.Duration.ofDays(40)), snapshotAt = status.snapshotAt))
+        assertEquals(savedAt, status.snapshotAt)
+        // Unchanged since that backup: no reminder after upgrading. Changed since: counted.
+        val unchanged = listOf(VaultRecord(name = "backed up", updatedAt = savedAt.minusSeconds(1).toString()))
+        assertEquals(0, BackupReminder.changedSince(unchanged, status.snapshotAt))
+        assertFalse(BackupReminder.due(unchanged, status.lastBackup, BackupInterval.month, null, savedAt.plus(java.time.Duration.ofDays(40)), snapshotAt = status.snapshotAt))
+        assertEquals(1, BackupReminder.changedSince(unchanged + VaultRecord(name = "new", updatedAt = savedAt.plusSeconds(1).toString()), status.snapshotAt))
     }
 
     @Test fun removingTheDecoyForgetsAllOfItsBackupHistory() {

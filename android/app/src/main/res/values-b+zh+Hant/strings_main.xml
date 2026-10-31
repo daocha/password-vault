@@ -181,7 +181,6 @@
     <string name="main_import_body_seed_one">包含 %1$d 組助記詞。匯入：加入新項目，並取代 ID 相同的現有項目；檔案中沒有的項目會保留。\n\n完全取代：以檔案為準。檔案中沒有的項目會被刪除。</string>
     <string name="main_import_body_seed_many">包含 %1$d 組助記詞。匯入：加入新項目，並取代 ID 相同的現有項目；檔案中沒有的項目會保留。\n\n完全取代：以檔案為準。檔案中沒有的項目會被刪除。</string>
     <string name="main_imported_count">已匯入 %1$d 個項目。</string>
-    <string name="main_export_could_not_write">無法寫入匯出檔案。</string>
     <string name="main_export_cancelled">已取消匯出。</string>
     <string name="main_export_csv_done">已匯出純文字 CSV。遷移完成後請妥善保管或刪除此檔案。</string>
     <string name="main_export_encrypted_done">已匯出加密備份。</string>

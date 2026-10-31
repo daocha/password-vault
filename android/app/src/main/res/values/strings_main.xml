@@ -181,7 +181,6 @@
     <string name="main_import_body_seed_one">Includes %1$d seed phrase. Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.</string>
     <string name="main_import_body_seed_many">Includes %1$d seed phrases. Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.</string>
     <string name="main_imported_count">Imported %1$d entries.</string>
-    <string name="main_export_could_not_write">Could not write export.</string>
     <string name="main_export_cancelled">Export cancelled.</string>
     <string name="main_export_csv_done">Plaintext CSV exported. Protect or delete this file after migration.</string>
     <string name="main_export_encrypted_done">Encrypted backup exported.</string>

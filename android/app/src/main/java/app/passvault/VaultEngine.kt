@@ -203,16 +203,11 @@ class VaultEngine(private val storage: ProtectedStorage) {
         return@serialized save(FileKeys.keepKeys(records, imported))
     }
     /**
-     * Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. [instance]: the source
+     * Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. [weak]: [weakBackupPassword]
+     * of it, which callers work out first, off the vault queue (its first use loads zxcvbn's dictionaries). [instance]: the source
      * vault's [BackupStatus.instance] (the decoy's when it is open), read under the vault lock.
      */
-    fun export(password: String, csv: Boolean, instance: (decoy: Boolean) -> Long = { 0L }): VaultExport {
-        // Passwords set before the guessability rule still work; an encrypted backup is where a weak one is worth warning about. Worked out
-        // before taking the vault lock: it needs no vault state, and its first use loads zxcvbn's dictionaries.
-        val weak = !csv && PasswordPolicy.guesses(PasswordText.normalize(password)) < PasswordPolicy.MIN_GUESSES_LOG10
-        return exportLocked(password, csv, weak, instance)
-    }
-    private fun exportLocked(password: String, csv: Boolean, weak: Boolean, instance: (Boolean) -> Long): VaultExport = VaultAccess.serialized {
+    fun export(password: String, csv: Boolean, weak: Boolean = weakBackupPassword(password, csv), instance: (decoy: Boolean) -> Long = { 0L }): VaultExport = VaultAccess.serialized {
         check(key != null) { "Vault is locked." }; authenticate(password).key.fill(0)
         return@serialized VaultExport.prepare(records, csv, activeDecoy, encode = { snapshot ->
             if (csv) VaultCSV.exportRecords(snapshot).toByteArray() else VaultCrypto.exportBackup(snapshot, password)
@@ -317,6 +312,8 @@ class VaultEngine(private val storage: ProtectedStorage) {
         storage.removeBlobs(setOf(value.blob))
     }
     companion object {
+        /** Passwords set before the guessability rule still work; an encrypted backup is where a weak one is worth warning about. */
+        fun weakBackupPassword(password: String, csv: Boolean) = !csv && PasswordPolicy.guesses(PasswordText.normalize(password)) < PasswordPolicy.MIN_GUESSES_LOG10
         /** Decoy password changes allowed between openings by the real password or biometrics. */
         const val DECOY_CHANGES = 3
     }

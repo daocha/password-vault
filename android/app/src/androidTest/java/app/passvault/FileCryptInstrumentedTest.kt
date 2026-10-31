@@ -33,6 +33,19 @@ class FileCryptInstrumentedTest {
         assertFalse(FileCrypt.sameDocument(Uri.fromFile(File("/a")), Uri.fromFile(File("/b"))))
     }
 
+    @Test fun recognisesTheSameFileReachedThroughDifferentPaths() {
+        val source = File(directory, "report.pdf").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        // A hard link: another path (as another provider would give) to the same file.
+        val other = File(directory, "link.pdf"); android.system.Os.link(source.path, other.path)
+        assertTrue(FileCrypt.sameFile(context.contentResolver, Uri.fromFile(source), Uri.fromFile(other)))
+        assertFalse(FileCrypt.sameFile(context.contentResolver, Uri.fromFile(source), Uri.fromFile(File(directory, "other.pdf").apply { writeBytes(byteArrayOf(1)) })))
+        // Encrypting onto it refuses before truncating: the source is untouched.
+        assertThrows(FileCrypt.SameFile::class.java) {
+            FileCrypt.encrypt(context.contentResolver, Uri.fromFile(source), Uri.fromFile(other), Age.generateIdentity().recipient, { false }) {}
+        }
+        assertArrayEquals(byteArrayOf(1, 2, 3), source.readBytes())
+    }
+
     @Test fun anUnwrittenSaveTargetIsKeptWhenItHasContent() {
         // The user picked an existing file to replace, then the job never started: the file must survive.
         val existing = File(directory, "backup.pvault").apply { writeBytes(byteArrayOf(1, 2, 3)) }

@@ -181,7 +181,6 @@
     <string name="main_import_body_seed_one">包含 %1$d 条助记词。导入：添加新条目，并替换 ID 相同的现有条目；文件中没有的条目会保留。\n\n完全替换：以文件为准。文件中没有的条目会被删除。</string>
     <string name="main_import_body_seed_many">包含 %1$d 条助记词。导入：添加新条目，并替换 ID 相同的现有条目；文件中没有的条目会保留。\n\n完全替换：以文件为准。文件中没有的条目会被删除。</string>
     <string name="main_imported_count">已导入 %1$d 个条目。</string>
-    <string name="main_export_could_not_write">无法写入导出文件。</string>
     <string name="main_export_cancelled">已取消导出。</string>
     <string name="main_export_csv_done">已导出明文 CSV。迁移完成后请妥善保管或删除此文件。</string>
     <string name="main_export_encrypted_done">已导出加密备份。</string>

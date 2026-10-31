@@ -66,9 +66,12 @@ class BackupStatus(private val prefs: SharedPreferences, private val prefix: Str
     /** Written only by [record], with the key coverage of the same backup. */
     val lastBackup: Instant?
         get() = prefs.getLong(prefix + "lastBackupAt", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
-    /** The saved backup's record cutoff; null for older backups whose contents cannot be established from their completion time. */
+    /**
+     * The saved backup's record cutoff. A backup saved before cutoffs were recorded uses its completion time, as reminders always did:
+     * counting every entry as unbacked would show every upgraded vault "N entries to back up" for its whole content.
+     */
     val snapshotAt: Instant?
-        get() = prefs.getLong(prefix + "backupSnapshotAt", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+        get() = prefs.getLong(prefix + "backupSnapshotAt", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli) ?: lastBackup
     var interval: BackupInterval
         get() = runCatching { BackupInterval.valueOf(prefs.getString(prefix + "backupReminder", null) ?: "") }.getOrDefault(BackupInterval.month)
         set(value) { prefs.edit().putString(prefix + "backupReminder", value.name).apply() }

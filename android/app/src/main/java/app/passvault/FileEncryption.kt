@@ -109,18 +109,31 @@ object FileCrypt {
     fun sameDocument(a: Uri, b: Uri): Boolean = a == b || (a.authority == b.authority && runCatching {
         DocumentsContract.getDocumentId(a) == DocumentsContract.getDocumentId(b)
     }.getOrDefault(false))
+    /**
+     * Whether [a] and [b] are the same file on the device, however they were reached: the same file through two providers (Recent or
+     * Images and the storage provider, say) has unrelated URIs. Compares the open files' device and inode; false when either cannot be
+     * opened as a file (a cloud document streamed through a pipe, which cannot be the other side of a local file anyway).
+     */
+    fun sameFile(resolver: ContentResolver, a: Uri, b: Uri): Boolean = runCatching {
+        resolver.openFileDescriptor(a, "r")!!.use { fa -> resolver.openFileDescriptor(b, "r")!!.use { fb ->
+            val sa = android.system.Os.fstat(fa.fileDescriptor); val sb = android.system.Os.fstat(fb.fileDescriptor)
+            android.system.OsConstants.S_ISREG(sa.st_mode) && sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino
+        } }
+    }.getOrDefault(false)
+    /** The target is the source itself (see [sameFile]): nothing was written, and it must not be discarded. */
+    class SameFile : Exception("The target is the source.")
     fun describe(resolver: ContentResolver, uri: Uri): Picked = runCatching {
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
             if (!c.moveToFirst()) null else Picked(uri, c.getString(0), if (c.isNull(1)) null else c.getLong(1))
         }
     }.getOrNull() ?: Picked(uri, null, null)
 
-    fun encrypt(resolver: ContentResolver, from: Uri, to: Uri, recipient: Age.Recipient, cancelled: () -> Boolean, progress: (Long) -> Unit) = write(resolver, to, cancelled) { output ->
+    fun encrypt(resolver: ContentResolver, from: Uri, to: Uri, recipient: Age.Recipient, cancelled: () -> Boolean, progress: (Long) -> Unit) = write(resolver, from, to, cancelled) { output ->
         open(resolver, from).use { input -> Age.encrypt(Counting(input, cancelled, progress), output, listOf(recipient)) }
     }
     /** Throws [AgeException] (not an age file, not for these keys, changed header) before any output is chosen. */
     fun check(resolver: ContentResolver, uri: Uri, identities: List<Age.Identity>) = open(resolver, uri).use { Age.checkHeader(it, identities) }
-    fun decrypt(resolver: ContentResolver, from: Uri, to: Uri, identities: List<Age.Identity>, cancelled: () -> Boolean, progress: (Long) -> Unit) = write(resolver, to, cancelled) { output ->
+    fun decrypt(resolver: ContentResolver, from: Uri, to: Uri, identities: List<Age.Identity>, cancelled: () -> Boolean, progress: (Long) -> Unit) = write(resolver, from, to, cancelled) { output ->
         open(resolver, from).use { input -> Age.decrypt(Counting(input, cancelled, progress), output, identities) }
     }
     private fun open(resolver: ContentResolver, uri: Uri): InputStream = resolver.openInputStream(uri) ?: throw java.io.FileNotFoundException()
@@ -131,7 +144,9 @@ object FileCrypt {
      * after the file is closed, since a small file is read in full before anything is written. Throws [LeftBehind] when written output
      * could be neither emptied nor deleted.
      */
-    private fun write(resolver: ContentResolver, to: Uri, cancelled: () -> Boolean, body: (OutputStream) -> Unit) {
+    private fun write(resolver: ContentResolver, from: Uri, to: Uri, cancelled: () -> Boolean, body: (OutputStream) -> Unit) {
+        // Before "wt" truncates it: writing over the source would destroy it before it is read. Not discarded: it is the user's file.
+        if (sameFile(resolver, from, to)) throw SameFile()
         val output = try {
             if (cancelled()) throw Cancelled()
             resolver.openOutputStream(to, "wt") ?: throw java.io.FileNotFoundException()

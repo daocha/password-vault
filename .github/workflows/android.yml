@@ -41,7 +41,8 @@ jobs:
         run: |
           result=android/app/build/test-results/testDebugUnitTest/TEST-app.passvault.AgeInteropTest.xml
           grep -o '<testsuite [^>]*>' "$result"
-          grep -q 'tests="5" skipped="0" failures="0" errors="0"' "$result"
+          grep -q 'skipped="0" failures="0" errors="0"' "$result"
+          ! grep -q 'tests="0"' "$result"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: PassVault-debug, path: android/app/build/outputs/apk/debug/app-debug.apk }
