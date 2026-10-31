@@ -32,7 +32,7 @@ object BackupReminder {
  * [weakPassword]: the password protecting an encrypted backup is easy to guess, which matters most once the file is out of the phone.
  */
 class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, val decoy: Boolean, val fileKeys: Set<String>, val weakPassword: Boolean,
-    private val instance: Long, private val snapshotAt: Instant) {
+    internal val instance: Long, private val snapshotAt: Instant) {
     fun clear() { bytes.fill(0) }
     /**
      * Called only after a successful write. CSV is not a backup, and the destination history belongs to the source vault: not recorded
@@ -86,14 +86,14 @@ class BackupStatus(private val prefs: SharedPreferences, private val prefix: Str
      * finishes afterwards is not credited to the new one.
      */
     val instance: Long get() = prefs.getLong(prefix + "backupInstance", 0L)
-    /** Completion time, record cutoff and key coverage belong to the same backup. Ignored when [instance] has moved on. */
-    fun record(savedAt: Instant, keys: Set<String>, instance: Long = this.instance, snapshotAt: Instant = savedAt) {
-        if (instance != this.instance) return
+    /** Completion time, cutoff and key coverage belong together. The instance check and write are atomic with [clear]. */
+    fun record(savedAt: Instant, keys: Set<String>, instance: Long = this.instance, snapshotAt: Instant = savedAt) = synchronized(prefs) {
+        if (instance != this.instance) return@synchronized
         prefs.edit().putLong(prefix + "lastBackupAt", savedAt.toEpochMilli()).putLong(prefix + "backupSnapshotAt", snapshotAt.toEpochMilli()).putStringSet(prefix + "backupFileKeys", keys)
             .remove(prefix + "backupSnoozeUntil").apply()
     }
     /** Forgets this vault's backup history: the time, key coverage and reminder settings (when the vault is removed or replaced). */
-    fun clear() {
+    fun clear() = synchronized(prefs) {
         prefs.edit().putLong(prefix + "backupInstance", instance + 1).remove(prefix + "lastBackupAt").remove(prefix + "backupSnapshotAt").remove(prefix + "backupFileKeys").remove(prefix + "backupReminder").remove(prefix + "backupSnoozeUntil").apply()
     }
     fun snooze(now: Instant = Instant.now()) { snoozedUntil = now.plus(Duration.ofDays(BackupReminder.SNOOZE_DAYS)) }

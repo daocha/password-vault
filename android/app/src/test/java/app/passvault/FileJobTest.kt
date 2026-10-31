@@ -40,6 +40,20 @@ class FileJobTest {
         assertTrue(e.cause is FileCrypt.Cancelled); assertEquals(0, p.accepted)
     }
 
+    @Test fun aFailedCleanupStillQueuesItsWarningWhenTheActivityIsDestroyed() = runBlocking {
+        val notices = FileNotices(); val source = FileVault(false, 0)
+        val inJob = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        val run = async(Dispatchers.Default) {
+            FileCrypt.guarded(Dispatchers.IO, { false }, {
+                notices.add(source, "plaintext file could not be removed"); false
+            }, { inJob.complete(Unit); runBlocking { release.await() } }, { fail("Destroyed activity cannot accept output") })
+        }
+        inJob.await(); run.cancel(); release.complete(Unit)
+        assertThrows(CancellationException::class.java) { runBlocking { run.await() } }
+        assertEquals(source, notices.pending.value.single().source)
+        assertEquals("plaintext file could not be removed", notices.pending.value.single().text)
+    }
+
     @Test fun jobFailuresAreLeftToTheJob() = runBlocking {
         // The job cleans up its own partial output (FileCrypt.write); nothing complete was written, so nothing more to discard.
         val p = Probe()

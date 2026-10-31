@@ -33,16 +33,24 @@ class FileCryptInstrumentedTest {
         assertFalse(FileCrypt.sameDocument(Uri.fromFile(File("/a")), Uri.fromFile(File("/b"))))
     }
 
-    @Test fun recognisesTheSameFileReachedThroughDifferentPaths() {
+    @Test fun recognisesTheSameFileReachedThroughDifferentAuthorities() {
         val source = File(directory, "report.pdf").apply { writeBytes(byteArrayOf(1, 2, 3)) }
-        // A hard link: another path (as another provider would give) to the same file.
-        val other = File(directory, "link.pdf"); android.system.Os.link(source.path, other.path)
-        assertTrue(FileCrypt.sameFile(context.contentResolver, Uri.fromFile(source), Uri.fromFile(other)))
-        assertFalse(FileCrypt.sameFile(context.contentResolver, Uri.fromFile(source), Uri.fromFile(File(directory, "other.pdf").apply { writeBytes(byteArrayOf(1)) })))
+        val firstAuthority = "app.passvault.test.first"; val otherAuthority = "app.passvault.test.other"
+        val from = DocumentsContract.buildDocumentUri(firstAuthority, "source")
+        val to = DocumentsContract.buildDocumentUri(otherAuthority, "existing")
+        // Two authorities and document ids open the same underlying file. No hard links (which Android's app policy can prohibit).
+        val provider = WriteRefusingProvider(source, source, false)
+        provider.attachInfo(context, ProviderInfo().apply { authority = "$firstAuthority;$otherAuthority" })
+        val resolver = ContentResolver.wrap(provider)
+        assertFalse(FileCrypt.sameDocument(from, to)); assertTrue(FileCrypt.sameFile(resolver, from, to))
+        val distinct = WriteRefusingProvider(source, File(directory, "other.pdf").apply { writeBytes(byteArrayOf(1)) }, false)
+        distinct.attachInfo(context, ProviderInfo().apply { authority = "$firstAuthority;$otherAuthority" })
+        assertFalse(FileCrypt.sameFile(ContentResolver.wrap(distinct), from, to))
         // Encrypting onto it refuses before truncating: the source is untouched.
         assertThrows(FileCrypt.SameFile::class.java) {
-            FileCrypt.encrypt(context.contentResolver, Uri.fromFile(source), Uri.fromFile(other), Age.generateIdentity().recipient, { false }) {}
+            FileCrypt.encrypt(resolver, from, to, Age.generateIdentity().recipient, { false }) {}
         }
+        assertEquals(0, provider.writeAttempts)
         assertArrayEquals(byteArrayOf(1, 2, 3), source.readBytes())
     }
 
@@ -60,14 +68,15 @@ class FileCryptInstrumentedTest {
         for (nullOnWrite in listOf(false, true)) for (decrypting in listOf(false, true)) {
             val original = byteArrayOf(1, 2, 3)
             val target = File(directory, "existing.bin").apply { writeBytes(original) }
-            val provider = WriteRefusingProvider(target, nullOnWrite)
+            val provider = WriteRefusingProvider(source, target, nullOnWrite)
             val authority = "app.passvault.test.documents"
             provider.attachInfo(context, ProviderInfo().apply { this.authority = authority })
             val resolver = ContentResolver.wrap(provider)
             val uri = DocumentsContract.buildDocumentUri(authority, "existing")
+            val sourceUri = DocumentsContract.buildDocumentUri(authority, "source")
             val process = {
-                if (decrypting) FileCrypt.decrypt(resolver, Uri.fromFile(source), uri, listOf(identity), { false }) {}
-                else FileCrypt.encrypt(resolver, Uri.fromFile(source), uri, identity.recipient, { false }) {}
+                if (decrypting) FileCrypt.decrypt(resolver, sourceUri, uri, listOf(identity), { false }) {}
+                else FileCrypt.encrypt(resolver, sourceUri, uri, identity.recipient, { false }) {}
             }
             assertThrows(FileNotFoundException::class.java) { process() }
             assertEquals(1, provider.writeAttempts)
@@ -130,11 +139,15 @@ class FileCryptInstrumentedTest {
     }
 
     /** A provider that can read and delete its document, but cannot open it for writing (permissions, quota or a transient failure). */
-    private class WriteRefusingProvider(private val file: File, private val nullOnWrite: Boolean) : ContentProvider() {
+    private class WriteRefusingProvider(private val source: File, private val file: File, private val nullOnWrite: Boolean) : ContentProvider() {
         var writeAttempts = 0
         var deletions = 0
         override fun onCreate() = true
         override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
+            if (DocumentsContract.getDocumentId(uri) == "source") {
+                check(mode == "r")
+                return ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+            }
             if (mode != "r") {
                 writeAttempts++
                 if (nullOnWrite) return null

@@ -109,6 +109,10 @@ Settings › Security › File encryption.
 - **Locking.** Locking the vault (screen off, auto-lock) or the activity being destroyed cancels a running job, with the same clean-up. While the system file picker is
   open the usual 2-minute picker grace period applies. If the vault locks while the save picker is open, the empty file the picker created is removed; an
   existing file picked to be replaced still has its content and is left alone.
+  The progress dialog closes on lock, but another file job cannot start until the old worker and its cleanup finish, including after
+  activity recreation. Backup and transfer writes, original deletion and abandoned-target cleanup share that ownership. Cleanup
+  warnings are queued separately for each vault and remain until acknowledged there; removing a vault
+  also removes its warnings. Private-key lists are not cached by the activity after locking.
 
 ## Implementation
 

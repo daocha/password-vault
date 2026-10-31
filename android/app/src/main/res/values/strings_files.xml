@@ -2,6 +2,7 @@
 <resources>
     <!-- File encryption (age) -->
     <string name="files_title">File encryption</string>
+    <string name="files_attention_title">File needs attention</string>
     <string name="files_settings_summary">Encrypt files that only this vault can open</string>
     <string name="files_intro">Encrypted files stay wherever you save them: on this phone, a USB drive or cloud storage. Only the key is kept in the vault, so it moves with your encrypted backups and phone transfers. Files use the open age format, so the age tool on a computer can open them too (age 1.3.0 or later: PassVault keys are post-quantum).</string>
     <string name="files_no_key_title">Create your file encryption key</string>

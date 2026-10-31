@@ -10,6 +10,11 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.lang.reflect.Proxy
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 
 class VaultExportTest {
     private val key = FileKeys.record("key", "AGE-SECRET-KEY-1GFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPQ4EGAEX", "")
@@ -114,6 +119,28 @@ class VaultExportTest {
         assertEquals(before, status.lastBackup); assertEquals(before, status.snapshotAt); assertEquals(setOf("previous"), status.fileKeys)
     }
 
+    @Test(timeout = 15000) fun backupCompletionCannotRaceVaultRemoval() {
+        val readInstance = CountDownLatch(1); val finishRead = CountDownLatch(1); val cleared = CountDownLatch(1)
+        val intercept = AtomicBoolean(true)
+        val prefs = preferences { name ->
+            if (name == "backupInstance" && intercept.compareAndSet(true, false)) {
+                readInstance.countDown(); check(finishRead.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val status = BackupStatus(prefs)
+        val failure = AtomicReference<Throwable?>()
+        val writing = thread { try { status.record(savedAt, setOf("old key"), instance = 0L) } catch (e: Throwable) { failure.set(e) } }
+        assertTrue(readInstance.await(5, TimeUnit.SECONDS))
+        val removing = thread { try { status.clear(); cleared.countDown() } catch (e: Throwable) { failure.set(e) } }
+        // Without a common lock, removal completes between the old backup's instance check and its metadata write.
+        cleared.await(200, TimeUnit.MILLISECONDS)
+        finishRead.countDown(); writing.join(5000); removing.join(5000)
+        assertFalse(writing.isAlive); assertFalse(removing.isAlive)
+        assertNull(failure.get())
+        assertEquals(1L, status.instance)
+        assertNull(status.lastBackup); assertNull(status.snapshotAt); assertNull(status.fileKeys)
+    }
+
     @Test fun outOfOrderCompletionsTrackTheBytesOfTheLastSavedBackup() {
         val prefs = preferences(); val status = BackupStatus(prefs)
         val laterKey = FileKeys.record("later", Age.generateIdentity().encoded, "")
@@ -132,11 +159,11 @@ class VaultExportTest {
     }
 
     /** Minimal SharedPreferences double: each editor applies its staged changes together, as the Android API does. */
-    private fun preferences(): SharedPreferences {
-        val values = mutableMapOf<String, Any?>()
+    private fun preferences(afterRead: (String) -> Unit = {}): SharedPreferences {
+        val values = java.util.Collections.synchronizedMap(mutableMapOf<String, Any?>())
         return Proxy.newProxyInstance(SharedPreferences::class.java.classLoader, arrayOf(SharedPreferences::class.java)) { _, method, args ->
             when (method.name) {
-                "getLong", "getString", "getStringSet" -> values[args!![0]] ?: args[1]
+                "getLong", "getString", "getStringSet" -> (values[args!![0]] ?: args[1]).also { afterRead(args[0] as String) }
                 "edit" -> {
                     val staged = mutableMapOf<String, Any?>()
                     Proxy.newProxyInstance(SharedPreferences.Editor::class.java.classLoader, arrayOf(SharedPreferences.Editor::class.java)) { editor, operation, input ->
