@@ -32,7 +32,18 @@ internal object StateFormat {
 }
 
 class ProtectedStorage(private val context: Context) {
-    private val directory = File(context.noBackupFilesDir, "passvault").apply { check(exists() || mkdirs()) }
+    companion object {
+        private const val DIRECTORY = "passvault"
+        /**
+         * Whether a vault looks set up, from its files alone: no lock, no Keystore, no decryption, so it never waits behind an unlock.
+         * Only a hint for whether to offer autofill; whatever opens the vault checks its state properly. An erased vault offers nothing.
+         * An [android.util.AtomicFile] write keeps `state` or `state.bak` in place throughout.
+         */
+        fun mayHaveVault(context: Context): Boolean = File(context.noBackupFilesDir, DIRECTORY).let { d ->
+            !File(d, "erased").exists() && (File(d, "state").exists() || File(d, "state.bak").exists())
+        }
+    }
+    private val directory = File(context.noBackupFilesDir, DIRECTORY).apply { check(exists() || mkdirs()) }
     private val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val legacyStateAlias = "passvault-state-v1"
     private val stateAliasPrefix = "passvault-state-g"

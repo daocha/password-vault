@@ -55,6 +55,8 @@ class AutofillActivity : FragmentActivity() {
     private lateinit var engine: VaultEngine
     private lateinit var form: AutofillForm
     private lateinit var targetName: String
+    /** The requesting app's label, looked up once so the picker ranks by the same name the confirmation shows. */
+    private lateinit var appName: String
     /** The open vault's logins; null while locked. */
     private var records by mutableStateOf<List<VaultRecord>?>(null)
     private var busy by mutableStateOf(false)
@@ -80,7 +82,7 @@ class AutofillActivity : FragmentActivity() {
         @Suppress("DEPRECATION")
         val structure = if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(AutofillManager.EXTRA_ASSIST_STRUCTURE, AssistStructure::class.java) else intent.getParcelableExtra(AutofillManager.EXTRA_ASSIST_STRUCTURE)
         form = structure?.let { AutofillForm.parse(it) { name -> AutofillBrowsers.verify(this, name) } } ?: return finish()
-        val appName = PassVaultAutofillService.appLabel(this, form.target.packageName)
+        appName = PassVaultAutofillService.appLabel(this, form.target.packageName)
         targetName = form.target.description(appName)
         lifecycleScope.launch {
             try {
@@ -202,7 +204,6 @@ class AutofillActivity : FragmentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun PickScreen(logins: List<VaultRecord>) {
         var query by remember { mutableStateOf("") }; var confirming by remember { mutableStateOf<VaultRecord?>(null) }
-        val appName = remember { PassVaultAutofillService.appLabel(this, form.target.packageName) }
         val suggested by produceState<List<VaultRecord>>(emptyList(), logins) {
             value = withContext(Dispatchers.Default) { logins.filter { AutofillMatch.suggests(it, form.target, appName.takeIf { form.target.site == null }) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() })) }
         }
