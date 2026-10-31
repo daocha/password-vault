@@ -65,7 +65,7 @@
     <string name="backup_reminder_month">每月</string>
     <string name="backup_reminder_body">PassVault 不保存任何雲端副本：如果這部手機遺失或被重設，只有你自己的備份才能找回項目。需要備份且內容有變更時，應用程式內會顯示提醒。CSV 匯出不算備份，因為它不包含雙重驗證金鑰、助記詞、銀行卡和筆記。</string>
     <string name="backup_banner_never">尚未備份。如果這部手機遺失或被重設，這些項目將無法找回。</string>
-    <string name="backup_banner_due">上次備份 %1$s · 之後有 %2$d 個項目變更</string>
+    <string name="backup_banner_due">上次備份 %1$s · %2$d 個項目待備份</string>
     <string name="backup_now">立即備份</string>
     <string name="import_kdbx_title">KeePass 資料庫</string>
     <string name="import_kdbx_body">請輸入資料庫密碼。如果它還使用金鑰檔案，也請選擇該檔案。開啟可能需要幾秒鐘。</string>

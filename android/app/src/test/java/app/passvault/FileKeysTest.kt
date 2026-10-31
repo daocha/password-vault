@@ -72,6 +72,12 @@ class FileKeysTest {
         val merged = FileKeys.keepKeys(listOf(current), listOf(other))
         assertEquals(2, merged.size); assertEquals(2, merged.map { it.id }.toSet().size)
         assertEquals(setOf(identity.uppercase(), other.ageIdentity!!.uppercase()), merged.map { it.ageIdentity!!.uppercase() }.toSet())
+        // Reusing the id for an ordinary login preserves that login and the key too.
+        val reused = VaultRecord(id = current.id, name = "imported login")
+        val withLogin = FileKeys.keepKeys(listOf(current), listOf(reused))
+        assertEquals(reused, withLogin.first())
+        assertEquals(identity, FileKeys.of(withLogin).single().ageIdentity)
+        assertNotEquals(current.id, FileKeys.of(withLogin).single().id)
     }
 
     @Test fun aNewKeyTakesOverEvenWhenTheClockIsBehind() {

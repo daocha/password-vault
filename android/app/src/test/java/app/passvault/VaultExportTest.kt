@@ -14,7 +14,8 @@ import java.time.Instant
 class VaultExportTest {
     private val key = FileKeys.record("key", "AGE-SECRET-KEY-1GFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPQ4EGAEX", "")
     private val savedAt = Instant.parse("2026-10-31T00:00:00Z")
-    private fun prepare(records: List<VaultRecord>, csv: Boolean = false, decoy: Boolean = false) = VaultExport.prepare(records, csv, decoy, Records::encode)
+    private fun prepare(records: List<VaultRecord>, csv: Boolean = false, decoy: Boolean = false, snapshotAt: Instant = savedAt.minusSeconds(60)) =
+        VaultExport.prepare(records, csv, decoy, Records::encode, snapshotAt = snapshotAt)
 
     @Test fun slowBackupKeepsItsSnapshotWhenAnotherExportIsCancelled() = runBlocking {
         val prefs = preferences()
@@ -53,13 +54,41 @@ class VaultExportTest {
         try { assertTrue(weak.weakPassword); assertFalse(strong.weakPassword); assertFalse(csv.weakPassword) } finally { weak.clear(); strong.clear(); csv.clear() }
     }
 
+    @Test fun editsDuringSavingRemainUnbackedAfterTheBackupCompletes() {
+        val prefs = preferences(); val status = BackupStatus(prefs)
+        val cutoff = savedAt.minusSeconds(60)
+        val before = VaultRecord(name = "login", updatedAt = cutoff.minusSeconds(1).toString(),
+            fields = listOf(VaultField(kind = FieldKind.password, label = "Password", value = "old password")))
+        val backup = prepare(listOf(before), snapshotAt = cutoff)
+        val edited = before.copy(updatedAt = cutoff.plusSeconds(10).toString(), fields = before.fields.map { it.copy(value = "new password") })
+        val added = VaultRecord(name = "added while saving", updatedAt = cutoff.plusSeconds(30).toString())
+        try {
+            backup.recordBackup(prefs, savedAt)
+            assertEquals(listOf(before), Records.decode(backup.bytes))
+            assertEquals(savedAt, status.lastBackup); assertEquals(cutoff, status.snapshotAt)
+            assertEquals(2, BackupReminder.changedSince(listOf(edited, added), status.snapshotAt))
+            assertTrue(BackupReminder.due(listOf(edited, added), status.lastBackup, BackupInterval.month, null,
+                savedAt.plus(java.time.Duration.ofDays(40)), snapshotAt = status.snapshotAt))
+        } finally { backup.clear() }
+    }
+
+    @Test fun aLegacyBackupWithoutACutoffDoesNotHideUnbackedRecords() {
+        val prefs = preferences(); val status = BackupStatus(prefs)
+        prefs.edit().putLong("lastBackupAt", savedAt.toEpochMilli()).apply()
+        val records = listOf(VaultRecord(name = "unknown backup coverage", updatedAt = savedAt.minusSeconds(1).toString()))
+        assertNull(status.snapshotAt)
+        assertEquals(1, BackupReminder.changedSince(records, status.snapshotAt))
+        assertTrue(BackupReminder.due(records, status.lastBackup, BackupInterval.month, null,
+            savedAt.plus(java.time.Duration.ofDays(40)), snapshotAt = status.snapshotAt))
+    }
+
     @Test fun removingTheDecoyForgetsAllOfItsBackupHistory() {
         val prefs = preferences(); val decoy = BackupStatus(prefs, "decoy."); val main = BackupStatus(prefs)
         decoy.record(savedAt, setOf("decoy key")); decoy.interval = BackupInterval.week; decoy.snooze(savedAt)
         main.record(savedAt, setOf("main key"))
         decoy.clear()
-        assertNull(decoy.lastBackup); assertNull(decoy.fileKeys); assertNull(decoy.snoozedUntil); assertEquals(BackupInterval.month, decoy.interval)
-        assertEquals(savedAt, main.lastBackup); assertEquals(setOf("main key"), main.fileKeys)
+        assertNull(decoy.lastBackup); assertNull(decoy.snapshotAt); assertNull(decoy.fileKeys); assertNull(decoy.snoozedUntil); assertEquals(BackupInterval.month, decoy.interval)
+        assertEquals(savedAt, main.lastBackup); assertEquals(savedAt, main.snapshotAt); assertEquals(setOf("main key"), main.fileKeys)
     }
 
     @Test fun aBackupFinishingAfterItsVaultWasRemovedIsNotCredited() {
@@ -68,7 +97,7 @@ class VaultExportTest {
         // The decoy is removed (and perhaps created again) while that backup is still being written.
         decoy.clear()
         try { old.recordBackup(prefs, savedAt) } finally { old.clear() }
-        assertNull(decoy.lastBackup); assertNull(decoy.fileKeys)
+        assertNull(decoy.lastBackup); assertNull(decoy.snapshotAt); assertNull(decoy.fileKeys)
         // A backup of the new vault counts.
         val fresh = VaultExport.prepare(emptyList(), csv = false, decoy = true, encode = { ByteArray(1) }, instance = { BackupStatus(prefs, if (it) "decoy." else "").instance })
         try { fresh.recordBackup(prefs, savedAt) } finally { fresh.clear() }
@@ -81,17 +110,20 @@ class VaultExportTest {
         status.record(before, setOf("previous"))
         val csv = prepare(listOf(key), csv = true)
         try { csv.recordBackup(prefs, savedAt) } finally { csv.clear() }
-        assertEquals(before, status.lastBackup); assertEquals(setOf("previous"), status.fileKeys)
+        assertEquals(before, status.lastBackup); assertEquals(before, status.snapshotAt); assertEquals(setOf("previous"), status.fileKeys)
     }
 
     @Test fun outOfOrderCompletionsTrackTheBytesOfTheLastSavedBackup() {
         val prefs = preferences(); val status = BackupStatus(prefs)
         val laterKey = FileKeys.record("later", Age.generateIdentity().encoded, "")
-        val old = prepare(listOf(key)); val new = prepare(listOf(key, laterKey))
+        val oldCutoff = savedAt.minusSeconds(120); val newCutoff = savedAt.minusSeconds(60)
+        val old = prepare(listOf(key), snapshotAt = oldCutoff); val new = prepare(listOf(key, laterKey), snapshotAt = newCutoff)
         try {
             new.recordBackup(prefs, savedAt)
+            assertEquals(newCutoff, status.snapshotAt)
             assertFalse(FileKeys.needsBackup(listOf(key, laterKey), status.lastBackup, status.fileKeys))
             old.recordBackup(prefs, savedAt.plusSeconds(1))
+            assertEquals(oldCutoff, status.snapshotAt)
             val savedKeys = FileKeys.of(Records.decode(old.bytes)).map { FileKeys.fingerprint(it.ageIdentity!!) }.toSet()
             assertEquals(savedKeys, status.fileKeys)
             assertTrue(FileKeys.needsBackup(listOf(key, laterKey), status.lastBackup, status.fileKeys))

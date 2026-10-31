@@ -75,7 +75,10 @@ Like any private key, losing it loses the files. PassVault reduces the chance:
   a fingerprint of each key it holds (truncated SHA-256 of the 256-bit secret, in ordinary preferences, per vault), so a key whose
   secret was replaced elsewhere counts as new. Backups saved before fingerprints were recorded cannot establish key coverage, so the
   banner stays visible until a fresh encrypted backup is saved. Each export keeps its bytes, fingerprints, format and source vault
-  together: another export or a vault lock cannot change which keys or vault a completed backup is recorded for.
+  together: another export or a vault lock cannot change which keys or vault a completed backup is recorded for. The ordinary backup
+  reminder compares edits with the snapshot time captured before encoding, while its interval and displayed age use the completion
+  time. Edits made during saving stay pending. For older backups without a snapshot cutoff, coverage is treated as unknown and all
+  entries remain pending until a fresh backup is saved; the configured reminder interval still applies.
 - Deleting a key entry (alone or in a bulk delete) shows a specific warning.
 - Importing never deletes a key. A full replacement from a backup made before a key was created keeps that key (still the one new files
   use if it is the newest), and an import reusing a key's entry id for something else keeps both, the old key under a new id.
@@ -89,7 +92,8 @@ Settings › Security › File encryption.
   original (`DocumentsContract.deleteDocument`; if its provider refuses, the user is told to delete it there).
 - **Decrypt.** Pick a file → its header is checked first, so "not an age file" or "not for any key in this vault" is reported before
   anything is saved → choose where to save (`name.age` → `name`; otherwise `name.decrypted`) → decrypt → reminder that the copy is not
-  protected. ASCII-armored files (`age -a`) are decoded line by line as they are read, so their size is not limited by memory. A
+  protected. ASCII-armored files (`age -a`) are decoded line by line as they are read, so their size is not limited by memory. Leading
+  whitespace is skipped while detecting armor, without keeping the prefix in memory. A
   passphrase file (`age -p`) is reported as such, not as "not for any key in this vault".
 - **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Once the destination has been opened for
   writing, any failure or cancellation empties and deletes the output, so a partial plaintext is never left behind or mistaken for the
@@ -127,9 +131,15 @@ Settings › Security › File encryption.
   It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
   boundaries, wrong keys, tampering and truncation, that plaintext buffers are wiped when writing fails part way, that a multi-megabyte
   armored file is decoded as it is read (checking its header reads about one buffer), that a near-limit header stays within an allocation
-  budget and oversized headers are rejected, and that passphrase files are reported as such.
+  budget and oversized headers are rejected, that long whitespace prefixes do not prevent armor detection (or allow prefixes on binary
+  files), and that passphrase files are reported as such.
 - `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), imported keys not
-  taking over encryption, stamping of older entries, the backup warning following the secret itself, file names.
+  taking over encryption, stamping of older entries, preservation through full replacements and id collisions, the backup warning
+  following the secret itself, file names.
+- `VaultExportTest` and `BackupReminderTest` (JVM): edits during a slow save remain pending, completion determines the reminder interval,
+  older backup coverage is unknown, and each completed export keeps its own cutoff, key coverage and source vault.
+- `VaultStorageInstrumentedTest` (emulator): full replacements and merging colliding key ids keep the secrets after locking and unlocking;
+  files encrypted to those keys still decrypt.
 - `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed
   removal, job failure) leaves no unaccepted output.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled

@@ -183,12 +183,23 @@ object Age {
     /** [input] itself, or the decoded bytes when it is ASCII-armored. */
     private fun binary(input: InputStream): InputStream {
         val buffered = BufferedInputStream(input, CHUNK)
-        buffered.mark(1024)
-        val peek = ByteArray(1024).let { it.copyOf(readFully(buffered, it, 0, it.size)) }
+        // Armor permits arbitrary leading whitespace. Skip it without retaining it in the mark buffer, then inspect only the marker.
+        var prefixed = false
+        while (true) {
+            buffered.mark(10)
+            val first = buffered.read()
+            when (first) {
+                ' '.code, '\t'.code, '\r'.code, '\n'.code -> prefixed = true
+                else -> { buffered.reset(); break }
+            }
+        }
+        val peek = ByteArray(10)
+        val size = readFully(buffered, peek, 0, peek.size)
         buffered.reset()
-        val start = peek.indexOfFirst { it.toInt().toChar() !in " \t\r\n" }
-        if (start < 0 || String(peek, start, minOf(10, peek.size - start), Charsets.ISO_8859_1) != "-----BEGIN") return buffered
-        return Dearmor(buffered)
+        if (String(peek, 0, size, Charsets.US_ASCII) == "-----BEGIN") return Dearmor(buffered)
+        // Only armor permits a prefix: do not start accepting whitespace before the binary version line.
+        if (prefixed) header("Not an age file.")
+        return buffered
     }
     /** The file key, after checking the header MAC. */
     private fun openHeader(input: InputStream, identities: List<Identity>): ByteArray {

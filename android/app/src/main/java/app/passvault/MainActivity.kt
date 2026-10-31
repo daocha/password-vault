@@ -195,9 +195,10 @@ class MainActivity : FragmentActivity() {
     // Each vault keeps its own backup history, so the decoy shows only its own.
     private val backups get() = BackupStatus(prefs, if (decoySession) "decoy." else "")
     private var lastBackup by mutableStateOf<Instant?>(null)
+    private var backupSnapshotAt by mutableStateOf<Instant?>(null)
     private var backupInterval by mutableStateOf(BackupInterval.month)
     private var backupSnoozedUntil by mutableStateOf<Instant?>(null)
-    private fun loadBackupStatus() { val b = backups; lastBackup = b.lastBackup; backupInterval = b.interval; backupSnoozedUntil = b.snoozedUntil; backedUpKeys = b.fileKeys }
+    private fun loadBackupStatus() { val b = backups; lastBackup = b.lastBackup; backupSnapshotAt = b.snapshotAt; backupInterval = b.interval; backupSnoozedUntil = b.snoozedUntil; backedUpKeys = b.fileKeys }
     private var backedUpKeys by mutableStateOf<Set<String>?>(null)
     private var tab by mutableStateOf(RecordType.login)
     /** Accounts read from a Google Authenticator export QR, waiting for the user to confirm adding them. */
@@ -775,9 +776,9 @@ class MainActivity : FragmentActivity() {
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(groupColorArgb(name)).copy(alpha = 0.28f), selectedLabelColor = MaterialTheme.colorScheme.onSurface),
                         border = FilterChipDefaults.filterChipBorder(true, group == name, borderColor = Color(groupColorArgb(name)), selectedBorderColor = Color(groupColorArgb(name)), borderWidth = 1.dp, selectedBorderWidth = 2.dp)) }
                 }
-                if (!selecting && remember(records, lastBackup, backupInterval, backupSnoozedUntil) { BackupReminder.due(records, lastBackup, backupInterval, backupSnoozedUntil) }) {
+                if (!selecting && remember(records, lastBackup, backupSnapshotAt, backupInterval, backupSnoozedUntil) { BackupReminder.due(records, lastBackup, backupInterval, backupSnoozedUntil, snapshotAt = backupSnapshotAt) }) {
                     val last = lastBackup
-                    AttentionBanner(Icons.Outlined.SaveAlt, if (last == null) stringResource(R.string.backup_banner_never) else stringResource(R.string.backup_banner_due, backupAge(last), BackupReminder.changedSince(records, last)),
+                    AttentionBanner(Icons.Outlined.SaveAlt, if (last == null) stringResource(R.string.backup_banner_never) else stringResource(R.string.backup_banner_due, backupAge(last), BackupReminder.changedSince(records, backupSnapshotAt)),
                         stringResource(R.string.backup_now), onDismiss = { backups.snooze(); loadBackupStatus() }) { settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }
                 }
                 val expiring = remember(records) { records.count { it.needsNotice() } }

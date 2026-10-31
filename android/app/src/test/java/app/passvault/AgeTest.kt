@@ -66,6 +66,24 @@ class AgeTest {
         assertEquals(binary.payload, sha256(out2.toByteArray()))
     }
 
+    @Test fun armorDetectionSkipsLongLeadingWhitespace() {
+        val v = vectors().first { it.name == "armor_whitespace_outside" }
+        for (size in listOf(1015, 1024, 2048, 2 * Age.CHUNK + 3)) {
+            val prefix = " \t\r\n".repeat((size + 3) / 4).take(size).toByteArray()
+            fun input() = java.io.SequenceInputStream(ByteArrayInputStream(prefix), ByteArrayInputStream(v.file))
+            val identities = v.identities.map(Age::parseIdentity)
+            Age.checkHeader(input(), identities)
+            val out = ByteArrayOutputStream()
+            Age.decrypt(input(), out, identities)
+            assertEquals("prefix $size", v.payload, sha256(out.toByteArray()))
+        }
+        // Binary files still require their version line at byte zero.
+        val binary = vectors().first { it.name == "stream_three_chunks" }
+        assertEquals(AgeException.Kind.header, assertThrows(AgeException::class.java) {
+            Age.decrypt(ByteArrayInputStream(" \t\r\n".toByteArray() + binary.file), ByteArrayOutputStream(), binary.identities.map(Age::parseIdentity))
+        }.kind)
+    }
+
     @Test fun passphraseFilesSaySo() {
         // Told apart from "not your key": the file uses a kind of protection PassVault does not open.
         val v = vectors().first { it.name == "scrypt" }

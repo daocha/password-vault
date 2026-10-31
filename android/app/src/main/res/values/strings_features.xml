@@ -68,7 +68,7 @@
     <string name="backup_reminder_month">Every month</string>
     <string name="backup_reminder_body">PassVault keeps no cloud copy: if this phone is lost or reset, only your own backups bring your entries back. A reminder appears in the app when a backup is due and something has changed. CSV exports do not count, because they leave out 2FA keys, seed phrases, cards and notes.</string>
     <string name="backup_banner_never">No backup yet. If this phone is lost or reset, these entries are gone.</string>
-    <string name="backup_banner_due">Last backup %1$s · %2$d entries changed since</string>
+    <string name="backup_banner_due">Last backup %1$s · %2$d entries to back up</string>
     <string name="backup_now">Back up</string>
     <!-- Importing from other managers -->
     <string name="import_kdbx_title">KeePass database</string>
