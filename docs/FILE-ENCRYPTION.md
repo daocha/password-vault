@@ -95,8 +95,12 @@ Settings › Security › File encryption.
 
 ## Implementation
 
-- `Age.kt`: age v1 in Kotlin on BouncyCastle's lightweight API (already a dependency for KeePass import): X25519, ML-KEM-768,
-  SHA3/SHAKE, HKDF and HMAC-SHA-256, ChaCha20-Poly1305. Streaming, 64 KiB chunks; header lines bounded to 16 KiB, header to 1 MiB,
+- `Age.kt`: age v1 in Kotlin. The primitives come from BouncyCastle's lightweight API (already a dependency for KeePass import):
+  X25519, ML-KEM-768, SHA3/SHAKE, HMAC-SHA-256, ChaCha20-Poly1305. Age.kt itself composes them, and that code is security-critical:
+  HKDF (RFC 5869) on HMAC, the HPKE key schedule (RFC 9180) and X-Wing combiner for mlkem768x25519, the chunk nonces and the
+  last-chunk rules. The age test kit and the interop test against the official tools (see Tests) are what check this composition.
+  Plaintext buffers and derived keys are wiped when done, including on failure; this is best effort, since the JVM may already have
+  copied them. Streaming, 64 KiB chunks; header lines bounded to 16 KiB, header to 1 MiB,
   256 stanzas. Passphrase (scrypt) files cannot be opened, since PassVault only encrypts to the vault's own keys, but a header mixing an scrypt
   stanza with any other is rejected, as the spec requires. Hardware (tag) stanzas are ignored.
 - `FileEncryption.kt`: the key entry, naming, the backup check, and streaming between document URIs.
@@ -108,7 +112,7 @@ Settings › Security › File encryption.
   outcome (success with the payload's SHA-256, header / HMAC / payload / armor failure, no match), including the post-quantum vectors. Passphrase vectors must never decrypt, and the two that mix scrypt with other stanzas must
   be rejected as header failures.
   It also checks the spec's key encodings (`fixtures/age-spec`, including the 1,216-byte post-quantum public key), round trips at chunk
-  boundaries, wrong keys, tampering and truncation.
+  boundaries, wrong keys, tampering and truncation, and that plaintext buffers are wiped when writing fails part way.
 - `FileKeysTest` (JVM): the key entry survives backup encoding, newest-added order (unchanged by later edits), stamping of older
   entries, the backup warning following the secret itself, file names.
 - `FileJobTest` (JVM): each way a stop can meet the end of a job (after its last check, coroutine cancelled on the way back, failed
