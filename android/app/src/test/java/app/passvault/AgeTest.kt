@@ -93,6 +93,31 @@ class AgeTest {
         assertEquals(AgeException.Kind.payload, assertThrows(AgeException::class.java) { Age.decrypt(ByteArrayInputStream(truncated), ByteArrayOutputStream(), listOf(identity)) }.kind)
     }
 
+    @Test fun plaintextIsWipedWhenWritingFails() {
+        val identity = Age.generateIdentity(); val plain = ByteArray(2 * Age.CHUNK + 17) { (it % 251 + 1).toByte() }
+        // Encrypting: the buffers the plaintext was read into hold none of it after the first chunk fails to write.
+        val readInto = ArrayList<ByteArray>()
+        val input = object : ByteArrayInputStream(plain) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int { if (readInto.none { it === b }) readInto += b; return super.read(b, off, len) }
+        }
+        val failingChunks = object : ByteArrayOutputStream() {
+            override fun write(b: ByteArray, off: Int, len: Int) { if (len > Age.CHUNK) throw java.io.IOException("disk full"); super.write(b, off, len) }
+        }
+        assertThrows(java.io.IOException::class.java) { Age.encrypt(input, failingChunks, listOf(identity.recipient)) }
+        assertEquals("both chunk buffers were filled", 2, readInto.size)
+        for (buffer in readInto) assertTrue("plaintext wiped", buffer.all { it == 0.toByte() })
+        // Decrypting: the chunk handed to a failing output is wiped too.
+        val sealed = ByteArrayOutputStream().also { Age.encrypt(ByteArrayInputStream(plain), it, listOf(identity.recipient)) }.toByteArray()
+        var written: ByteArray? = null
+        val failing = object : java.io.OutputStream() {
+            override fun write(b: Int) = throw java.io.IOException("disk full")
+            override fun write(b: ByteArray, off: Int, len: Int) { written = b; throw java.io.IOException("disk full") }
+        }
+        assertThrows(java.io.IOException::class.java) { Age.decrypt(ByteArrayInputStream(sealed), failing, listOf(identity)) }
+        assertEquals(Age.CHUNK, written!!.size)
+        assertTrue("plaintext wiped", written!!.all { it == 0.toByte() })
+    }
+
     @Test fun keyEncodingsMatchAge() {
         // From the age specification (c2sp.org/age): this X25519 identity and its recipient.
         val spec = Age.parseIdentity("AGE-SECRET-KEY-1GFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPQ4EGAEX")

@@ -150,8 +150,10 @@ object Age {
             output.write(header.toByteArray())
             val nonce = random(16); output.write(nonce)
             val key = hkdf(fileKey, nonce, "payload")
+            // The plaintext buffers are wiped even when reading or writing fails part way.
+            var current = ByteArray(CHUNK); var next = ByteArray(CHUNK)
             try {
-                var current = ByteArray(CHUNK); var next = ByteArray(CHUNK); var counter = 0L
+                var counter = 0L
                 var n = readFully(input, current, 0, CHUNK)
                 while (true) {
                     // A full chunk is the last only when nothing follows it; an empty file is one empty final chunk.
@@ -160,8 +162,7 @@ object Age {
                     if (m == 0) break
                     current.fill(0); val t = current; current = next; next = t; n = m; counter++
                 }
-                current.fill(0); next.fill(0)
-            } finally { key.fill(0) }
+            } finally { current.fill(0); next.fill(0); key.fill(0) }
         } finally { fileKey.fill(0) }
     }
 
@@ -215,7 +216,7 @@ object Age {
                     val last = following < 0
                     if (last && n == 16 && counter > 0) payload("The file ends with an empty chunk.")
                     val plain = try { aead(false, key, chunkNonce(counter, last), buffer, n) } catch (e: InvalidCipherTextException) { payload("The file is damaged or was changed.") }
-                    output.write(plain); plain.fill(0)
+                    try { output.write(plain) } finally { plain.fill(0) }
                     if (last) break
                     buffer[0] = following.toByte(); n = 1 + readFully(input, buffer, 1, buffer.size - 1); counter++
                 }
@@ -313,7 +314,7 @@ object Age {
     private fun aead(encrypt: Boolean, key: ByteArray, nonce: ByteArray, input: ByteArray, length: Int = input.size): ByteArray {
         val cipher = ChaCha20Poly1305(); cipher.init(encrypt, AEADParameters(KeyParameter(key), 128, nonce))
         val out = ByteArray(cipher.getOutputSize(length)); var n = cipher.processBytes(input, 0, length, out, 0); n += cipher.doFinal(out, n)
-        return if (n == out.size) out else out.copyOf(n)
+        return if (n == out.size) out else out.copyOf(n).also { out.fill(0) }
     }
     private fun hmac(key: ByteArray, data: ByteArray): ByteArray = HMac(SHA256Digest()).run { init(KeyParameter(key)); update(data, 0, data.size); ByteArray(32).also { doFinal(it, 0) } }
     /** HKDF-SHA-256 (RFC 5869). An empty salt is HashLen zero bytes, which HMAC treats the same as an empty key. */
