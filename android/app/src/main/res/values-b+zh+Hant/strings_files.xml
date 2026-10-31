@@ -23,7 +23,7 @@
     <string name="files_keys_body">這裡的每個金鑰都能解密檔案。新檔案使用最新的金鑰。請保留舊金鑰，否則用它們加密的檔案將無法再開啟。</string>
     <string name="files_backup_needed">你的檔案金鑰只在這部手機上。請備份保險庫，這樣即使手機遺失也能開啟你的檔案。</string>
     <string name="files_create_title">建立檔案加密金鑰？</string>
-    <string name="files_create_body">PassVault 會在保險庫中加入一個「檔案加密金鑰」項目。你加密的檔案只能用它開啟。如果你遺失了這部手機，又沒有保險庫的加密備份或傳輸副本，這些檔案將永遠無法開啟，包括你自己。</string>
+    <string name="files_create_body">PassVault 會在保險庫中加入一個「檔案加密金鑰」項目。你加密的檔案只能用它開啟。如果你遺失了這部手機，又沒有保險庫的加密備份或傳輸副本，這些檔案將永遠無法開啟，包括你自己。備份只用你的主密碼保護這個金鑰：任何拿到備份檔案的人都能在電腦上不限次數地猜測這個密碼。</string>
     <string name="files_create_another_body">新檔案將使用新金鑰加密。目前的金鑰仍保留在保險庫中，舊檔案依然可以開啟。一個金鑰就夠了；只有在你想停用目前的金鑰時（例如洩露了它的私鑰）才需要再建立一個。</string>
     <string name="files_create_understand">我明白，並會備份保險庫</string>
     <string name="files_create_action">建立</string>

@@ -48,8 +48,19 @@ class VaultCSVTest {
         println("Imported ${records.size} records with field counts ${records.map { it.fields.size }}")
     }
     @Test fun passwordRule() {
-        assertNull(PasswordPolicy.problem("Abcdefghij1!"))
+        assertNull(PasswordPolicy.problem("x7#Kp2qL9mWz"))
         for (weak in listOf("Abcdefghi1!", "Abcdef1!", "abcdefghij1!", "ABCDEFGHIJ1!", "Abcdefghijk!", "Abcdefghijk1", "Abc def ghi 1")) assertNotNull(weak, PasswordPolicy.problem(weak))
+    }
+    @Test fun passwordRuleRejectsGuessablePasswordsThatMixCharacterTypes() {
+        // Each has 12+ characters, both cases, a digit and a symbol, yet is in cracking wordlists or follows a common pattern.
+        for (guessable in listOf("Abcdefghij1!", "Summer2026!!", "Password123!", "Qwerty12345!", "Passw0rd!Passw0rd!", "Passvault2026!"))
+            assertEquals(guessable, R.string.app_pw_guessable, PasswordPolicy.problem(guessable))
+        // Random characters and multi-word passphrases pass.
+        for (strong in listOf("x7#Kp2qL9mWz", "Correct horse battery 1!", "Fh3!river-cobalt-moss", "A lengthy test passphrase 1!")) assertNull(strong, PasswordPolicy.problem(strong))
+        // Long input is estimated on its first 64 characters, so it stays fast; a long repeat is still caught.
+        val start = System.nanoTime()
+        assertEquals(R.string.app_pw_guessable, PasswordPolicy.problem("Aa1!" + "a".repeat(4000)))
+        assertTrue("fast on long input", System.nanoTime() - start < 2_000_000_000L)
     }
     @Test fun generatorHonoursOptions() {
         repeat(50) {

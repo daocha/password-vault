@@ -28,7 +28,8 @@ object BackupReminder {
 }
 
 /** One export owns its bytes and the metadata for those exact records, even while another export is prepared or the vault locks. */
-class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, val decoy: Boolean, val fileKeys: Set<String>) {
+/** [weakPassword]: the password protecting an encrypted backup is easy to guess, which matters most once the file is out of the phone. */
+class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, val decoy: Boolean, val fileKeys: Set<String>, val weakPassword: Boolean) {
     fun clear() { bytes.fill(0) }
     /** Called only after a successful write. CSV is not a backup, and the destination history belongs to the source vault. */
     fun recordBackup(prefs: SharedPreferences, savedAt: Instant) {
@@ -37,10 +38,10 @@ class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, va
 
     companion object {
         /** Called under the engine's lock; the encoder and the fingerprints see the same record snapshot. */
-        fun prepare(records: List<VaultRecord>, csv: Boolean, decoy: Boolean, encode: (List<VaultRecord>) -> ByteArray): VaultExport {
+        fun prepare(records: List<VaultRecord>, csv: Boolean, decoy: Boolean, encode: (List<VaultRecord>) -> ByteArray, weakPassword: Boolean = false): VaultExport {
             val snapshot = records.toList()
             val keys = if (csv) emptySet() else FileKeys.of(snapshot).map { FileKeys.fingerprint(it.ageIdentity!!) }.toSet()
-            return VaultExport(encode(snapshot), csv, decoy, keys)
+            return VaultExport(encode(snapshot), csv, decoy, keys, weakPassword && !csv)
         }
     }
 }
