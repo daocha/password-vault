@@ -51,9 +51,9 @@ class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, va
  * [prefix] keeps each vault's history apart (the decoy vault has its own).
  */
 class BackupStatus(private val prefs: SharedPreferences, private val prefix: String = "") {
-    var lastBackup: Instant?
+    /** Written only by [record], with the key coverage of the same backup. */
+    val lastBackup: Instant?
         get() = prefs.getLong(prefix + "lastBackupAt", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
-        set(value) { prefs.edit().putLong(prefix + "lastBackupAt", value?.toEpochMilli() ?: 0L).remove(prefix + "backupSnoozeUntil").apply() }
     var interval: BackupInterval
         get() = runCatching { BackupInterval.valueOf(prefs.getString(prefix + "backupReminder", null) ?: "") }.getOrDefault(BackupInterval.month)
         set(value) { prefs.edit().putString(prefix + "backupReminder", value.name).apply() }
@@ -61,9 +61,8 @@ class BackupStatus(private val prefs: SharedPreferences, private val prefix: Str
         get() = prefs.getLong(prefix + "backupSnoozeUntil", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
         set(value) { prefs.edit().putLong(prefix + "backupSnoozeUntil", value?.toEpochMilli() ?: 0L).apply() }
     /** Fingerprints of the file-encryption keys the last encrypted backup contained (see [FileKeys.fingerprint]); null before tracking. */
-    var fileKeys: Set<String>?
+    val fileKeys: Set<String>?
         get() = prefs.getStringSet(prefix + "backupFileKeys", null)?.toSet()
-        set(value) { prefs.edit().putStringSet(prefix + "backupFileKeys", value).apply() }
     /** Timestamp and key coverage belong to the same completed backup; publish them together. */
     fun record(savedAt: Instant, keys: Set<String>) {
         prefs.edit().putLong(prefix + "lastBackupAt", savedAt.toEpochMilli()).putStringSet(prefix + "backupFileKeys", keys)
