@@ -28,4 +28,13 @@ class BackupReminderTest {
         assertEquals(2, BackupReminder.changedSince(records, backup))
         assertEquals(3, BackupReminder.changedSince(records, null))
     }
+
+    @Test fun theSnapshotFindsChangesButCompletionTimeSetsTheReminderInterval() {
+        val completed = now.minus(Duration.ofDays(31))
+        val cutoff = completed.minusSeconds(60)
+        val editedDuringSaving = listOf(record(completed.minusSeconds(30)))
+        assertTrue(BackupReminder.due(editedDuringSaving, completed, BackupInterval.month, null, now, snapshotAt = cutoff))
+        assertFalse(BackupReminder.due(editedDuringSaving, now.minus(Duration.ofDays(2)), BackupInterval.month, null, now, snapshotAt = cutoff))
+        assertFalse(BackupReminder.due(listOf(record(cutoff.minusSeconds(1))), completed, BackupInterval.month, null, now, snapshotAt = cutoff))
+    }
 }

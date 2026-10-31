@@ -63,7 +63,7 @@ private val builtInLabels = mapOf(
     "Title" to R.string.app_label_title, "Website" to R.string.app_label_website, "Custom" to R.string.app_label_custom, "List" to R.string.app_label_list, "List item" to R.string.app_label_list_item,
     "Imported custom fields (original)" to R.string.app_label_imported_custom,
     CARD_HOLDER_LABEL to R.string.app_label_cardholder, CARD_NUMBER_LABEL to R.string.app_label_card_number, CARD_EXPIRY_LABEL to R.string.app_label_card_expiry,
-    CARD_CODE_LABEL to R.string.app_label_card_code, CARD_PIN_LABEL to R.string.app_label_card_pin,
+    CARD_CODE_LABEL to R.string.app_label_card_code, CARD_PIN_LABEL to R.string.app_label_card_pin, AGE_KEY_LABEL to R.string.files_key_name,
 )
 /** Display-only: a label the user typed themselves is returned unchanged. */
 @Composable fun displayLabel(stored: String): String = builtInLabels[stored]?.let { stringResource(it) } ?: stored
@@ -100,6 +100,7 @@ fun IconBadge(icon: ImageVector, size: Dp = 40.dp, container: Color = MaterialTh
 @Composable
 fun RecordAvatar(record: VaultRecord, size: Dp = 44.dp) {
     if (record.type == RecordType.card) return IconBadge(Icons.Outlined.CreditCard, size, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+    if (record.ageIdentity != null) return IconBadge(Icons.Outlined.Key, size, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
     if (record.type == RecordType.note) return IconBadge(Icons.AutoMirrored.Outlined.StickyNote2, size, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
     val brand = remember(record.website, record.name) { if (record.type != RecordType.seed) findBrand(record.website, record.name) else null }
     if (brand != null) Image(painterResource(brand.drawable), brand.title, Modifier.size(size).clip(RoundedCornerShape(size * 0.23f)))

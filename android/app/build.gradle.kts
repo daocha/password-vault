@@ -56,7 +56,9 @@ android {
     buildTypes {
         // UPDATE_CHANNEL: "none" (qa, and debug without a LAN server: no update check), "lan" (debug with
         // PASSVAULT_DEV_UPDATE_HOST), "github" (sideload APK), "play" (Google Play AAB).
-        all { buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "false"); buildConfigField("String", "UPDATE_CHANNEL", "\"none\"") }
+        // REQUIRE_UNLOCKED_DEVICE: Keystore keys refuse to work while the phone is locked. Only qa (emulator tests) leaves it off: CI
+        // emulators cannot be unlocked reliably, and the tests only need a secure lock screen to exist.
+        all { buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "false"); buildConfigField("boolean", "REQUIRE_UNLOCKED_DEVICE", "true"); buildConfigField("String", "UPDATE_CHANNEL", "\"none\"") }
         // Own package name and label so the debug build installs next to (not over) a release build signed with a different key.
         debug {
             applicationIdSuffix = ".debug"; versionNameSuffix = "-debug"; manifestPlaceholders["appLabel"] = "PassVault Dev"
@@ -76,7 +78,7 @@ android {
         create("playRelease") { initWith(getByName("release")); matchingFallbacks += listOf("release"); buildConfigField("String", "UPDATE_CHANNEL", "\"play\"") }
         // Emulator-only build: emulators lack hardware-backed keys. Never distribute this variant.
         create("qa") { initWith(getByName("debug")); applicationIdSuffix = ".qa"; versionNameSuffix = "-qa"; manifestPlaceholders["appLabel"] = "PassVault QA"; buildConfigField("boolean", "ALLOW_SOFTWARE_KEYSTORE", "true")
-            buildConfigField("String", "UPDATE_CHANNEL", "\"none\""); buildConfigField("String", "DEV_UPDATE_URL", "\"\"") }
+            buildConfigField("boolean", "REQUIRE_UNLOCKED_DEVICE", "false"); buildConfigField("String", "UPDATE_CHANNEL", "\"none\""); buildConfigField("String", "DEV_UPDATE_URL", "\"\"") }
     }
     // Instrumented tests open transfers written by the iOS app (fixtures/transfer).
     sourceSets.getByName("androidTest") { assets.srcDir("../../fixtures/transfer") }
@@ -157,9 +159,20 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.81")
     // In-app updates: Google Play's update flow for Play installs (talks to the Play Store app, not the network).
     implementation("com.google.android.play:app-update:2.1.0")
+    // App password guessability (zxcvbn): dictionaries, keyboard patterns, dates and l33t, all bundled in the jar; nothing is sent anywhere.
+    implementation("com.nulab-inc:zxcvbn:1.9.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("org.json:json:20250517")
+}
+
+// AgeInteropTest runs against the official age tools when AGE_BIN_DIR points at them (CI); rerun the tests when that changes.
+tasks.withType<Test>().configureEach {
+    for (name in listOf("AGE_BIN_DIR", "AGE_INTEROP_REQUIRED")) {
+        val value = providers.environmentVariable(name).orElse("")
+        inputs.property(name, value)
+        environment(name, value.get())
+    }
 }

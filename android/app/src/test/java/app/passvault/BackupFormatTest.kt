@@ -59,7 +59,7 @@ class BackupFormatTest {
         assertFalse(PasswordText.legacyBytes(decomposed).contentEquals(PasswordText.bytes(decomposed)))
     }
     @Test fun policyJudgesTheNormalizedPassword() {
-        assertNull(PasswordPolicy.problem("Passw0rd!Passw0rd!"))
+        assertNull(PasswordPolicy.problem("Fh3!river-cobalt-moss"))
         // Twelve fullwidth-looking characters are still twelve after normalization; the composed and decomposed spellings score the same.
         val composedPw = "Caf" + 0xE9.toChar() + "-Caf" + 0xE9.toChar() + "1!"; val decomposedPw = "Cafe" + 0x301.toChar() + "-Cafe" + 0x301.toChar() + "1!"
         assertEquals(PasswordPolicy.problem(composedPw), PasswordPolicy.problem(decomposedPw))

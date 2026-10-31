@@ -148,7 +148,9 @@ class VaultEngine(private val storage: ProtectedStorage) {
         val value = state() ?: error("Vault is locked.")
         val blob = (if (decoy) value.decoy?.blob else value.blob) ?: error("Vault is locked.")
         val plain = VaultCrypto.open(storage.readBlob(blob), candidate, blob.toByteArray())
-        try { val loaded = Records.decode(plain); key?.fill(0); key = candidate.copyOf(); records = loaded; activeDecoy = decoy; loadedBlob = blob; return records }
+        // Key entries get their creation stamp as soon as they are loaded (in memory; stored with the next save), before an edit can bump
+        // updatedAt. Loading never writes the vault.
+        try { val loaded = FileKeys.stamp(Records.decode(plain)); key?.fill(0); key = candidate.copyOf(); records = loaded; activeDecoy = decoy; loadedBlob = blob; return records }
         finally { plain.fill(0); candidate.fill(0) }
     }
     fun unlock(password: String) = VaultAccess.serialized { lock(); authenticate(password, unlocking = true).let { load(it.key, it.decoy) } }
@@ -178,29 +180,38 @@ class VaultEngine(private val storage: ProtectedStorage) {
     fun hasDecoy() = VaultAccess.serialized { key != null && !activeDecoy && state()?.decoy != null }
     /** Whether the real vault can give the decoy a new password ([resetDecoyPassword]); decoys set up by earlier test builds cannot. */
     fun canResetDecoy() = VaultAccess.serialized { key != null && !activeDecoy && state()?.decoy?.recovery != null }
-    fun save(updated: List<VaultRecord>): Unit = VaultAccess.serialized {
+    /** Saves [records] as the open vault's contents and returns what was stored: the same records, with key entries' creation stamps. */
+    fun save(records: List<VaultRecord>): List<VaultRecord> = VaultAccess.serialized {
         val dataKey = key ?: error("Vault is locked."); val value = state() ?: error("Vault is locked.")
+        val updated = FileKeys.stamp(records)
         val blob = UUID.randomUUID().toString(); val plain = Records.encode(updated)
         try { storage.writeBlob(blob, VaultCrypto.seal(plain, dataKey, blob.toByteArray())) } finally { plain.fill(0) }
         if (activeDecoy) (value.decoy ?: error("Vault is locked.")).blob = blob else value.blob = blob
-        storage.writeState(value.encode()); records = updated; loadedBlob = blob
+        storage.writeState(value.encode()); this.records = updated; loadedBlob = blob
         storage.removeBlobs(liveBlobs(value))
+        return@serialized updated
     }
     fun merge(imported: List<VaultRecord>): List<VaultRecord> = VaultAccess.serialized {
         check(key != null) { "Vault is locked." }
         // Matched by record id only: a record already in the vault is replaced in place (whole, fields included), the rest are added with their ids.
         val incoming = imported.associateBy { it.id }; val known = records.map { it.id }.toSet()
-        val updated = records.map { incoming[it.id] ?: it } + imported.filter { it.id !in known }; save(updated); return@serialized updated
+        return@serialized save(FileKeys.keepKeys(records, records.map { incoming[it.id] ?: it } + imported.filter { it.id !in known }))
     }
-    /** Makes the imported records the whole vault: entries the file does not contain are deleted. */
+    /** Makes the imported records the whole vault: entries the file does not contain are deleted, except file keys ([FileKeys.keepKeys]). */
     fun replaceAll(imported: List<VaultRecord>): List<VaultRecord> = VaultAccess.serialized {
         check(key != null) { "Vault is locked." }
-        save(imported); return@serialized imported
+        return@serialized save(FileKeys.keepKeys(records, imported))
     }
-    /** Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. */
-    fun export(password: String, csv: Boolean): ByteArray = VaultAccess.serialized {
+    /**
+     * Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password. [weak]: [weakBackupPassword]
+     * of it, which callers work out first, off the vault queue (its first use loads zxcvbn's dictionaries). [instance]: the source
+     * vault's [BackupStatus.instance] (the decoy's when it is open), read under the vault lock.
+     */
+    fun export(password: String, csv: Boolean, weak: Boolean = weakBackupPassword(password, csv), instance: (decoy: Boolean) -> Long = { 0L }): VaultExport = VaultAccess.serialized {
         check(key != null) { "Vault is locked." }; authenticate(password).key.fill(0)
-        return@serialized if (csv) VaultCSV.exportRecords(records).toByteArray() else VaultCrypto.exportBackup(records, password)
+        return@serialized VaultExport.prepare(records, csv, activeDecoy, encode = { snapshot ->
+            if (csv) VaultCSV.exportRecords(snapshot).toByteArray() else VaultCrypto.exportBackup(snapshot, password)
+        }, weakPassword = weak, instance = instance)
     }
     /** Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code. */
     fun exportTransfer(password: String): Pair<String, ByteArray> = VaultAccess.serialized {
@@ -301,6 +312,8 @@ class VaultEngine(private val storage: ProtectedStorage) {
         storage.removeBlobs(setOf(value.blob))
     }
     companion object {
+        /** Passwords set before the guessability rule still work; an encrypted backup is where a weak one is worth warning about. */
+        fun weakBackupPassword(password: String, csv: Boolean) = !csv && PasswordPolicy.guesses(PasswordText.normalize(password)) < PasswordPolicy.MIN_GUESSES_LOG10
         /** Decoy password changes allowed between openings by the real password or biometrics. */
         const val DECOY_CHANGES = 3
     }

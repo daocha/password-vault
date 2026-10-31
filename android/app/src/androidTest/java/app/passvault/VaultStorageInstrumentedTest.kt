@@ -9,7 +9,10 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.security.KeyStore
+import java.time.Instant
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -57,6 +60,61 @@ class VaultStorageInstrumentedTest {
         assertEquals(listOf("a2", "b", "c", "d"), merged.map { it.name }); assertEquals(a.id, merged[0].id); assertEquals(a.fields.size - 1, merged[0].fields.size)
         val replaced = engine.replaceAll(listOf(fewer))
         assertEquals(listOf(fewer), replaced)
+    }
+
+    @Test fun restoringAnOlderBackupKeepsTheCurrentFileKeyAndItsFilesReadable() {
+        val older = FileKeys.record("older key", Age.generateIdentity().encoded, "", Instant.parse("2026-01-01T00:00:00Z"))
+        val current = FileKeys.newKey("current key", Age.generateIdentity().encoded, "", listOf(older), Instant.parse("2026-06-01T00:00:00Z"))
+        val plain = "encrypted after the old backup".toByteArray()
+        val encrypted = ByteArrayOutputStream().also {
+            Age.encrypt(ByteArrayInputStream(plain), it, listOf(Age.parseIdentity(current.ageIdentity!!).recipient))
+        }.toByteArray()
+        engine.create(password); engine.save(listOf(record("new login"), older, current))
+        val restored = engine.replaceAll(listOf(record("old login"), older))
+        assertFalse(restored.any { it.name == "new login" })
+        assertEquals(current.ageIdentity, FileKeys.of(restored).first().ageIdentity)
+        engine.lock()
+        val loaded = engine.unlock(password)
+        assertEquals(current.ageIdentity, FileKeys.of(loaded).first().ageIdentity)
+        val out = ByteArrayOutputStream()
+        Age.decrypt(ByteArrayInputStream(encrypted), out, FileKeys.of(loaded).map { Age.parseIdentity(it.ageIdentity!!) })
+        assertArrayEquals(plain, out.toByteArray())
+    }
+
+    @Test fun mergingAFileKeyIdCollisionKeepsBothSecretsAfterUnlocking() {
+        val current = FileKeys.record("current", Age.generateIdentity().encoded, "")
+        val imported = FileKeys.record("imported", Age.generateIdentity().encoded, "").copy(id = current.id)
+        val plain = "files for each key".toByteArray()
+        val encrypted = listOf(current, imported).map { key -> ByteArrayOutputStream().also {
+            Age.encrypt(ByteArrayInputStream(plain), it, listOf(Age.parseIdentity(key.ageIdentity!!).recipient))
+        }.toByteArray() }
+        engine.create(password); engine.save(listOf(current))
+        val merged = engine.merge(listOf(imported))
+        assertEquals(2, merged.size); assertEquals(2, merged.map { it.id }.toSet().size)
+        assertEquals(imported.ageIdentity, merged.single { it.id == imported.id }.ageIdentity)
+        assertNotEquals(current.id, merged.single { it.ageIdentity == current.ageIdentity }.id)
+        engine.lock()
+        val loaded = engine.unlock(password)
+        assertEquals(setOf(current.ageIdentity, imported.ageIdentity), FileKeys.of(loaded).map { it.ageIdentity }.toSet())
+        for (file in encrypted) {
+            val out = ByteArrayOutputStream()
+            Age.decrypt(ByteArrayInputStream(file), out, FileKeys.of(loaded).map { Age.parseIdentity(it.ageIdentity!!) })
+            assertArrayEquals(plain, out.toByteArray())
+        }
+    }
+
+    @Test fun keyEntriesAreStampedByTheEngineWhenSavedOrLoaded() {
+        // A key entry from another app or an earlier build: no creation stamp, only updatedAt.
+        val unstamped = FileKeys.record("key", Age.generateIdentity().encoded, "").copy(legacy = emptyMap(), updatedAt = "2026-01-01T00:00:00Z")
+        engine.create(password)
+        val saved = engine.save(listOf(unstamped, record("login")))
+        assertEquals("2026-01-01T00:00:00Z", saved[0].legacy[FileKeys.CREATED]); assertEquals("login", saved[1].name)
+        // What was stored carries the stamp, so an edit after the next unlock cannot make the key current again.
+        engine.lock()
+        val loaded = engine.unlock(password)
+        assertEquals("2026-01-01T00:00:00Z", loaded[0].legacy[FileKeys.CREATED])
+        val merged = engine.merge(listOf(unstamped.copy(id = java.util.UUID.randomUUID().toString(), updatedAt = "2026-02-01T00:00:00Z")))
+        assertEquals("2026-02-01T00:00:00Z", merged.last().legacy[FileKeys.CREATED])
     }
 
     @Test fun createUnlockAndWrongPasswordCountsOneAttempt() {
@@ -233,7 +291,7 @@ class VaultStorageInstrumentedTest {
         // Recreate what a pre-ratchet install left behind: one fixed key and `iv | ciphertext`.
         val ks = keystore(); stateAliases().forEach(ks::deleteEntry)
         val spec = KeyGenParameterSpec.Builder("passvault-state-v1", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).setUnlockedDeviceRequired(true).build()
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).setUnlockedDeviceRequired(BuildConfig.REQUIRE_UNLOCKED_DEVICE).build()
         val key = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply { init(spec) }.generateKey()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key); updateAAD("PassVault/state/v1".toByteArray()) }
         stateFile().writeBytes(cipher.iv + cipher.doFinal(plain))
@@ -321,7 +379,10 @@ class VaultStorageInstrumentedTest {
         assertThrows(IllegalStateException::class.java) { engine.biometricKey(decoyPassword) }
         assertThrows(IllegalStateException::class.java) { engine.removeDecoy(decoyPassword) }
         assertThrows(AuthenticationFailure::class.java) { engine.export(password, csv = true) } // the main password is not accepted in the decoy vault
-        val csv = engine.export(decoyPassword, csv = true).toString(Charsets.UTF_8)
+        val export = engine.export(decoyPassword, csv = true)
+        assertTrue(export.csv); assertTrue(export.decoy); assertTrue(export.fileKeys.isEmpty())
+        val csv = export.bytes.toString(Charsets.UTF_8)
+        export.clear()
         assertTrue(csv.contains("Shopping")); assertFalse(csv.contains("Real bank"))
         engine.lock()
 
