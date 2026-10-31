@@ -59,6 +59,20 @@ class VaultStorageInstrumentedTest {
         assertEquals(listOf(fewer), replaced)
     }
 
+    @Test fun keyEntriesAreStampedByTheEngineWhenSavedOrLoaded() {
+        // A key entry from another app or an earlier build: no creation stamp, only updatedAt.
+        val unstamped = FileKeys.record("key", Age.generateIdentity().encoded, "").copy(legacy = emptyMap(), updatedAt = "2026-01-01T00:00:00Z")
+        engine.create(password)
+        val saved = engine.save(listOf(unstamped, record("login")))
+        assertEquals("2026-01-01T00:00:00Z", saved[0].legacy[FileKeys.CREATED]); assertEquals("login", saved[1].name)
+        // What was stored carries the stamp, so an edit after the next unlock cannot make the key current again.
+        engine.lock()
+        val loaded = engine.unlock(password)
+        assertEquals("2026-01-01T00:00:00Z", loaded[0].legacy[FileKeys.CREATED])
+        val merged = engine.merge(listOf(unstamped.copy(id = java.util.UUID.randomUUID().toString(), updatedAt = "2026-02-01T00:00:00Z")))
+        assertEquals("2026-02-01T00:00:00Z", merged.last().legacy[FileKeys.CREATED])
+    }
+
     @Test fun createUnlockAndWrongPasswordCountsOneAttempt() {
         engine.create(password); engine.save(listOf(record("one"))); engine.lock()
         assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") }

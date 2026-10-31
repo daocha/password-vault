@@ -599,10 +599,9 @@ class MainActivity : FragmentActivity() {
         busy = true; message = ""; messageError = false; val epoch = generation
         lifecycleScope.launch {
             try {
-                // Key entries get their creation stamp as soon as they are loaded or saved, before any edit can bump updatedAt.
                 var decoy = false; var hasDecoy = false; var canResetDecoy = false; var attemptsRemaining = 10
                 val result = withContext(vaultQueue) { VaultAccess.serialized {
-                    val result = action()?.let { records -> FileKeys.stamp(records).also { if (it !== records) engine.save(it) } }
+                    val result = action()
                     if (result != null) { decoy = engine.isDecoy(); hasDecoy = engine.hasDecoy(); canResetDecoy = engine.canResetDecoy() }
                     attemptsRemaining = engine.remainingAttempts()
                     result
@@ -630,8 +629,8 @@ class MainActivity : FragmentActivity() {
         exists = status.first; erased = status.second; remaining = status.third
     }
     private suspend fun reportWorkError(e: Exception) {
-        // A failure after the action opened the engine (an unlock whose key-stamp save then failed) must not leave it open behind the
-        // unlock screen: until the UI shows the vault, the engine stays locked.
+        // A failure after the action opened the engine (in the status reads that follow an unlock, say) must not leave it open behind
+        // the unlock screen: until the UI shows the vault, the engine stays locked.
         if (!unlocked) withContext(vaultQueue) { runCatching { engine.lock() } }
         if (!withContext(vaultQueue) { runCatching { engine.isUnlocked() }.getOrDefault(false) }) lockVault()
         val status = withContext(vaultQueue) { runCatching { engine.remainingAttempts() }.getOrDefault(0) to runCatching { engine.isErased() }.getOrDefault(false) }
@@ -642,7 +641,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun saveRecord(saved: VaultRecord, done: () -> Unit = {}) {
         val updated = if (records.any { it.id == saved.id }) records.map { if (it.id == saved.id) saved else it } else records + saved
-        work({ engine.save(updated); updated }, done = done)
+        work({ engine.save(updated) }, done = done)
     }
     private fun biometrics(password: String? = null) {
         if (busy || !ready) return
@@ -807,7 +806,7 @@ class MainActivity : FragmentActivity() {
             val doomed = records.filter { it.id in selected }; val seeds = doomed.count { it.type == RecordType.seed }; val totps = doomed.count { it.type == RecordType.totp }
             AlertDialog(onDismissRequest = { confirmDelete = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(if (doomed.size == 1) stringResource(R.string.main_delete_title_one, doomed.size) else stringResource(R.string.main_delete_title_many, doomed.size)) },
                 text = { HardenWindow(); Text(when { doomed.any { it.ageIdentity != null } -> stringResource(R.string.files_delete_body_keys); totps > 0 -> stringResource(R.string.totp_delete_body_many, totps); seeds == 0 -> stringResource(R.string.main_delete_body); seeds == 1 -> stringResource(R.string.main_delete_body_seed_one, seeds); else -> stringResource(R.string.main_delete_body_seed_many, seeds) }) },
-                confirmButton = { TextButton(onClick = { confirmDelete = false; val ids = doomed.map { it.id }.toSet(); val updated = records.filter { it.id !in ids }; work({ engine.save(updated); updated }) { selected = emptySet(); message = if (ids.size == 1) getString(R.string.main_deleted_one, ids.size) else getString(R.string.main_deleted_many, ids.size) } }) { Text(stringResource(R.string.main_delete), color = MaterialTheme.colorScheme.error) } },
+                confirmButton = { TextButton(onClick = { confirmDelete = false; val ids = doomed.map { it.id }.toSet(); val updated = records.filter { it.id !in ids }; work({ engine.save(updated) }) { selected = emptySet(); message = if (ids.size == 1) getString(R.string.main_deleted_one, ids.size) else getString(R.string.main_deleted_many, ids.size) } }) { Text(stringResource(R.string.main_delete), color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.main_cancel)) } })
         }
     }
@@ -861,7 +860,7 @@ class MainActivity : FragmentActivity() {
                 dismiss()
                 if (updates.isEmpty()) return@TextButton
                 val updated = records.map { r -> updates[r.id]?.let { r.copy(group = it, updatedAt = now) } ?: r }
-                work({ engine.save(updated); updated }) { selected = emptySet(); message = if (updates.size == 1) getString(R.string.main_updated_group_one, updates.size) else getString(R.string.main_updated_group_many, updates.size) }
+                work({ engine.save(updated) }) { selected = emptySet(); message = if (updates.size == 1) getString(R.string.main_updated_group_one, updates.size) else getString(R.string.main_updated_group_many, updates.size) }
             }) { Text(stringResource(R.string.main_apply)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
@@ -872,13 +871,13 @@ class MainActivity : FragmentActivity() {
                 onMigration = { offerMigration(it); viewing = null; editing = false },
                 onCancel = { if (isNew) viewing = null else editing = false }, onSave = { saved -> saveRecord(saved) { viewing = saved; editing = false } })
             else TotpDetail(record, if (allowCopy) ::copySecret else null, onBack = { viewing = null }, onEdit = { editing = true },
-                onDelete = { val updated = records.filter { it.id != record.id }; work({ engine.save(updated); updated }) { viewing = null } },
+                onDelete = { val updated = records.filter { it.id != record.id }; work({ engine.save(updated) }) { viewing = null } },
                 onToggleFavorite = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } })
         } else if (record.type == RecordType.seed) {
             val isNew = records.none { it.id == record.id }
             if (edit) SeedEditor(record, isNew, onCancel = { if (isNew) viewing = null else editing = false }, onSave = { saved -> saveRecord(saved) { viewing = saved; editing = false } })
             else SeedDetail(record, onBack = { viewing = null }, onEdit = { editing = true },
-                onDelete = { val updated = records.filter { it.id != record.id }; work({ engine.save(updated); updated }) { viewing = null } },
+                onDelete = { val updated = records.filter { it.id != record.id }; work({ engine.save(updated) }) { viewing = null } },
                 onToggleFavorite = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } })
         } else if (edit) RecordEditor(record) else RecordDetail(record)
     }
@@ -941,7 +940,7 @@ class MainActivity : FragmentActivity() {
         }
         record.fields.firstOrNull { it.id == historyFor }?.let { field -> PasswordHistorySheet(field) { historyFor = null } }
         if (deleting) AlertDialog(onDismissRequest = { deleting = false }, icon = { Icon(Icons.Outlined.Delete, null) }, title = { Text(stringResource(R.string.main_delete_this_entry)) }, text = { HardenWindow(); Text(if (fileKey) stringResource(R.string.files_delete_key_body, record.name) else stringResource(R.string.main_delete_this_entry_body, record.name)) },
-            confirmButton = { TextButton(onClick = { deleting = false; val updated = records.filter { it.id != record.id }; work({ engine.save(updated); updated }) { viewing = null } }) { Text(stringResource(R.string.main_delete)) } },
+            confirmButton = { TextButton(onClick = { deleting = false; val updated = records.filter { it.id != record.id }; work({ engine.save(updated) }) { viewing = null } }) { Text(stringResource(R.string.main_delete)) } },
             dismissButton = { TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.main_cancel)) } })
     }
 
