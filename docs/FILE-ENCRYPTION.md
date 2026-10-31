@@ -111,7 +111,7 @@ Settings › Security › File encryption.
   security-critical: the HPKE key schedule (RFC 9180) and X-Wing combiner for mlkem768x25519, the chunk nonces and the
   last-chunk rules. The age test kit and the interop test against the official tools (see Tests) are what check this composition.
   Plaintext buffers and derived keys are wiped when done, including on failure; this is best effort, since the JVM may already have
-  copied them. Streaming, 64 KiB chunks; header parsing allocates in proportion to its size, with lines bounded to 16 KiB and the header to 1 MiB,
+  copied them. The output file is written unbuffered, so no stream buffer keeps a copy of plaintext. Streaming, 64 KiB chunks; header parsing allocates in proportion to its size, with lines bounded to 16 KiB and the header to 1 MiB,
   256 stanzas. Passphrase (scrypt) files cannot be opened, since PassVault only encrypts to the vault's own keys, but a header mixing an scrypt
   stanza with any other is rejected, as the spec requires. Hardware (tag) stanzas are ignored.
 - `FileEncryption.kt`: the key entry, naming, the backup check, and streaming between document URIs.

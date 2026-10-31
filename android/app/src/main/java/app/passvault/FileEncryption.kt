@@ -127,7 +127,9 @@ object FileCrypt {
             resolver.openOutputStream(to, "wt") ?: throw java.io.FileNotFoundException()
         } catch (e: Exception) { discardUnwritten(resolver, to); throw e }
         try {
-            Checked(output.buffered(Age.CHUNK), cancelled).use(body)
+            // Unbuffered: Age already writes whole chunks, and a BufferedOutputStream would keep a copy of the last, short chunk of
+            // plaintext (all of a small file) in a buffer nobody wipes.
+            Checked(output, cancelled).use(body)
             if (cancelled()) throw Cancelled()
         } catch (e: Exception) { if (!discard(resolver, to)) throw LeftBehind(e); throw e }
     }
