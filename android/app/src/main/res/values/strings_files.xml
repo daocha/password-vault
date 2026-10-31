@@ -59,4 +59,7 @@
     <string name="files_left_behind">The file could not be finished, and the incomplete encrypted file \"%1$s\" could not be removed. Delete it yourself.</string>
     <string name="files_left_behind_plain">The file could not be finished, and \"%1$s\" could not be removed. It may contain decrypted data: delete it yourself now.</string>
     <string name="files_unknown_name">the file you chose to save to</string>
+    <string name="files_same_file">The file cannot be saved over itself. Choose another name or folder.</string>
+    <string name="files_busy">Another file is still being processed. Try again in a moment.</string>
+    <string name="files_encrypted_backup_warning">Your key is not in a backup yet. If this phone is lost before you back it up, the encrypted file cannot be opened anywhere. Back up first, or keep the original.</string>
 </resources>

@@ -13,7 +13,18 @@ class FileCryptInstrumentedTest {
     private val directory = File(context.cacheDir, "filecrypt-test").apply { mkdirs() }
     @After fun clean() { directory.deleteRecursively() }
 
-    @Test fun encryptsAndDecryptsLargeFiles() {
+    @Test fun recognisesTheSameDocumentUnderDifferentUris() {
+        val authority = "com.android.externalstorage.documents"
+        val doc = android.provider.DocumentsContract.buildDocumentUri(authority, "primary:Download/report.pdf")
+        // The same document reached through a tree grant has a different URI.
+        val viaTree = android.provider.DocumentsContract.buildDocumentUriUsingTree(android.provider.DocumentsContract.buildTreeDocumentUri(authority, "primary:Download"), "primary:Download/report.pdf")
+        assertTrue(FileCrypt.sameDocument(doc, doc)); assertTrue(FileCrypt.sameDocument(doc, viaTree))
+        assertFalse(FileCrypt.sameDocument(doc, android.provider.DocumentsContract.buildDocumentUri(authority, "primary:Download/report.pdf.age")))
+        assertFalse(FileCrypt.sameDocument(doc, android.provider.DocumentsContract.buildDocumentUri("other.provider", "primary:Download/report.pdf")))
+        assertFalse(FileCrypt.sameDocument(Uri.fromFile(File("/a")), Uri.fromFile(File("/b"))))
+    }
+
+        @Test fun encryptsAndDecryptsLargeFiles() {
         val identity = Age.parseIdentity(Age.generateIdentity().encoded)
         val plain = File(directory, "plain.bin").apply { writeBytes(ByteArray(5 * Age.CHUNK + 123) { (it * 13).toByte() }) }
         val sealed = File(directory, "plain.bin.age"); val opened = File(directory, "opened.bin")

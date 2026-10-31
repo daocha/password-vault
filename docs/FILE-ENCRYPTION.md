@@ -102,8 +102,8 @@ Settings › Security › File encryption.
 ## Implementation
 
 - `Age.kt`: age v1 in Kotlin. The primitives come from BouncyCastle's lightweight API (already a dependency for KeePass import):
-  X25519, ML-KEM-768, SHA3/SHAKE, HMAC-SHA-256, ChaCha20-Poly1305. Age.kt itself composes them, and that code is security-critical:
-  HKDF (RFC 5869) on HMAC, the HPKE key schedule (RFC 9180) and X-Wing combiner for mlkem768x25519, the chunk nonces and the
+  X25519, ML-KEM-768, SHA3/SHAKE, HMAC-SHA-256, HKDF-SHA-256, ChaCha20-Poly1305. Age.kt itself composes them, and that code is
+  security-critical: the HPKE key schedule (RFC 9180) and X-Wing combiner for mlkem768x25519, the chunk nonces and the
   last-chunk rules. The age test kit and the interop test against the official tools (see Tests) are what check this composition.
   Plaintext buffers and derived keys are wiped when done, including on failure; this is best effort, since the JVM may already have
   copied them. Streaming, 64 KiB chunks; header lines bounded to 16 KiB, header to 1 MiB,

@@ -350,6 +350,7 @@ class MainActivity : FragmentActivity() {
         val identity = fileKeys.firstOrNull()?.ageIdentity
         if (uri == null) return@registerForActivityResult
         if (source == null || identity == null || !unlocked) { discardUnwritten(uri); return@registerForActivityResult }
+        if (FileCrypt.sameDocument(source.uri, uri)) { messageError = true; message = getString(R.string.files_same_file); return@registerForActivityResult }
         // The provider may have renamed the file (a name already taken); ask for its name on the worker, not the main thread.
         var savedAs: String? = null
         runFileJob(false, source.size, uri, { cancelled, progress ->
@@ -363,8 +364,9 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             // Say "not your key" before asking where to save.
             val picked = try { withContext(Dispatchers.IO) { FileCrypt.check(contentResolver, uri, keys.map(Age::parseIdentity)); FileCrypt.describe(contentResolver, uri) } }
-            catch (e: AgeException) { messageError = true; message = ageError(e); return@launch }
-            catch (e: Exception) { messageError = true; message = getString(R.string.main_cannot_open_file); return@launch }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: AgeException) { if (epoch == generation && unlocked) { messageError = true; message = ageError(e) }; return@launch }
+            catch (e: Exception) { if (epoch == generation && unlocked) { messageError = true; message = getString(R.string.main_cannot_open_file) }; return@launch }
             if (epoch != generation || !unlocked) return@launch
             fileSource = picked
             val name = FileKeys.decryptedName(picked.name)
@@ -378,6 +380,7 @@ class MainActivity : FragmentActivity() {
         val keys = fileKeys.mapNotNull { it.ageIdentity }
         if (uri == null) return@registerForActivityResult
         if (source == null || !unlocked) { discardUnwritten(uri); return@registerForActivityResult }
+        if (FileCrypt.sameDocument(source.uri, uri)) { messageError = true; message = getString(R.string.files_same_file); return@registerForActivityResult }
         runFileJob(true, source.size, uri, { cancelled, progress -> FileCrypt.decrypt(contentResolver, source.uri, uri, keys.map(Age::parseIdentity), cancelled, progress) }) { message = getString(R.string.files_decrypted) }
     }
     private val shareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { systemPickerOpen = false }
@@ -388,7 +391,7 @@ class MainActivity : FragmentActivity() {
      * once it is accepted on the main thread, where locking also runs, so nothing can lock between the last check and [done].
      */
     private fun runFileJob(decrypting: Boolean, total: Long?, output: android.net.Uri, job: (cancelled: () -> Boolean, progress: (Long) -> Unit) -> Unit, done: () -> Unit) {
-        if (fileProgress != null) { discardUnwritten(output); return }
+        if (fileProgress != null) { discardUnwritten(output); messageError = true; message = getString(R.string.files_busy); return }
         val epoch = generation; fileCancelled = false; fileProgress = FileProgress(decrypting, 0, total)
         val cancelled = { fileCancelled || epoch != generation }
         var shown = 0L
@@ -1359,7 +1362,10 @@ class MainActivity : FragmentActivity() {
         fileProgress?.let { FileProgressDialog(it) { fileCancelled = true } }
         encryptedOriginal?.let { (original, saved) ->
             AlertDialog(onDismissRequest = { encryptedOriginal = null }, icon = { Icon(Icons.Outlined.Lock, null) }, title = { Text(stringResource(R.string.files_encrypted_title)) },
-                text = { HardenWindow(); Text(stringResource(R.string.files_encrypted_body, saved)) },
+                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.files_encrypted_body, saved))
+                    if (FileKeys.needsBackup(fileKeys, lastBackup, backedUpKeys)) Text(stringResource(R.string.files_encrypted_backup_warning), color = MaterialTheme.colorScheme.error)
+                } },
                 confirmButton = { TextButton(onClick = { encryptedOriginal = null
                     lifecycleScope.launch { val deleted = withContext(Dispatchers.IO) { FileCrypt.delete(contentResolver, original.uri) }; messageError = !deleted; message = getString(if (deleted) R.string.files_original_deleted else R.string.files_original_not_deleted) } }) {
                     Text(stringResource(R.string.files_delete_original), color = MaterialTheme.colorScheme.error) } },
@@ -1394,7 +1400,8 @@ class MainActivity : FragmentActivity() {
     }
     private fun writeExport(uri: android.net.Uri?) {
         systemPickerOpen = false
-        val snapshot = pendingExport ?: return; pendingExport = null
+        // Locked while the picker was open: the export is gone, so remove the empty file the picker created.
+        val snapshot = pendingExport ?: run { uri?.let(::discardUnwritten); return }; pendingExport = null
         val epoch = generation
         lifecycleScope.launch {
             try {
@@ -1422,12 +1429,17 @@ class MainActivity : FragmentActivity() {
      * [PasswordPolicy.problem] for a new password, worked out off the main thread (the guessability estimate loads dictionaries on first
      * use); [PASSWORD_CHECKING] until it is known, so a button never enables on a password that has not been checked yet.
      */
-    @Composable private fun passwordProblem(value: String): Int? = produceState<Int?>(PASSWORD_CHECKING, value) {
-        this.value = PASSWORD_CHECKING
-        // The estimate itself cannot be cancelled: wait for a pause in typing, so each keystroke does not start another.
-        kotlinx.coroutines.delay(150)
-        this.value = withContext(Dispatchers.Default) { PasswordPolicy.problem(value) }
-    }.value
+    @Composable private fun passwordProblem(value: String): Int? {
+        // Keyed on the text, so new text reads as checking in the very composition it appears in (produceState would keep the previous
+        // text's result until its coroutine starts, enabling a button for one frame).
+        val result = remember(value) { mutableStateOf<Int?>(PASSWORD_CHECKING) }
+        LaunchedEffect(value) {
+            // The estimate itself cannot be cancelled: wait for a pause in typing, so each keystroke does not start another.
+            kotlinx.coroutines.delay(150)
+            result.value = withContext(Dispatchers.Default) { PasswordPolicy.problem(value) }
+        }
+        return result.value
+    }
     /** [checked]: [passwordProblem] of [value], worked out once by the caller, which also uses it to enable its button. */
     @Composable private fun PasswordHint(value: String, checked: Int?) {
         val problem = if (value.isEmpty() || checked == PASSWORD_CHECKING) null else checked

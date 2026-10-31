@@ -84,6 +84,13 @@ object FileCrypt {
     class Cancelled : Exception("Cancelled.")
     /** The job failed or was cancelled and its partial output could not be emptied or deleted: the user must remove it. */
     class LeftBehind(cause: Exception) : Exception("Partial output could not be removed.", cause)
+    /**
+     * Whether two URIs name the same document, so a job never writes over its own source (truncating it before it is read). The save
+     * picker normally creates a new document, but a provider may let the user pick the existing one.
+     */
+    fun sameDocument(a: Uri, b: Uri): Boolean = a == b || (a.authority == b.authority && runCatching {
+        DocumentsContract.getDocumentId(a) == DocumentsContract.getDocumentId(b)
+    }.getOrDefault(false))
     fun describe(resolver: ContentResolver, uri: Uri): Picked = runCatching {
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
             if (!c.moveToFirst()) null else Picked(uri, c.getString(0), if (c.isNull(1)) null else c.getLong(1))

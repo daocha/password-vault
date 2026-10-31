@@ -59,4 +59,7 @@
     <string name="files_left_behind">檔案未能完成，而且無法刪除未完成的加密檔案「%1$s」。請自行刪除。</string>
     <string name="files_left_behind_plain">檔案未能完成，而且無法刪除「%1$s」。它可能包含已解密的資料：請立即自行刪除。</string>
     <string name="files_unknown_name">你選擇儲存的檔案</string>
+    <string name="files_same_file">不能把檔案儲存到它自己上面。請換一個名稱或資料夾。</string>
+    <string name="files_busy">另一個檔案仍在處理中，請稍後再試。</string>
+    <string name="files_encrypted_backup_warning">你的金鑰還沒有備份。如果在備份之前遺失了這支手機，加密後的檔案在任何地方都無法開啟。請先備份，或保留原檔案。</string>
 </resources>

@@ -2,6 +2,8 @@ package app.passvault
 
 import org.bouncycastle.crypto.InvalidCipherTextException
 import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.generators.HKDFBytesGenerator
+import org.bouncycastle.crypto.params.HKDFParameters
 import org.bouncycastle.crypto.digests.SHA3Digest
 import org.bouncycastle.crypto.digests.SHAKEDigest
 import org.bouncycastle.crypto.macs.HMac
@@ -366,13 +368,13 @@ object Age {
         return if (n == out.size) out else out.copyOf(n).also { out.fill(0) }
     }
     private fun hmac(key: ByteArray, data: ByteArray): ByteArray = HMac(SHA256Digest()).run { init(KeyParameter(key)); update(data, 0, data.size); ByteArray(32).also { doFinal(it, 0) } }
-    /** HKDF-SHA-256 (RFC 5869). An empty salt is HashLen zero bytes, which HMAC treats the same as an empty key. */
-    private fun extract(salt: ByteArray, ikm: ByteArray) = hmac(salt, ikm)
-    private fun expand(prk: ByteArray, info: ByteArray, length: Int): ByteArray {
-        val out = ByteArrayOutputStream(); var t = ByteArray(0); var i = 1
-        while (out.size() < length) { t = hmac(prk, t + info + byteArrayOf(i++.toByte())); out.write(t) }
-        return out.toByteArray().copyOf(length)
-    }
+    /**
+     * HKDF-SHA-256 (RFC 5869), BouncyCastle's: extract and expand separately, as HPKE's labeled steps need. An empty salt is HashLen zero
+     * bytes, which HMAC treats the same as an empty key.
+     */
+    private fun extract(salt: ByteArray, ikm: ByteArray): ByteArray = HKDFBytesGenerator(SHA256Digest()).extractPRK(salt, ikm)
+    private fun expand(prk: ByteArray, info: ByteArray, length: Int): ByteArray =
+        ByteArray(length).also { HKDFBytesGenerator(SHA256Digest()).apply { init(HKDFParameters.skipExtractParameters(prk, info)) }.generateBytes(it, 0, length) }
     private fun hkdf(ikm: ByteArray, salt: ByteArray, info: String): ByteArray { val prk = extract(salt, ikm); try { return expand(prk, info.toByteArray(), 32) } finally { prk.fill(0) } }
     /** X-Wing's combiner: SHA3-256(ss_M ‖ ss_X ‖ ct_X ‖ pk_X ‖ label). */
     private fun combine(ssM: ByteArray, ssT: ByteArray, ctT: ByteArray, pkT: ByteArray): ByteArray = SHA3Digest(256).run {
