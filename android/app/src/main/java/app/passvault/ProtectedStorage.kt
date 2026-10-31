@@ -42,7 +42,7 @@ class ProtectedStorage(private val context: Context) {
         check(context.getSystemService(KeyguardManager::class.java).isDeviceSecure) { "Set a device screen lock first." }
         fun spec(strongBox: Boolean) = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .setKeySize(256).setUnlockedDeviceRequired(true).setIsStrongBoxBacked(strongBox)
+            .setKeySize(256).setUnlockedDeviceRequired(BuildConfig.REQUIRE_UNLOCKED_DEVICE).setIsStrongBoxBacked(strongBox)
             .apply { if (biometric) { setUserAuthenticationRequired(true); setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG); setInvalidatedByBiometricEnrollment(true) } }.build()
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         val key = try { generator.init(spec(true)); generator.generateKey() }
