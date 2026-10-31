@@ -83,9 +83,13 @@ object Age {
         override fun wrap(fileKey: ByteArray): Stanza {
             val pq = MLKEMGenerator(rng).generateEncapsulated(mlkem)
             val ephemeral = random(32); val ctT = ByteArray(32).also { X25519.scalarMultBase(ephemeral, 0, it, 0) }; val ssT = ByteArray(32)
-            check(X25519.calculateAgreement(ephemeral, 0, x25519, 0, ssT, 0)) { "Invalid recipient." }
-            val (key, nonce) = hpke(combine(pq.secret, ssT, ctT, x25519))
-            try { return Stanza(listOf("mlkem768x25519", b64(pq.encapsulation + ctT)), aead(true, key, nonce, fileKey)) } finally { key.fill(0); ssT.fill(0); ephemeral.fill(0); pq.destroy() }
+            // getSecret() returns a copy, which destroy() does not reach: wipe it here too.
+            var ssM: ByteArray? = null; val encapsulation = pq.encapsulation + ctT // read before destroy()
+            val (key, nonce) = try {
+                check(X25519.calculateAgreement(ephemeral, 0, x25519, 0, ssT, 0)) { "Invalid recipient." }
+                ssM = pq.secret; hpke(combine(ssM, ssT, ctT, x25519))
+            } finally { ssM?.fill(0); ssT.fill(0); ephemeral.fill(0); pq.destroy() }
+            try { return Stanza(listOf("mlkem768x25519", b64(encapsulation)), aead(true, key, nonce, fileKey)) } finally { key.fill(0) }
         }
     }
     /** A 32-byte seed, expanded with SHAKE256 into the ML-KEM-768 seed (64 bytes) and the X25519 secret key (32 bytes). */
@@ -104,12 +108,14 @@ object Age {
             if (stanza.args.size != 2) header("An mlkem768x25519 stanza needs exactly two arguments.")
             val enc = unb64(stanza.args[1]) ?: header("Invalid mlkem768x25519 encapsulation.")
             if (enc.size != MLKEM_CIPHERTEXT + 32 || stanza.body.size != 32) header("Invalid mlkem768x25519 stanza.")
-            val ctT = enc.copyOfRange(MLKEM_CIPHERTEXT, enc.size); val ssT = ByteArray(32)
-            if (!X25519.calculateAgreement(x25519, 0, ctT, 0, ssT, 0)) header("Invalid mlkem768x25519 encapsulation.")
-            // ML-KEM rejects implicitly: a corrupted ciphertext yields an unrelated secret, so the body simply fails to open.
-            val ssM = MLKEMExtractor(mlkem).extractSecret(enc.copyOfRange(0, MLKEM_CIPHERTEXT))
-            val (key, nonce) = hpke(combine(ssM, ssT, ctT, x25519Public))
-            try { return openKey(key, nonce, stanza.body) } finally { key.fill(0); ssT.fill(0); ssM.fill(0) }
+            val ctT = enc.copyOfRange(MLKEM_CIPHERTEXT, enc.size); val ssT = ByteArray(32); var ssM: ByteArray? = null
+            val (key, nonce) = try {
+                if (!X25519.calculateAgreement(x25519, 0, ctT, 0, ssT, 0)) header("Invalid mlkem768x25519 encapsulation.")
+                // ML-KEM rejects implicitly: a corrupted ciphertext yields an unrelated secret, so the body simply fails to open.
+                ssM = MLKEMExtractor(mlkem).extractSecret(enc.copyOfRange(0, MLKEM_CIPHERTEXT))
+                hpke(combine(ssM, ssT, ctT, x25519Public))
+            } finally { ssT.fill(0); ssM?.fill(0) }
+            try { return openKey(key, nonce, stanza.body) } finally { key.fill(0) }
         }
     }
     private const val MLKEM_PUBLIC = 1184; private const val MLKEM_CIPHERTEXT = 1088; private const val HYBRID_PUBLIC = MLKEM_PUBLIC + 32

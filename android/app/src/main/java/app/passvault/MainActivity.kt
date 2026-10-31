@@ -330,17 +330,25 @@ class MainActivity : FragmentActivity() {
     private val encryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         systemPickerOpen = false
         if (uri == null || !unlocked) return@registerForActivityResult
-        val picked = FileCrypt.describe(contentResolver, uri); fileSource = picked
-        if (!launchPicker { encryptTarget.launch(FileKeys.encryptedName(picked.name)) }) fileSource = null
+        val epoch = generation
+        lifecycleScope.launch {
+            val picked = withContext(Dispatchers.IO) { FileCrypt.describe(contentResolver, uri) }
+            if (epoch != generation || !unlocked) return@launch
+            fileSource = picked
+            if (!launchPicker { encryptTarget.launch(FileKeys.encryptedName(picked.name)) }) fileSource = null
+        }
     }
     private val encryptTarget = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         systemPickerOpen = false
         val source = fileSource; fileSource = null
         val identity = fileKeys.firstOrNull()?.ageIdentity
-        if (uri == null || source == null || identity == null || !unlocked) return@registerForActivityResult
-        runFileJob(false, source.size, uri, { cancelled, progress -> FileCrypt.encrypt(contentResolver, source.uri, uri, Age.parseIdentity(identity).recipient, cancelled, progress) }) {
-            encryptedOriginal = source to (FileCrypt.describe(contentResolver, uri).name ?: FileKeys.encryptedName(source.name))
-        }
+        if (uri == null) return@registerForActivityResult
+        if (source == null || identity == null || !unlocked) { discardUnwritten(uri); return@registerForActivityResult }
+        // The provider may have renamed the file (a name already taken); ask for its name on the worker, not the main thread.
+        var savedAs: String? = null
+        runFileJob(false, source.size, uri, { cancelled, progress ->
+            FileCrypt.encrypt(contentResolver, source.uri, uri, Age.parseIdentity(identity).recipient, cancelled, progress); savedAs = FileCrypt.describe(contentResolver, uri).name
+        }) { encryptedOriginal = source to (savedAs ?: FileKeys.encryptedName(source.name)) }
     }
     private val decryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         systemPickerOpen = false
@@ -348,11 +356,11 @@ class MainActivity : FragmentActivity() {
         val keys = fileKeys.mapNotNull { it.ageIdentity }; val epoch = generation
         lifecycleScope.launch {
             // Say "not your key" before asking where to save.
-            try { withContext(Dispatchers.IO) { FileCrypt.check(contentResolver, uri, keys.map(Age::parseIdentity)) } }
+            val picked = try { withContext(Dispatchers.IO) { FileCrypt.check(contentResolver, uri, keys.map(Age::parseIdentity)); FileCrypt.describe(contentResolver, uri) } }
             catch (e: AgeException) { messageError = true; message = ageError(e); return@launch }
             catch (e: Exception) { messageError = true; message = getString(R.string.main_cannot_open_file); return@launch }
             if (epoch != generation || !unlocked) return@launch
-            val picked = FileCrypt.describe(contentResolver, uri); fileSource = picked
+            fileSource = picked
             val name = FileKeys.decryptedName(picked.name)
             val type = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
             if (!launchPicker { decryptTarget.launch(name to type) }) fileSource = null
@@ -362,7 +370,8 @@ class MainActivity : FragmentActivity() {
         systemPickerOpen = false
         val source = fileSource; fileSource = null
         val keys = fileKeys.mapNotNull { it.ageIdentity }
-        if (uri == null || source == null || !unlocked) return@registerForActivityResult
+        if (uri == null) return@registerForActivityResult
+        if (source == null || !unlocked) { discardUnwritten(uri); return@registerForActivityResult }
         runFileJob(true, source.size, uri, { cancelled, progress -> FileCrypt.decrypt(contentResolver, source.uri, uri, keys.map(Age::parseIdentity), cancelled, progress) }) { message = getString(R.string.files_decrypted) }
     }
     private val shareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { systemPickerOpen = false }
@@ -373,7 +382,7 @@ class MainActivity : FragmentActivity() {
      * once it is accepted on the main thread, where locking also runs, so nothing can lock between the last check and [done].
      */
     private fun runFileJob(decrypting: Boolean, total: Long?, output: android.net.Uri, job: (cancelled: () -> Boolean, progress: (Long) -> Unit) -> Unit, done: () -> Unit) {
-        if (fileProgress != null) return
+        if (fileProgress != null) { discardUnwritten(output); return }
         val epoch = generation; fileCancelled = false; fileProgress = FileProgress(decrypting, 0, total)
         val cancelled = { fileCancelled || epoch != generation }
         var shown = 0L
@@ -391,6 +400,13 @@ class MainActivity : FragmentActivity() {
             catch (e: Exception) { messageError = true; message = getString(R.string.files_failed) }
             finally { fileProgress = null }
         }
+    }
+    /**
+     * The save picker has already created [uri] (empty) when it returns. When no job will write it (the vault locked while the picker was
+     * open, or another job is still running), remove it, so no empty file is left looking like an encrypted or decrypted one.
+     */
+    private fun discardUnwritten(uri: android.net.Uri) {
+        lifecycleScope.launch(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { FileCrypt.discard(contentResolver, uri) }
     }
     private fun ageError(e: AgeException) = getString(when (e.kind) {
         AgeException.Kind.noMatch -> R.string.files_no_match
@@ -600,6 +616,9 @@ class MainActivity : FragmentActivity() {
         exists = status.first; erased = status.second; remaining = status.third
     }
     private suspend fun reportWorkError(e: Exception) {
+        // A failure after the action opened the engine (an unlock whose key-stamp save then failed) must not leave it open behind the
+        // unlock screen: until the UI shows the vault, the engine stays locked.
+        if (!unlocked) withContext(vaultQueue) { runCatching { engine.lock() } }
         if (!withContext(vaultQueue) { runCatching { engine.isUnlocked() }.getOrDefault(false) }) lockVault()
         val status = withContext(vaultQueue) { runCatching { engine.remainingAttempts() }.getOrDefault(0) to runCatching { engine.isErased() }.getOrDefault(false) }
         remaining = status.first; erased = status.second
@@ -639,6 +658,8 @@ class MainActivity : FragmentActivity() {
 
     @Composable private fun UnlockScreen() {
         var password by remember { mutableStateOf("") }; var confirm by remember { mutableStateOf("") }; var consent by remember { mutableStateOf(false) }; var reset by remember { mutableStateOf(false) }
+        // Only a new password is checked; the unlock password is never estimated.
+        val problem = if (exists) null else passwordProblem(password)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Image(painterResource(R.drawable.vault_icon), stringResource(R.string.main_logo_description), Modifier.size(112.dp))
             Spacer(Modifier.height(24.dp)); WordMark(MaterialTheme.typography.headlineLarge)
@@ -648,11 +669,11 @@ class MainActivity : FragmentActivity() {
             if (!exists) {
                 Spacer(Modifier.height(8.dp)); SecretInput(stringResource(R.string.main_repeat_password), confirm, { confirm = it })
                 if (confirm.isNotEmpty() && !samePassword(password, confirm)) Text(stringResource(R.string.main_passwords_dont_match), Modifier.fillMaxWidth().padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                PasswordHint(password)
+                PasswordHint(password, problem)
                 Text(stringResource(R.string.main_no_password_reset), Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 CheckRow(consent, { consent = it }) { Text(stringResource(R.string.main_consent_erase)) }
             }
-            Button(onClick = { val value = password; password = ""; confirm = ""; work({ if (exists) engine.unlock(value) else engine.create(value) }) }, enabled = ready && password.isNotEmpty() && (exists || (samePassword(password, confirm) && consent && passwordProblem(password) == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
+            Button(onClick = { val value = password; password = ""; confirm = ""; work({ if (exists) engine.unlock(value) else engine.create(value) }) }, enabled = ready && password.isNotEmpty() && (exists || (samePassword(password, confirm) && consent && problem == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
             if (exists && biometricEnabled) OutlinedButton(onClick = { biometrics() }, enabled = ready, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Default.Fingerprint, null); Text("  " + stringResource(R.string.main_unlock_with_biometrics)) }
             if (exists) Text(stringResource(R.string.main_attempts_remaining, remaining), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1246,32 +1267,34 @@ class MainActivity : FragmentActivity() {
     }
     @Composable private fun ChangePasswordDialog(dismiss: () -> Unit) {
         var current by remember { mutableStateOf("") }; var next by remember { mutableStateOf("") }; var repeat by remember { mutableStateOf("") }
+        val problem = passwordProblem(next)
         AlertDialog(onDismissRequest = dismiss, icon = { Icon(Icons.Outlined.Password, null) }, title = { Text(stringResource(R.string.main_change_app_password)) },
             text = { HardenWindow(); Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecretInput(stringResource(R.string.main_current_password), current, { current = it }); SecretInput(stringResource(R.string.main_new_password), next, { next = it }); SecretInput(stringResource(R.string.main_repeat_new_password), repeat, { repeat = it })
-                PasswordHint(next)
+                PasswordHint(next, problem)
                 if (repeat.isNotEmpty() && !samePassword(next, repeat)) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 Text(stringResource(R.string.main_existing_backups_keep), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } },
             confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; val decoy = decoySession; current = ""; next = ""; repeat = ""; dismiss()
                 // The decoy's password change leaves the real vault's biometric key alone, and must not mention it.
-                work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && passwordProblem(next) == null && samePassword(next, repeat)) { Text(stringResource(R.string.main_change)) } },
+                work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && problem == null && samePassword(next, repeat)) { Text(stringResource(R.string.main_change)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     /** Sets up the decoy vault, or with [reset] gives the existing one a new password (its contents are kept). */
     @Composable private fun DecoySetupDialog(reset: Boolean, dismiss: () -> Unit) {
         var current by remember { mutableStateOf("") }; var decoy by remember { mutableStateOf("") }; var repeat by remember { mutableStateOf("") }
+        val problem = passwordProblem(decoy)
         AlertDialog(onDismissRequest = dismiss, icon = { Icon(Icons.Outlined.TheaterComedy, null) }, title = { Text(stringResource(if (reset) R.string.decoy_change_password else R.string.decoy_title)) },
             text = { HardenWindow(); Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(if (reset) R.string.decoy_change_body else R.string.decoy_body), style = MaterialTheme.typography.bodyMedium)
                 SecretInput(stringResource(R.string.main_app_password), current, { current = it }); SecretInput(stringResource(if (reset) R.string.decoy_new_password else R.string.decoy_password), decoy, { decoy = it }); SecretInput(stringResource(R.string.decoy_repeat), repeat, { repeat = it })
-                PasswordHint(decoy)
+                PasswordHint(decoy, problem)
                 if (repeat.isNotEmpty() && !samePassword(decoy, repeat)) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             } },
             confirmButton = { TextButton(onClick = { val c = current; val d = decoy; current = ""; decoy = ""; repeat = ""; dismiss()
                 if (reset) work({ engine.resetDecoyPassword(c, d); null }) { message = getString(R.string.decoy_password_changed) }
                 else work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; decoyResettable = true; message = getString(R.string.decoy_created) } },
-                enabled = current.isNotEmpty() && passwordProblem(decoy) == null && samePassword(decoy, repeat)) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
+                enabled = current.isNotEmpty() && problem == null && samePassword(decoy, repeat)) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     @Composable private fun ImportDialogs() {
@@ -1388,10 +1411,12 @@ class MainActivity : FragmentActivity() {
      */
     @Composable private fun passwordProblem(value: String): Int? = produceState<Int?>(PASSWORD_CHECKING, value) {
         this.value = PASSWORD_CHECKING
+        // The estimate itself cannot be cancelled: wait for a pause in typing, so each keystroke does not start another.
+        kotlinx.coroutines.delay(150)
         this.value = withContext(Dispatchers.Default) { PasswordPolicy.problem(value) }
     }.value
-    @Composable private fun PasswordHint(value: String) {
-        val checked = passwordProblem(value)
+    /** [checked]: [passwordProblem] of [value], worked out once by the caller, which also uses it to enable its button. */
+    @Composable private fun PasswordHint(value: String, checked: Int?) {
         val problem = if (value.isEmpty() || checked == PASSWORD_CHECKING) null else checked
         Text(stringResource(problem ?: if (value.isEmpty() || checked == PASSWORD_CHECKING) PasswordPolicy.RULE else R.string.main_password_meets), Modifier.fillMaxWidth().padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = if (problem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     }
