@@ -10,8 +10,8 @@
     <string name="autofill_no_logins">No logins with a username or password yet.</string>
     <string name="autofill_no_results">No logins match your search.</string>
     <string name="autofill_nothing_to_fill">This entry has no username or password for this form.</string>
-    <string name="autofill_other_title">Fill a login saved for something else?</string>
-    <string name="autofill_other_body">“%1$s” is not saved for %2$s. Fill it only if you trust this app or site: a fake login page would receive your password.</string>
+    <string name="autofill_confirm_title">Send this login to this app?</string>
+    <string name="autofill_confirm_body">“%1$s” will be sent to:\n%2$s\n\nPassVault cannot verify that this app is authorized to receive this login or that it owns the website address it reports. Continue only if you trust this destination.</string>
     <string name="autofill_fill">Fill</string>
     <string name="autofill_setting">Autofill</string>
     <string name="autofill_setting_on">PassVault fills logins in other apps and browsers</string>

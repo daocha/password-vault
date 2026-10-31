@@ -13,29 +13,45 @@ import android.service.autofill.SaveCallback
 import android.service.autofill.SaveRequest
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Offers PassVault on other apps' login forms. The service never opens the vault: every suggestion is a locked dataset whose
  * authentication is [AutofillActivity], which unlocks, lets the user pick an entry, fills it and locks again.
  */
 class PassVaultAutofillService : AutofillService() {
+    private val requests = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
-        val structure = request.fillContexts.lastOrNull()?.structure ?: return callback.onSuccess(null)
-        val form = AutofillForm.parse(structure)
-        if (form == null || form.target.packageName == packageName || !vaultExists()) return callback.onSuccess(null)
-        val unlock = presentation(this, getString(R.string.autofill_unlock), form.target.site ?: appLabel(this, form.target.packageName))
+        val job = requests.launch {
+            val response = try { response(request) } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+            if (!cancellationSignal.isCanceled) callback.onSuccess(response)
+        }
+        cancellationSignal.setOnCancelListener { job.cancel() }
+    }
+    private suspend fun response(request: FillRequest): FillResponse? {
+        val structure = request.fillContexts.lastOrNull()?.structure ?: return null
+        val form = withContext(Dispatchers.Default) { AutofillForm.parse(structure) { AutofillBrowsers.verify(this@PassVaultAutofillService, it) } }
+        if (form == null || form.target.packageName == packageName || !withContext(vaultQueue) { vaultExists() }) return null
+        val unlock = presentation(this, getString(R.string.autofill_unlock), form.target.description(appLabel(this, form.target.packageName)))
         // Mutable: the system adds the form's structure to the intent when the user taps the suggestion.
         val sender = PendingIntent.getActivity(this, REQUEST, Intent(this, AutofillActivity::class.java),
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE).intentSender
         @Suppress("DEPRECATION")
         val dataset = Dataset.Builder().apply { form.ids.forEach { setValue(it, null, unlock) } }.setAuthentication(sender).build()
-        callback.onSuccess(FillResponse.Builder().addDataset(dataset).build())
+        return FillResponse.Builder().addDataset(dataset).build()
     }
+    override fun onDestroy() { requests.cancel(); super.onDestroy() }
 
     // No save info is ever requested, so there is nothing to save; new logins are added in the app.
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) = callback.onSuccess()
 
-    /** Whether there is a vault to unlock. Only checks that state exists; nothing is decrypted with a vault key. */
+    /** Queued behind complete authentication transactions; a reserved tenth attempt is never observed partway through verification. */
     private fun vaultExists() = runCatching { VaultEngine(ProtectedStorage(this)).exists() }.getOrDefault(false)
 
     companion object {

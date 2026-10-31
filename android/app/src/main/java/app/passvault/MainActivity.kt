@@ -237,6 +237,7 @@ class MainActivity : FragmentActivity() {
         }
     }
     private var biometricCandidate: ByteArray? = null
+    private var biometricEpoch: Int? = null
     private val playUpdateLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         updates?.onPlayResult(result.resultCode)
     }
@@ -328,24 +329,40 @@ class MainActivity : FragmentActivity() {
         loadBackupStatus()
         biometricPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                val epoch = biometricEpoch; biometricEpoch = null
+                if (epoch == null || epoch != generation || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                    enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null; return
+                }
                 val enable = enablingBiometric; enablingBiometric = false
-                val authenticated = result.cryptoObject?.cipher ?: run { message = getString(R.string.main_biometric_no_key); return }
+                val authenticated = result.cryptoObject?.cipher ?: run { biometricCandidate?.fill(0); biometricCandidate = null; message = getString(R.string.main_biometric_no_key); return }
                 if (enable) {
                     val candidate = biometricCandidate ?: return
                     biometricCandidate = null
-                    work({ try { engine.saveBiometric(authenticated, candidate); null } finally { candidate.fill(0) } }) { biometricEnabled = true; message = getString(R.string.main_biometric_enabled) }
+                    work({ engine.saveBiometric(authenticated, candidate); null }, cleanup = { candidate.fill(0) }) { biometricEnabled = true; message = getString(R.string.main_biometric_enabled) }
                 } else work({ engine.unlockBiometric(authenticated) })
             }
             override fun onAuthenticationError(code: Int, error: CharSequence) {
-                enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
+                biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
                 if (code != BiometricPrompt.ERROR_USER_CANCELED && code != BiometricPrompt.ERROR_NEGATIVE_BUTTON && code != BiometricPrompt.ERROR_CANCELED) message = error.toString()
             }
         })
         onBackPressedDispatcher.addCallback(this, backCallback)
         lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || health || sending != null || receiving || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
-        try { engine = VaultEngine(ProtectedStorage(this)); exists = engine.exists(); remaining = engine.remainingAttempts(); biometricEnabled = engine.hasBiometric(); ready = true }
-        catch (e: Exception) { message = errorText(e, R.string.main_storage_unavailable); if (::engine.isInitialized) { erased = runCatching { engine.isErased() }.getOrDefault(false); ready = erased } }
+        lifecycleScope.launch {
+            try {
+                val status = withContext(vaultQueue) {
+                    engine = VaultEngine(ProtectedStorage(this@MainActivity))
+                    Triple(engine.exists(), engine.remainingAttempts(), engine.hasBiometric())
+                }
+                exists = status.first; remaining = status.second; biometricEnabled = status.third; ready = true
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) autoBiometrics()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                message = errorText(e, R.string.main_storage_unavailable)
+                if (::engine.isInitialized) { erased = withContext(vaultQueue) { runCatching { engine.isErased() }.getOrDefault(false) }; ready = erased }
+            }
+        }
         setContent {
             PassVaultTheme(themeMode) { BlockTextCopy(!allowCopy, ::copySecret) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -390,11 +407,16 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         updates?.onResume()
         autofillEnabled = autofillManager?.hasEnabledAutofillServices() == true
-        // Offer biometrics once per lock; cancelling the prompt must not re-trigger it on the next resume.
+        autoBiometrics()
+    }
+    /** Also called when asynchronous startup completes after onResume. */
+    private fun autoBiometrics() {
         if (ready && exists && !unlocked && !busy && !biometricAutoPrompted && biometricEnabled) { biometricAutoPrompted = true; biometrics() }
     }
     override fun onStop() {
         super.onStop()
+        biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
+        if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         backgroundSince = 0; lockTimeout = null
         if (isChangingConfigurations) return
         if (!unlocked) { discardPendingUnlock(); return }
@@ -414,7 +436,7 @@ class MainActivity : FragmentActivity() {
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; exportBytes?.fill(0); exportBytes = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
-        enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
+        biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
         if (::engine.isInitialized) lifecycleScope.launch(vaultQueue) { engine.lock() }
     }
     override fun onDestroy() {
@@ -424,59 +446,76 @@ class MainActivity : FragmentActivity() {
         if (::engine.isInitialized) { val e = engine; Thread { e.lock() }.start() }
         super.onDestroy()
     }
-    private fun work(action: () -> List<VaultRecord>?, done: () -> Unit = {}) {
-        if (!ready || busy) return
+    private fun work(action: () -> List<VaultRecord>?, cleanup: () -> Unit = {}, done: () -> Unit = {}) {
+        if (!ready || busy) { cleanup(); return }
         busy = true; message = ""; messageError = false; val epoch = generation
         lifecycleScope.launch {
             try {
-                val result = withContext(vaultQueue) { action() }
+                var decoy = false; var hasDecoy = false; var canResetDecoy = false; var attemptsRemaining = 10
+                val result = withContext(vaultQueue) { VaultAccess.serialized {
+                    val result = action()
+                    if (result != null) { decoy = engine.isDecoy(); hasDecoy = engine.hasDecoy(); canResetDecoy = engine.canResetDecoy() }
+                    attemptsRemaining = engine.remainingAttempts()
+                    result
+                } }
                 if (epoch != generation) {
                     withContext(vaultQueue) { engine.lock() }
                     // The action itself completed (e.g. a vault was created or reset), so refresh what the unlock screen shows.
-                    exists = runCatching { engine.exists() }.getOrDefault(exists); erased = runCatching { engine.isErased() }.getOrDefault(erased)
-                    remaining = runCatching { engine.remainingAttempts() }.getOrDefault(remaining)
+                    refreshUnlockScreen()
                     return@launch
                 }
                 if (result != null) {
                     records = result; unlocked = true; exists = true
-                    decoySession = runCatching { engine.isDecoy() }.getOrDefault(false); decoyEnabled = runCatching { engine.hasDecoy() }.getOrDefault(false); decoyResettable = runCatching { engine.canResetDecoy() }.getOrDefault(false); loadBackupStatus()
+                    decoySession = decoy; decoyEnabled = hasDecoy; decoyResettable = canResetDecoy; loadBackupStatus()
                     // Only the vault that made a pending transfer may see it again.
                     sending?.let { if (it.decoy != decoySession || SystemClock.elapsedRealtime() >= it.expiresAt) discardTransfer() }
                 }
-                remaining = engine.remainingAttempts(); done()
-            } catch (e: Exception) {
-                if (!runCatching { engine.isUnlocked() }.getOrDefault(false)) lockVault()
-                remaining = runCatching { engine.remainingAttempts() }.getOrDefault(0); erased = runCatching { engine.isErased() }.getOrDefault(false)
-                if (erased) biometricEnabled = false
-                messageError = true
-                message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else errorText(e, R.string.main_operation_failed)
-            }
-            finally { busy = false }
+                remaining = attemptsRemaining; done()
+            } catch (e: Exception) { reportWorkError(e) }
+            finally { cleanup(); busy = false }
         }
+    }
+    /** Locking does not re-read the attempt count or erasure; a task that ran past a lock may have changed both. */
+    private suspend fun refreshUnlockScreen() {
+        val status = withContext(vaultQueue) { Triple(runCatching { engine.exists() }.getOrDefault(exists), runCatching { engine.isErased() }.getOrDefault(erased), runCatching { engine.remainingAttempts() }.getOrDefault(remaining)) }
+        exists = status.first; erased = status.second; remaining = status.third
+    }
+    private suspend fun reportWorkError(e: Exception) {
+        if (!withContext(vaultQueue) { runCatching { engine.isUnlocked() }.getOrDefault(false) }) lockVault()
+        val status = withContext(vaultQueue) { runCatching { engine.remainingAttempts() }.getOrDefault(0) to runCatching { engine.isErased() }.getOrDefault(false) }
+        remaining = status.first; erased = status.second
+        if (erased) biometricEnabled = false
+        messageError = true
+        message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else errorText(e, R.string.main_operation_failed)
     }
     private fun saveRecord(saved: VaultRecord, done: () -> Unit = {}) {
         val updated = if (records.any { it.id == saved.id }) records.map { if (it.id == saved.id) saved else it } else records + saved
-        work({ engine.save(updated); updated }, done)
+        work({ engine.save(updated); updated }, done = done)
     }
     private fun biometrics(password: String? = null) {
         if (busy || !ready) return
         val enable = password != null
         if (BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) != BiometricManager.BIOMETRIC_SUCCESS) { message = getString(R.string.main_biometric_not_enrolled); return }
         if (!enable && !biometricEnabled) { message = getString(R.string.main_biometric_use_password_first); return }
+        var candidate: ByteArray? = null
+        var cipher: javax.crypto.Cipher? = null; var invalidated = false
         work({
-            if (enable) biometricCandidate = engine.biometricKey(password!!)
+            if (enable) candidate = engine.biometricKey(password!!)
+            try { cipher = engine.biometricCipher(enable) }
+            catch (_: KeyPermanentlyInvalidatedException) { engine.disableBiometric(); invalidated = true }
             null
-        }) {
+        }, cleanup = { candidate?.fill(0) }) {
+            if (invalidated) { biometricEnabled = false; message = getString(R.string.main_biometrics_changed); return@work }
             try {
-                val cipher = engine.biometricCipher(enable)
+                biometricCandidate = candidate; candidate = null
                 enablingBiometric = enable
-                biometricPrompt.authenticate(BiometricPrompt.PromptInfo.Builder().setTitle(if (enable) getString(R.string.main_enable_biometric_unlock) else getString(R.string.main_unlock_passvault)).setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG).setNegativeButtonText(getString(R.string.main_use_app_password)).build(), BiometricPrompt.CryptoObject(cipher))
-            } catch (e: KeyPermanentlyInvalidatedException) {
-                biometricCandidate?.fill(0); biometricCandidate = null
-                runCatching { engine.disableBiometric() }; biometricEnabled = false
-                message = getString(R.string.main_biometrics_changed)
-            } catch (e: Exception) { enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null; message = e.message ?: getString(R.string.main_biometric_key_unavailable) }
+                biometricEpoch = generation
+                biometricPrompt.authenticate(BiometricPrompt.PromptInfo.Builder().setTitle(if (enable) getString(R.string.main_enable_biometric_unlock) else getString(R.string.main_unlock_passvault)).setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG).setNegativeButtonText(getString(R.string.main_use_app_password)).build(), BiometricPrompt.CryptoObject(checkNotNull(cipher)))
+            } catch (e: Exception) { biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null; message = e.message ?: getString(R.string.main_biometric_key_unavailable) }
         }
+    }
+    private fun disableBiometrics() {
+        work({ engine.disableBiometric(); null }) { biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) }
     }
 
     @Composable private fun UnlockScreen() {
@@ -941,8 +980,8 @@ class MainActivity : FragmentActivity() {
                     Row(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title), report.score?.let { stringResource(R.string.health_summary, it, report.problemCount) } ?: stringResource(R.string.health_nothing)) { openHealth() }
                     Row(Icons.Outlined.Timer, stringResource(R.string.main_auto_lock), stringResource(autoLock.labelRes)) { dialog = SettingsDialog.AutoLockChoice }
                     // Biometrics always open the real vault, so the decoy vault neither shows nor changes them.
-                    if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } }) }) {
-                        if (biometricEnabled) { runCatching { engine.disableBiometric() }; biometricEnabled = false; message = getString(R.string.main_biometric_turned_off) } else dialog = SettingsDialog.EnableBiometrics
+                    if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else disableBiometrics() }) }) {
+                        if (biometricEnabled) disableBiometrics() else dialog = SettingsDialog.EnableBiometrics
                     }
                     if (autofillManager?.isAutofillSupported == true) Row(Icons.Outlined.Keyboard, stringResource(R.string.autofill_setting), stringResource(if (autofillEnabled) R.string.autofill_setting_on else R.string.autofill_setting_off),
                         trailing = { androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
