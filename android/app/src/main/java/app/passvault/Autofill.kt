@@ -32,10 +32,9 @@ class AutofillForm(val username: AutofillId?, val password: AutofillId?, val tar
             }
             for (i in 0 until structure.windowNodeCount) { if (overLimit) return null; visit(structure.getWindowNodeAt(i).rootViewNode, null, 0) }
             if (overLimit) return null
-            val chosen = AutofillFields.pick(text.map { it.field }) ?: return null
-            // The selected fields, rather than an unrelated first node, determine the claimed origin. Never fill across frames/origins.
-            val origin = AutofillOrigin.resolve(listOfNotNull(chosen.first, chosen.second).map { text[it].domain }) ?: return null
-            return AutofillForm(chosen.first?.let { text[it].id }, chosen.second?.let { text[it].id }, AutofillTarget(packageName, origin.host, origin.host != null && verifyBrowser(packageName)))
+            // The selected fields, rather than an unrelated first node, determine the claimed origin. A browser never fills across frames/origins.
+            val chosen = AutofillChoice.choose(text.map { it.field }, text.map { it.domain }, verifyBrowser(packageName)) ?: return null
+            return AutofillForm(chosen.username?.let { text[it].id }, chosen.password?.let { text[it].id }, AutofillTarget(packageName, chosen.host, chosen.host != null))
         }
     }
 }

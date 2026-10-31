@@ -37,7 +37,7 @@ class PassVaultAutofillService : AutofillService() {
     private suspend fun response(request: FillRequest): FillResponse? {
         val structure = request.fillContexts.lastOrNull()?.structure ?: return null
         val form = withContext(Dispatchers.Default) { AutofillForm.parse(structure) { AutofillBrowsers.verify(this@PassVaultAutofillService, it) } }
-        if (form == null || form.target.packageName == packageName || !withContext(vaultQueue) { vaultExists() }) return null
+        if (form == null || form.target.packageName == packageName || !withContext(Dispatchers.IO) { ProtectedStorage.mayHaveVault(this@PassVaultAutofillService) }) return null
         val unlock = presentation(this, getString(R.string.autofill_unlock), form.target.description(appLabel(this, form.target.packageName)))
         // Mutable: the system adds the form's structure to the intent when the user taps the suggestion.
         val sender = PendingIntent.getActivity(this, REQUEST, Intent(this, AutofillActivity::class.java),
@@ -50,9 +50,6 @@ class PassVaultAutofillService : AutofillService() {
 
     // No save info is ever requested, so there is nothing to save; new logins are added in the app.
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) = callback.onSuccess()
-
-    /** Queued behind complete authentication transactions; a reserved tenth attempt is never observed partway through verification. */
-    private fun vaultExists() = runCatching { VaultEngine(ProtectedStorage(this)).exists() }.getOrDefault(false)
 
     companion object {
         private const val REQUEST = 1001

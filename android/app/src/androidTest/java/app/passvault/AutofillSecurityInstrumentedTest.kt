@@ -21,8 +21,11 @@ class AutofillSecurityInstrumentedTest {
         assertFalse(AutofillDomains.sameSite("faß.de", "fass.de"))
         assertFalse(AutofillDomains.sameSite("10.0.0.1", "192.168.0.1"))
         assertNull(AutofillDomains.host("https://bank.com@evil.com"))
-        assertNull(AutofillOrigin.resolve(listOf("victim.github.io", "attacker.github.io")))
-        assertNull(AutofillOrigin.resolve(listOf("bank.com", null)))
+        // In a browser, another tenant's frame or a malformed domain is never filled; Android's IDN refuses faß.de here too.
+        val u = AutofillField.username; val p = AutofillField.password
+        assertEquals(AutofillChoice(null, 1, "victim.github.io"), AutofillChoice.choose(listOf(u, p), listOf("attacker.github.io", "victim.github.io"), browser = true))
+        assertNull(AutofillChoice.choose(listOf(u, p), listOf("faß.de", "faß.de"), browser = true))
+        assertEquals(AutofillChoice(0, 1, null), AutofillChoice.choose(listOf(u, p), listOf(null, "faß.de"), browser = false))
     }
 
     @Test fun browserSignaturesAreReadThroughPackageVisibility() {
