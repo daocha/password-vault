@@ -1,5 +1,6 @@
 package app.passvault
 
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -22,5 +23,15 @@ class AutofillSecurityInstrumentedTest {
         assertNull(AutofillDomains.host("https://bank.com@evil.com"))
         assertNull(AutofillOrigin.resolve(listOf("victim.github.io", "attacker.github.io")))
         assertNull(AutofillOrigin.resolve(listOf("bank.com", null)))
+    }
+
+    @Test fun browserSignaturesAreReadThroughPackageVisibility() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        // Not on the browser list, or not installed: never verified.
+        assertFalse(AutofillBrowsers.verify(context, context.packageName))
+        assertFalse(AutofillBrowsers.verify(context, "org.mozilla.klar"))
+        // Chrome ships on Google APIs images; when present, its real signature must verify (this needs the manifest's <queries>).
+        val chrome = runCatching { context.packageManager.getPackageInfo("com.android.chrome", 0) }.isSuccess
+        if (chrome) assertTrue(AutofillBrowsers.verify(context, "com.android.chrome"))
     }
 }

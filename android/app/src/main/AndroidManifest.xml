@@ -10,6 +10,33 @@
     <!-- Scanning authenticator QR codes. Asked for only when the user taps "Scan QR code". -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- Autofill reads these browsers' signing certificates to check that a browser asking for a site's login is the real one
+         (AutofillBrowsers). Only browsers in the bundled privileged_browsers.json are listed; a unit test keeps the two in step. -->
+    <queries>
+        <package android:name="app.vanadium.browser" />
+        <package android:name="com.android.chrome" />
+        <package android:name="com.brave.browser" />
+        <package android:name="com.brave.browser_beta" />
+        <package android:name="com.chrome.beta" />
+        <package android:name="com.chrome.canary" />
+        <package android:name="com.chrome.dev" />
+        <package android:name="com.duckduckgo.mobile.android" />
+        <package android:name="com.heytap.browser" />
+        <package android:name="com.microsoft.emmx" />
+        <package android:name="com.opera.browser" />
+        <package android:name="com.opera.browser.beta" />
+        <package android:name="com.opera.mini.native" />
+        <package android:name="com.sec.android.app.sbrowser" />
+        <package android:name="com.sec.android.app.sbrowser.beta" />
+        <package android:name="com.vivaldi.browser" />
+        <package android:name="com.yandex.browser" />
+        <package android:name="org.chromium.chrome" />
+        <package android:name="org.mozilla.fenix" />
+        <package android:name="org.mozilla.firefox" />
+        <package android:name="org.mozilla.firefox_beta" />
+        <package android:name="org.mozilla.focus" />
+        <package android:name="org.mozilla.klar" />
+    </queries>
     <!-- Deliberately no INTERNET permission. Only the GitHub sideload build (src/release) and a debug build given a LAN
          update server (src/lanUpdate) add it, to update themselves. -->
     <application android:localeConfig="@xml/locales_config" android:allowBackup="false" android:fullBackupContent="false"

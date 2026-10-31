@@ -10,8 +10,8 @@ class AutofillForm(val username: AutofillId?, val password: AutofillId?, val tar
     val ids get() = listOfNotNull(username, password)
     companion object {
         private val INPUT_CLASSES = setOf(InputType.TYPE_CLASS_TEXT, InputType.TYPE_CLASS_PHONE, InputType.TYPE_CLASS_NUMBER)
-        /** The login fields in [structure], or null when it has none. */
-        fun parse(structure: AssistStructure): AutofillForm? {
+        /** The login fields in [structure], or null when it has none. [verifyBrowser] checks a package's signature ([AutofillBrowsers.verify]). */
+        fun parse(structure: AssistStructure, verifyBrowser: (String) -> Boolean = { false }): AutofillForm? {
             val packageName = structure.activityComponent?.packageName ?: return null
             class Candidate(val id: AutofillId, val field: AutofillField, val domain: String?)
             val text = mutableListOf<Candidate>(); var visited = 0; var overLimit = false
@@ -35,7 +35,7 @@ class AutofillForm(val username: AutofillId?, val password: AutofillId?, val tar
             val chosen = AutofillFields.pick(text.map { it.field }) ?: return null
             // The selected fields, rather than an unrelated first node, determine the claimed origin. Never fill across frames/origins.
             val origin = AutofillOrigin.resolve(listOfNotNull(chosen.first, chosen.second).map { text[it].domain }) ?: return null
-            return AutofillForm(chosen.first?.let { text[it].id }, chosen.second?.let { text[it].id }, AutofillTarget(packageName, origin.host))
+            return AutofillForm(chosen.first?.let { text[it].id }, chosen.second?.let { text[it].id }, AutofillTarget(packageName, origin.host, origin.host != null && verifyBrowser(packageName)))
         }
     }
 }
@@ -93,22 +93,23 @@ object AutofillFields {
 }
 
 /** Who wants to be filled: an app, and for browsers the site shown. */
-data class AutofillTarget(val packageName: String, val webDomain: String?) {
+data class AutofillTarget(val packageName: String, val webDomain: String?, val verifiedBrowser: Boolean = false) {
     val reportedSite: String? get() = webDomain?.let(AutofillDomains::host)
     /**
-     * A claimed browser address for display and ranking only. Neither this package-name list nor a claimed address verifies the app's
-     * identity or authorizes a fill. Every selection needs an explicit destination confirmation, including known browser names.
+     * The address shown by a browser whose signing certificate was checked ([AutofillBrowsers.verify]); null for any other app, whose
+     * claimed address is neither shown nor used. It ranks suggestions; every selection still needs the destination confirmation.
      */
-    val site: String? get() = reportedSite?.takeIf { packageName in BROWSERS }
+    val site: String? get() = reportedSite?.takeIf { verifiedBrowser && packageName in BROWSERS }
     /** Display the package as well as its unverified label, without allowing a label to hide it with control characters. */
     fun description(label: String): String {
         val name = label.map { if (it.isWhitespace()) ' ' else it }.filterNot { it.isISOControl() || Character.getType(it) == Character.FORMAT.toInt() }
             .joinToString("").replace(Regex(" +"), " ").trim().take(80)
         // Isolate these app-controlled identifiers from surrounding right-to-left text in the label or the UI language.
         fun identifier(value: String) = "\u2066$value\u2069"
-        return listOfNotNull(reportedSite?.let(::identifier), "$name (${identifier(packageName)})").joinToString(" · ")
+        return listOfNotNull(site?.let(::identifier), "$name (${identifier(packageName)})").joinToString(" · ")
     }
     companion object {
+        /** Browsers whose address is believed once [AutofillBrowsers] has checked the signature; those missing from its list never are. */
         val BROWSERS = setOf(
             "com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary", "org.chromium.chrome", "com.google.android.apps.chrome",
             "org.mozilla.firefox", "org.mozilla.firefox_beta", "org.mozilla.fenix", "org.mozilla.fennec_fdroid", "org.mozilla.focus", "org.mozilla.klar", "org.torproject.torbrowser",

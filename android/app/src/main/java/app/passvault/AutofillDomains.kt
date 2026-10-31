@@ -7,7 +7,9 @@ import java.text.Normalizer
 /** Security domain matching for autofill. Logo/name guessing deliberately does not take part in this boundary. */
 internal object AutofillDomains {
     private class Rules(val exact: Set<String>, val wildcard: Set<String>, val exceptions: Set<String>)
-    private val rules by lazy {
+    /** Null if the bundled list cannot be read on this phone (an older IDN table, say): then no site matches, rather than a crash. */
+    private val rules: Rules? by lazy { runCatching { loadRules() }.getOrNull() }
+    private fun loadRules(): Rules {
         val exact = HashSet<String>(); val wildcard = HashSet<String>(); val exceptions = HashSet<String>()
         AutofillDomains::class.java.getResourceAsStream("/public_suffix_list.dat")!!.bufferedReader().useLines { lines ->
             lines.map { it.substringBefore("//").trim() }.filter { it.isNotEmpty() }.forEach { rule ->
@@ -19,7 +21,7 @@ internal object AutofillDomains {
                 }
             }
         }
-        Rules(exact, wildcard, exceptions)
+        return Rules(exact, wildcard, exceptions)
     }
 
     /** A URL or bare host, with no user info, backslash, unusual scheme, invalid port, or ambiguous numeric address. Never resolves DNS. */
@@ -63,6 +65,7 @@ internal object AutofillDomains {
     /** Registrable domain using the complete bundled PSL, including private hosting domains; null for a suffix alone. */
     fun registrable(host: String): String? {
         if (':' in host || host.all { it in '0'..'9' || it == '.' }) return host
+        val rules = rules ?: return null
         val labels = host.split('.')
         var suffixSize = 1 // PSL's implicit '*' rule.
         for (i in labels.indices) {

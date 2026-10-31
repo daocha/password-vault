@@ -50,7 +50,7 @@ class AutofillTest {
     @Test fun matchesSitesByRegistrableDomain() {
         assertEquals("google.com", AutofillMatch.baseDomain("accounts.google.com"))
         assertEquals("bbc.co.uk", AutofillMatch.baseDomain("www.bbc.co.uk"))
-        val chrome = AutofillTarget("com.android.chrome", "accounts.google.com")
+        val chrome = AutofillTarget("com.android.chrome", "accounts.google.com", verifiedBrowser = true)
         assertTrue(AutofillMatch.suggests(login("Google", "https://www.google.com/"), chrome))
         assertTrue(AutofillMatch.suggests(login("Mail", "mail.google.com"), chrome))
         assertFalse(AutofillMatch.suggests(login("Lookalike", "google.com.evil.net"), chrome))
@@ -63,6 +63,12 @@ class AutofillTest {
         val app = AutofillTarget("com.example.notabrowser", "bank.com")
         assertEquals(null, app.site)
         assertFalse(AutofillMatch.suggests(login("Bank", "bank.com"), app))
+        // A browser's package name whose signature did not check out (a sideloaded app taking Firefox's name) is just an app.
+        val fake = AutofillTarget("org.mozilla.firefox", "bank.com")
+        assertNull(fake.site); assertFalse(AutofillMatch.suggests(login("Bank", "bank.com"), fake))
+        assertEquals("Firefox (\u2066org.mozilla.firefox\u2069)", fake.description("Firefox"))
+        // Verified only counts for the browser list: a verified flag on any other package changes nothing.
+        assertNull(AutofillTarget("com.example.notabrowser", "bank.com", verifiedBrowser = true).site)
     }
 
     @Test fun matchesAppsByPackageName() {
@@ -83,7 +89,7 @@ class AutofillTest {
         assertTrue(AutofillMatch.suggests(login("Diving log", "Dive+"), dive, "Dive+"))
         assertFalse(AutofillMatch.suggests(login("Dive+"), dive, "Dive Shop"))
         // On a site, only the address counts: a page cannot pass for an app by name.
-        assertFalse(AutofillMatch.suggests(login("Dive+"), AutofillTarget("com.android.chrome", "evil.example"), "Dive+"))
+        assertFalse(AutofillMatch.suggests(login("Dive+"), AutofillTarget("com.android.chrome", "evil.example", verifiedBrowser = true), "Dive+"))
     }
 
     @Test fun takesPhoneAndNumberFieldsForUsernames() {
@@ -105,7 +111,10 @@ class AutofillTest {
     @Test fun displaysTheActualPackageAlongsideUnverifiedNamesAndDomains() {
         val spoof = AutofillTarget("com.attacker.utility", "accounts.google.com")
         assertNull(spoof.site) // Not treated as a browser for ranking.
-        assertEquals("\u2066accounts.google.com\u2069 · Google (\u2066com.attacker.utility\u2069)", spoof.description("Google"))
+        // Its claimed address is not shown either: it would make the confirmation look like a real browser's.
+        assertEquals("Google (\u2066com.attacker.utility\u2069)", spoof.description("Google"))
+        assertEquals("\u2066accounts.google.com\u2069 · Chrome (\u2066com.android.chrome\u2069)",
+            AutofillTarget("com.android.chrome", "accounts.google.com", verifiedBrowser = true).description("Chrome"))
         val hidden = spoof.description("Google\u202E\n\u2028\u200B" + "x".repeat(500))
         assertTrue(hidden.endsWith("(\u2066com.attacker.utility\u2069)")); assertFalse('\u202E' in hidden); assertFalse('\n' in hidden)
         assertFalse('\u2028' in hidden); assertFalse('\u200B' in hidden)
