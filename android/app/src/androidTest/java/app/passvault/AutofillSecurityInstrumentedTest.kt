@@ -25,6 +25,13 @@ class AutofillSecurityInstrumentedTest {
         assertNull(AutofillOrigin.resolve(listOf("bank.com", null)))
     }
 
+    @Test fun passwordGuessabilityRunsOnAndroid() {
+        // zxcvbn reads its dictionaries from the APK; if it could not, guessable passwords would quietly pass on phones.
+        assertTrue(PasswordPolicy.guesses("Summer2026!!") < PasswordPolicy.MIN_GUESSES_LOG10)
+        assertEquals(R.string.app_pw_guessable, PasswordPolicy.problem("Password123!"))
+        assertNull(PasswordPolicy.problem("Correct horse battery 1!"))
+    }
+
     @Test fun browserSignaturesAreReadThroughPackageVisibility() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         // Not on the browser list, or not installed: never verified.

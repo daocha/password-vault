@@ -157,6 +157,8 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.81")
     // In-app updates: Google Play's update flow for Play installs (talks to the Play Store app, not the network).
     implementation("com.google.android.play:app-update:2.1.0")
+    // App password guessability (zxcvbn): dictionaries, keyboard patterns, dates and l33t, all bundled in the jar; nothing is sent anywhere.
+    implementation("com.nulab-inc:zxcvbn:1.9.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
     androidTestImplementation("androidx.test:runner:1.6.2")

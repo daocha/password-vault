@@ -158,7 +158,7 @@
     <string name="main_generator_defaults">新生成密码的默认设置。</string>
     <string name="main_enable_biometric_body">请输入你的主密码。此次输入会计入 10 次尝试上限。</string>
     <string name="main_export_csv_body">请输入你的主密码以授权导出。此次输入会计入 10 次尝试上限。</string>
-    <string name="main_export_encrypted_body">请输入你的主密码。备份文件将使用同一密码加密。此次输入会计入 10 次尝试上限。</string>
+    <string name="main_export_encrypted_body">请输入你的主密码。备份文件将使用同一密码加密。此次输入会计入 10 次尝试上限。任何拿到这个文件的人都能在电脑上不限次数地猜测这个密码，所以请把备份存放在私密的地方。以后更改密码，也保护不了已经保存的备份。</string>
     <string name="main_csv_warning">CSV 文件会以明文暴露每一个密码，且不包含助记词和两步验证密钥。请勿用电子表格打开，迁移完成后请将其删除。</string>
     <string name="main_understand_risk">我了解风险</string>
     <string name="main_current_password">当前密码</string>
@@ -185,6 +185,7 @@
     <string name="main_export_cancelled">已取消导出。</string>
     <string name="main_export_csv_done">已导出明文 CSV。迁移完成后请妥善保管或删除此文件。</string>
     <string name="main_export_encrypted_done">已导出加密备份。</string>
+    <string name="main_export_encrypted_done_weak">已导出加密备份，但你的主密码容易被猜到：拿到这个文件的人可能破解它。请在设置中更改密码，保存一份新备份，再删除这一份。</string>
     <string name="main_export_failed">导出失败。</string>
     <string name="main_password_meets">密码符合要求。</string>
     <string name="main_clipboard_schedule_failed">无法安排清除剪贴板：%1$s</string>

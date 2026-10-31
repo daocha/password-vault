@@ -158,7 +158,7 @@
     <string name="main_generator_defaults">Defaults for new generated passwords.</string>
     <string name="main_enable_biometric_body">Enter your app password. It counts toward the 10-attempt limit.</string>
     <string name="main_export_csv_body">Enter your app password to authorize the export. It counts toward the 10-attempt limit.</string>
-    <string name="main_export_encrypted_body">Enter your app password. The backup file is encrypted with this same password. It counts toward the 10-attempt limit.</string>
+    <string name="main_export_encrypted_body">Enter your app password. The backup file is encrypted with this same password. It counts toward the 10-attempt limit. Anyone who gets the file can guess at that password on a computer, with no attempt limit, so keep backups somewhere private. Changing your password later does not protect backups already saved.</string>
     <string name="main_csv_warning">The CSV exposes every password in plain text. Seed phrases and 2FA keys are never included. Don\'t open it in a spreadsheet, and delete it after migration.</string>
     <string name="main_understand_risk">I understand the risk</string>
     <string name="main_current_password">Current password</string>
@@ -185,6 +185,7 @@
     <string name="main_export_cancelled">Export cancelled.</string>
     <string name="main_export_csv_done">Plaintext CSV exported. Protect or delete this file after migration.</string>
     <string name="main_export_encrypted_done">Encrypted backup exported.</string>
+    <string name="main_export_encrypted_done_weak">Encrypted backup exported, but your app password is easy to guess: someone who gets this file could crack it. Change the password in Settings, save a new backup, and delete this one.</string>
     <string name="main_export_failed">Export failed.</string>
     <string name="main_password_meets">Password meets the requirements.</string>
     <string name="main_clipboard_schedule_failed">Couldn\'t schedule clipboard clearing: %1$s</string>
