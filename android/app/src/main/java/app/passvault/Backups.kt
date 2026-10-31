@@ -27,19 +27,46 @@ object BackupReminder {
     }
 }
 
+/** One export owns its bytes and the metadata for those exact records, even while another export is prepared or the vault locks. */
+/** [weakPassword]: the password protecting an encrypted backup is easy to guess, which matters most once the file is out of the phone. */
+class VaultExport private constructor(val bytes: ByteArray, val csv: Boolean, val decoy: Boolean, val fileKeys: Set<String>, val weakPassword: Boolean) {
+    fun clear() { bytes.fill(0) }
+    /** Called only after a successful write. CSV is not a backup, and the destination history belongs to the source vault. */
+    fun recordBackup(prefs: SharedPreferences, savedAt: Instant) {
+        if (!csv) BackupStatus(prefs, if (decoy) "decoy." else "").record(savedAt, fileKeys)
+    }
+
+    companion object {
+        /** Called under the engine's lock; the encoder and the fingerprints see the same record snapshot. */
+        fun prepare(records: List<VaultRecord>, csv: Boolean, decoy: Boolean, encode: (List<VaultRecord>) -> ByteArray, weakPassword: Boolean = false): VaultExport {
+            val snapshot = records.toList()
+            val keys = if (csv) emptySet() else FileKeys.of(snapshot).map { FileKeys.fingerprint(it.ageIdentity!!) }.toSet()
+            return VaultExport(encode(snapshot), csv, decoy, keys, weakPassword && !csv)
+        }
+    }
+}
+
 /**
- * When the last encrypted backup was saved and the reminder settings, kept in ordinary preferences (no secrets: only times and a choice).
+ * When the last encrypted backup was saved, its key fingerprints and reminder settings, kept in ordinary preferences (no secrets).
  * [prefix] keeps each vault's history apart (the decoy vault has its own).
  */
 class BackupStatus(private val prefs: SharedPreferences, private val prefix: String = "") {
-    var lastBackup: Instant?
+    /** Written only by [record], with the key coverage of the same backup. */
+    val lastBackup: Instant?
         get() = prefs.getLong(prefix + "lastBackupAt", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
-        set(value) { prefs.edit().putLong(prefix + "lastBackupAt", value?.toEpochMilli() ?: 0L).remove(prefix + "backupSnoozeUntil").apply() }
     var interval: BackupInterval
         get() = runCatching { BackupInterval.valueOf(prefs.getString(prefix + "backupReminder", null) ?: "") }.getOrDefault(BackupInterval.month)
         set(value) { prefs.edit().putString(prefix + "backupReminder", value.name).apply() }
     var snoozedUntil: Instant?
         get() = prefs.getLong(prefix + "backupSnoozeUntil", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
         set(value) { prefs.edit().putLong(prefix + "backupSnoozeUntil", value?.toEpochMilli() ?: 0L).apply() }
+    /** Fingerprints of the file-encryption keys the last encrypted backup contained (see [FileKeys.fingerprint]); null before tracking. */
+    val fileKeys: Set<String>?
+        get() = prefs.getStringSet(prefix + "backupFileKeys", null)?.toSet()
+    /** Timestamp and key coverage belong to the same completed backup; publish them together. */
+    fun record(savedAt: Instant, keys: Set<String>) {
+        prefs.edit().putLong(prefix + "lastBackupAt", savedAt.toEpochMilli()).putStringSet(prefix + "backupFileKeys", keys)
+            .remove(prefix + "backupSnoozeUntil").apply()
+    }
     fun snooze(now: Instant = Instant.now()) { snoozedUntil = now.plus(Duration.ofDays(BackupReminder.SNOOZE_DAYS)) }
 }
