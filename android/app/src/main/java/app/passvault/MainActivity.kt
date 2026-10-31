@@ -432,7 +432,7 @@ class MainActivity : FragmentActivity() {
             val identity = withContext(Dispatchers.Default) { Age.generateIdentity().encoded }
             // Locked meanwhile, perhaps reopened as the other vault: the key must not land there.
             if (epoch != generation || !unlocked) return@launch
-            saveRecord(FileKeys.record(getString(R.string.files_key_name), identity, getString(R.string.files_key_note))) { message = getString(R.string.files_key_created) }
+            saveRecord(FileKeys.newKey(getString(R.string.files_key_name), identity, getString(R.string.files_key_note), fileKeys)) { message = getString(R.string.files_key_created) }
         }
     }
     private fun importFileKey(identity: String) {
@@ -582,7 +582,7 @@ class MainActivity : FragmentActivity() {
         if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
         scannedImport = null; cameraGranted = null; imageRead = null
         // A running file job sees the new generation and stops; its half-written output is deleted.
-        fileCrypt = false; fileSource = null; encryptedOriginal = null; fileCancelled = true
+        fileCrypt = false; fileSource = null; encryptedOriginal = null; fileCancelled = true; fileKeysOf = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; discardPendingExport()
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()

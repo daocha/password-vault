@@ -42,6 +42,8 @@ Both directions, both key types, armored files and the chunk boundaries are chec
   hidden `legacy` metadata (kept by backups, transfers and iOS), not `updatedAt`: moving an old key into a group must not make it
   active again after the user rotated away from it. An entry without the stamp (from the first test build, or made by
   hand on iOS) is stamped from its `updatedAt` by `VaultEngine` as soon as it is loaded (in memory) or saved, before an edit can change that.
+  A key created in the app is stamped after the newest existing key even if the clock is behind it (set back, or a restored key stamped
+  in the future), so creating a key always makes it the active one.
 - **Imported keys.** Importing a key is for opening files encrypted to it (old archives, say), so it must not silently become the key new
   files use. It is stamped one millisecond before the vault's oldest key, unless the vault has none, and the app says new files keep using
   the current key.

@@ -34,6 +34,14 @@ object FileKeys {
         fields = listOf(VaultField(kind = FieldKind.password, label = AGE_KEY_LABEL, value = identity.trim()), VaultField(kind = FieldKind.note, label = "Notes", value = notes)),
         legacy = mapOf(CREATED to now.toString()))
     /**
+     * A key created to encrypt new files. It is stamped after the newest of [existing] even when the clock is behind it (set back, or a
+     * restored key stamped in the future), so creating a key always rotates to it.
+     */
+    fun newKey(name: String, identity: String, notes: String, existing: List<VaultRecord>, now: Instant = Instant.now()): VaultRecord {
+        val added = existing.maxOfOrNull(::created)?.plusMillis(1)?.takeIf { it > now } ?: now
+        return record(name, identity, notes, now).let { it.copy(legacy = it.legacy + (CREATED to added.toString())) }
+    }
+    /**
      * A key pasted in (from age-keygen, say) to open files encrypted to it. It does not take over encryption: it is stamped just before
      * the oldest of [existing] (the vault's keys), so new files keep using the current key. It is used for new files only when it is the
      * vault's first key.

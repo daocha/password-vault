@@ -57,7 +57,17 @@ class FileKeysTest {
         assertEquals("newer", FileKeys.of(vault + newer).first().name)
     }
 
-        @Test fun unstampedKeysAreStampedBeforeAnEdit() {
+    @Test fun aNewKeyTakesOverEvenWhenTheClockIsBehind() {
+        // A restored key stamped in the future, or the clock set back since the current key was made.
+        val future = FileKeys.record("future", Age.generateIdentity().encoded, "", Instant.parse("2030-01-01T00:00:00Z"))
+        val now = Instant.parse("2026-10-31T00:00:00Z")
+        val replacement = FileKeys.newKey("replacement", identity, "", listOf(future), now)
+        assertEquals("replacement", FileKeys.of(listOf(future, replacement)).first().name)
+        // With the clock right, the stamp is the time it was made.
+        assertEquals(now, FileKeys.created(FileKeys.newKey("first", identity, "", emptyList(), now)))
+    }
+
+    @Test fun unstampedKeysAreStampedBeforeAnEdit() {
         // Entries from the first build, or made by hand on iOS, have no stamp until the vault next loads them.
         val old = FileKeys.record("old", identity, "").copy(legacy = emptyMap(), updatedAt = "2026-01-01T00:00:00Z")
         val new = FileKeys.record("new", Age.generateIdentity().encoded, "", Instant.parse("2026-06-01T00:00:00Z"))

@@ -364,7 +364,9 @@ object Age {
     private fun openKey(key: ByteArray, nonce: ByteArray, body: ByteArray): ByteArray? = try { aead(false, key, nonce, body) } catch (e: InvalidCipherTextException) { null }
     private fun aead(encrypt: Boolean, key: ByteArray, nonce: ByteArray, input: ByteArray, length: Int = input.size): ByteArray {
         val cipher = ChaCha20Poly1305(); cipher.init(encrypt, AEADParameters(KeyParameter(key), 128, nonce))
-        val out = ByteArray(cipher.getOutputSize(length)); var n = cipher.processBytes(input, 0, length, out, 0); n += cipher.doFinal(out, n)
+        val out = ByteArray(cipher.getOutputSize(length))
+        // Decrypting, processBytes writes plaintext before doFinal checks the tag: wipe it when the tag is rejected.
+        val n = try { cipher.processBytes(input, 0, length, out, 0).let { it + cipher.doFinal(out, it) } } catch (e: Exception) { out.fill(0); throw e }
         return if (n == out.size) out else out.copyOf(n).also { out.fill(0) }
     }
     private fun hmac(key: ByteArray, data: ByteArray): ByteArray = HMac(SHA256Digest()).run { init(KeyParameter(key)); update(data, 0, data.size); ByteArray(32).also { doFinal(it, 0) } }

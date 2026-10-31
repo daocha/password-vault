@@ -52,7 +52,12 @@ fun FileEncryptionScreen(keys: List<VaultRecord>, backupNeeded: Boolean, onBack:
     var creating by remember { mutableStateOf(false) }; var importing by remember { mutableStateOf(false) }
     val current = keys.firstOrNull()
     // Deriving a post-quantum public key expands the ML-KEM key: off the main thread.
-    val publicKey by produceState<String?>(null, current?.ageIdentity) { value = current?.ageIdentity?.let { id -> withContext(Dispatchers.Default) { runCatching { Age.parseIdentity(id).recipient.encoded }.getOrNull() } } }
+    // Keyed on the identity, so after a rotation the previous key's public key is gone at once (produceState would keep it until its
+    // coroutine finished) and Copy and Share stay disabled until the new one is ready.
+    val identity = current?.ageIdentity
+    val publicKeyState = remember(identity) { mutableStateOf<String?>(null) }
+    LaunchedEffect(identity) { publicKeyState.value = identity?.let { id -> withContext(Dispatchers.Default) { runCatching { Age.parseIdentity(id).recipient.encoded }.getOrNull() } } }
+    val publicKey = publicKeyState.value
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.files_title)) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
