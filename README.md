@@ -31,13 +31,13 @@ No account · No server · No analytics · No cloud sync
 > PassVault uses established encryption (Argon2id and XChaCha20-Poly1305 via libsodium), keeps everything on your device, and has no network features. The code is public, so you can read it and judge for yourself.
 > No professional security review has been done yet. As with any password manager you haven't audited yourself, **keep a separate backup of anything important.**
 >
-> 📖 See the [security model](docs/SECURITY.md) for what it does and doesn't protect against, the [feature status](docs/FEATURES.md), and the [encrypted file format](docs/FORMAT.md).
+> 📖 See the [security model](docs/SECURITY.md) for what it does and doesn't protect against, the [feature status](docs/FEATURES.md), the [encrypted file format](docs/FORMAT.md), and [file encryption](docs/FILE-ENCRYPTION.md).
 
 ---
 
 ## 📑 Contents
 
-[✨ Features](#-features) · [📥 Download](#-download-android) · [🍎 Build for iOS](#-build-for-ios) · [🤖 Build for Android](#-build-for-android) · [🚚 Moving your passwords in](#-moving-your-passwords-in) · [🔢 Adding 2FA codes](#-adding-2fa-codes) · [🛡️ Security checks](#%EF%B8%8F-security-checks) · [✅ Project status](#-project-status) · [📜 License](#-license)
+[✨ Features](#-features) · [📥 Download](#-download-android) · [🍎 Build for iOS](#-build-for-ios) · [🤖 Build for Android](#-build-for-android) · [🚚 Moving your passwords in](#-moving-your-passwords-in) · [🔢 Adding 2FA codes](#-adding-2fa-codes) · [🗝️ Encrypting files](#%EF%B8%8F-encrypting-files-android) · [🛡️ Security checks](#%EF%B8%8F-security-checks) · [✅ Project status](#-project-status) · [📜 License](#-license)
 
 ---
 
@@ -231,6 +231,25 @@ Check that the code shown matches what the site expects, then save. Tap a code i
 - The setup key can be revealed to check it, but it can't be copied from the app.
 - Setup keys are part of the encrypted vault, so **encrypted backups** include them and restore them on either platform. CSV exports never do.
 - Keep an encrypted backup. If you lose your phone without one, you'll need each site's recovery codes to get back in.
+
+---
+
+## 🗝️ Encrypting files (Android)
+
+Lock any file (a passport scan, a tax return, a photo) so only your vault can open it. Open **Settings → Security → File encryption**, or tap the encrypted-file icon in the vault's top bar.
+
+1. **Create a key** the first time. It is saved in the vault as a secure note, so it moves with encrypted backups and phone transfers. **Back up your vault right after:** if you lose the phone without a backup, files encrypted to that key can never be opened, not even by you.
+2. **Encrypt**: pick a file, choose where to save `name.age`, and optionally delete the original.
+3. **Decrypt**: pick a `.age` file and choose where to save the copy. The decrypted copy is not protected, so delete it when you are done.
+
+**Good to know**
+
+- PassVault never keeps the encrypted file. It stays wherever you save it (Downloads, a USB drive, cloud storage), and a vault backup stays small however many files you encrypt.
+- Files use the open [age](https://age-encryption.org) format with post-quantum keys. On a computer, **age 1.3.0 or later** opens them, and files encrypted there to the vault's public key open in PassVault.
+- Already use age? Import an existing key to open files encrypted to it. New files keep using your current key.
+- Not on iOS yet. The key shows up there as a secure note, so you can still reveal it and use it with age on a computer.
+
+📖 See [docs/FILE-ENCRYPTION.md](docs/FILE-ENCRYPTION.md) for the `age` commands to use on a computer, how keys are chosen and protected, and how it is tested.
 
 ---
 
