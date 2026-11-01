@@ -173,7 +173,11 @@ struct UnlockView: View {
             Form {
                 Section {
                     VStack(spacing: 12) {
-                        Image(systemName: "lock.shield.fill").font(.system(size: 56)).foregroundStyle(.tint)
+                        Image("vault_icon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 112, height: 112)
+                            .accessibilityLabel("PassVault lock")
                         WordMark().font(.largeTitle.bold())
                         Text("Your passwords. Only on your device.").foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity).padding(.vertical, 24)
