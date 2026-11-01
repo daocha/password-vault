@@ -109,6 +109,13 @@ Then:
 2. Swift Package Manager fetches the pinned libsodium wrapper automatically.
 3. Set a device passcode before creating a vault. To use biometric unlock, first enroll Face ID or Touch ID, then turn it on in the app's settings.
 
+The Debug build uses `app.passvault.mobile.debug` and the name **PassVault Dev**, so it installs beside the
+release app (`app.passvault.mobile`), matching Android's debug/release separation. Regenerate the project
+with `xcodegen generate` to apply configuration changes. Debug and release keep separate vault data;
+if an older iOS debug build used the release identifier, its data stays with that installation. Export a
+backup before removing it; the new debug app does not migrate its vault automatically. For device signing,
+enable Data Protection with Complete Protection for the debug App ID as well as the release App ID.
+
 ---
 
 ## 🤖 Build for Android
