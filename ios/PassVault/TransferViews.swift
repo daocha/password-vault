@@ -35,7 +35,7 @@ struct TransferSendView: View {
         let frames = payload.frames
         NavigationStack {
             VStack(spacing: 16) {
-                Text("On the new phone, open PassVault, go to Import, export & security, Receive from another phone, and point its camera at this screen. Keep this screen open until it is done.")
+                Text("On the new phone, open PassVault, go to Settings, Receive from another phone, and point its camera at this screen. Keep this screen open until it is done.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 if showCode {
                     VStack(spacing: 12) {
