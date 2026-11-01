@@ -441,3 +441,19 @@ func reviewFixChecks() throws {
     let started = Date(); let joined = collector.result()
     try check(joined == data && Date().timeIntervalSince(started) < 2, "transfer joins linearly")
 }
+
+/// 2FA scanning and ordering; mirrors Android's TotpTest (customOrder, scanZoom).
+func totpOrderChecks() throws {
+    try check(QRScanZoom.factor(maxZoom: 10) == 2 && QRScanZoom.factor(maxZoom: 2) == 2 && QRScanZoom.factor(maxZoom: 1.5) == 1.5
+              && QRScanZoom.factor(maxZoom: 1) == 1 && QRScanZoom.factor(maxZoom: 0.5) == 1, "every QR scan starts at 2x, within what the camera allows")
+    // Android keeps the order the user gave 2FA codes in each record's legacy map ("totpOrder"). iOS does not show it but must keep it, so a
+    // vault that goes to iOS and back (backup, transfer) keeps its order. This is an Android-written record, as it is stored.
+    let android = Data(#"[{"id":"7E0C5C2A-3C1B-4C5E-9A61-2B1D7A0F4E11","name":"GitHub","website":"","group":"","favorite":false,"updatedAt":"2026-11-01T00:00:00Z","fields":[{"id":"0B6E2C1D-6F7A-4B8C-9D0E-1F2A3B4C5D6E","kind":"password","label":"Authenticator","value":"otpauth://totp/GitHub:me?secret=JBSWY3DPEHPK3PXP&issuer=GitHub","question":""}],"legacy":{"totpOrder":"3","fileKeyCreated":"2026-10-30T00:00:00Z"},"type":"totp"}]"#.utf8)
+    var records = try Records.decode(android)
+    try check(records.first?.isTotp == true && records.first?.legacy["totpOrder"] == "3", "an Android 2FA code's position is read")
+    records[0].name = "GitHub (work)"; records[0].favorite = true // An edit on iOS…
+    let saved = try Records.decode(Records.encode(records))
+    try check(saved.first?.legacy == ["totpOrder": "3", "fileKeyCreated": "2026-10-30T00:00:00Z"] && saved.first?.name == "GitHub (work)", "…keeps the position when saved again")
+    let code = Transfer.newCode()
+    try check(try Transfer.open(Transfer.seal(saved, code: code), code: code).first?.legacy["totpOrder"] == "3", "a transfer keeps a 2FA code's position")
+}

@@ -71,6 +71,8 @@ object QrDecoder {
  */
 private const val REFOCUS_MILLIS = 2000L
 private const val SCAN_ZOOM = 2f
+/** [SCAN_ZOOM], limited to what the camera supports ([maxZoomRatio] is null until the camera reports it); never below 1×. Matches iOS's QRScanZoom. */
+internal fun scanZoom(maxZoomRatio: Float?) = SCAN_ZOOM.coerceAtMost(maxZoomRatio ?: SCAN_ZOOM).coerceAtLeast(1f)
 
 @Composable
 fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifier = Modifier, continuous: Boolean = false, analyzed: AtomicInteger? = null) {
@@ -117,7 +119,7 @@ fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifie
                         lastFocus.set(System.currentTimeMillis()); focus[0]?.invoke()
                     }
                     // The zoom range may not be known yet; a ratio out of range is then refused and the camera stays at 1x.
-                    runCatching { camera.cameraControl.setZoomRatio(SCAN_ZOOM.coerceAtMost(camera.cameraInfo.zoomState.value?.maxZoomRatio ?: SCAN_ZOOM)) }
+                    runCatching { camera.cameraControl.setZoomRatio(scanZoom(camera.cameraInfo.zoomState.value?.maxZoomRatio)) }
                 }
             }, ContextCompat.getMainExecutor(context))
         }

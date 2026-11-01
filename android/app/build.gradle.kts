@@ -165,6 +165,10 @@ dependencies {
     testImplementation("org.json:json:20250517")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.12.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // The empty activity Compose tests host their content in; only in the emulator-only qa build, never in a release.
+    "qaImplementation"("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("org.json:json:20250517")
 }
 

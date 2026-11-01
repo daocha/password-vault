@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -837,7 +838,7 @@ class MainActivity : FragmentActivity() {
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_empty_seed_body; RecordType.totp -> R.string.totp_empty_body; else -> R.string.main_empty_login_body }), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 } else Row(Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_count_of_seeds; RecordType.totp -> R.string.totp_count; else -> R.string.main_count_of_entries }, visible.size, ofType.size), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (totpTab && ofType.size > 1 && !selecting) TextButton(onClick = { searchOpen = false; reordering = true }, Modifier.height(32.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    if (totpTab && ofType.size > 1 && !selecting) TextButton(onClick = { searchOpen = false; reordering = true }, Modifier.height(32.dp).testTag(REORDER_BUTTON), contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Icon(Icons.Default.SwapVert, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.totp_reorder), style = MaterialTheme.typography.labelLarge)
                     }
                 }

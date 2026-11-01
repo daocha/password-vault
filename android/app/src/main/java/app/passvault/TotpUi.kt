@@ -5,7 +5,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -27,6 +31,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -43,7 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import java.time.Instant
 
 /** "123 456", "1234 5678": codes are easier to read and type in two halves. */
@@ -276,23 +281,43 @@ fun TotpEditor(
 fun TotpReorder(codes: List<VaultRecord>, onCancel: () -> Unit, onSave: (List<String>) -> Unit) {
     val items = remember { codes.toMutableStateList() }
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val drag = remember { ReorderDrag(listState, scope) { from, to -> items.add(to, items.removeAt(from)) } }
+    val drag = remember { ReorderDrag(listState) { from, to -> items.add(to, items.removeAt(from)) } }
     val haptics = LocalHapticFeedback.current
     val changed = items.map { it.id } != codes.map { it.id }
     BackHandler(onBack = onCancel)
-    LaunchedEffect(drag) { for (delta in drag.scroll) listState.scrollBy(delta) }
+    // While a row is held past an edge, scroll every frame, then let the row take the slot now under it.
+    LaunchedEffect(drag) {
+        snapshotFlow { drag.index != null }.collectLatest { dragging ->
+            while (dragging) { withFrameNanos { }; val step = drag.edgeScroll(); if (step != 0f) { listState.scrollBy(step); drag.drag(0f) } }
+        }
+    }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.totp_reorder_title)) }, navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.Default.Close, stringResource(R.string.seed_discard)) } },
             actions = { Button(onClick = { onSave(items.map { it.id }) }, enabled = changed, modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.seed_save)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
         Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
             Text(stringResource(R.string.totp_reorder_hint), Modifier.padding(start = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
+            // The drag is followed by the list, not the handle: a row that moves to another slot restarts the gestures inside it, which
+            // would drop the drag after its first step. A press on a row's handle (the end of the row) drags at once; anywhere else scrolls.
+            val handleWidth = with(LocalDensity.current) { HANDLE_ZONE.toPx() }
+            LazyColumn(Modifier.fillMaxSize().pointerInput(drag) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    if (down.position.x < size.width - handleWidth || !drag.startAt(down.position.y)) return@awaitEachGesture
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); down.consume()
+                    try {
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            drag.drag(change.positionChange().y); change.consume()
+                        }
+                    } finally { drag.end() }
+                }
+            }, state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
                 itemsIndexed(items, key = { _, r -> r.id }) { index, record ->
                     val dragging = drag.index == index
                     val up = stringResource(R.string.totp_move_up); val down = stringResource(R.string.totp_move_down)
-                    Card(Modifier.fillMaxWidth()
+                    Card(Modifier.fillMaxWidth().testTag(REORDER_ROW)
                         .then(if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = drag.offset } else Modifier.animateItem())
                         .semantics { customActions = listOfNotNull(
                             if (index > 0) CustomAccessibilityAction(up) { items.add(index - 1, items.removeAt(index)); true } else null,
@@ -307,10 +332,7 @@ fun TotpReorder(codes: List<VaultRecord>, onCancel: () -> Unit, onSave: (List<St
                                 if (account.isNotBlank()) Text(account, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                            Box(Modifier.size(48.dp).pointerInput(drag, record.id) {
-                                detectDragGestures(onDragStart = { if (drag.start(record.id)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
-                                    onDrag = { change, amount -> change.consume(); drag.drag(amount.y) }, onDragEnd = drag::end, onDragCancel = drag::end)
-                            }, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            Box(Modifier.size(48.dp).testTag(REORDER_HANDLE), contentAlignment = Alignment.Center) { Icon(Icons.Default.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }
@@ -319,40 +341,45 @@ fun TotpReorder(codes: List<VaultRecord>, onCancel: () -> Unit, onSave: (List<St
     }
 }
 
+internal const val REORDER_BUTTON = "totp-reorder-button"
+/** How far from the end of a row a press grabs it: the 48dp handle and the row's 4dp end padding, with a little room. */
+private val HANDLE_ZONE = 56.dp
+internal const val REORDER_ROW = "totp-reorder-row"
+internal const val REORDER_HANDLE = "totp-reorder-handle"
+
 /**
- * Drag-and-drop for a [LazyColumn] whose items are exactly the list being ordered. The dragged row is drawn [offset] away from its slot so
- * it stays under the finger: when its middle crosses another row the two swap through [move], and near the top or bottom edge the list
- * scrolls (the amounts go to [scroll], which the screen applies).
+ * Drag-and-drop for a [LazyColumn] whose items are exactly the list being ordered. The held row is drawn [offset] away from its slot so it
+ * stays under the finger (its top is `startOffset + delta` in the viewport, whatever the list scrolls); when its middle crosses another row
+ * the two swap through [move]. While the row is held past the top or bottom edge the list keeps scrolling ([edgeScroll], applied every
+ * frame by the screen), and the row's slot follows to the edge, so it never scrolls out of view.
  */
-private class ReorderDrag(private val list: LazyListState, private val scope: kotlinx.coroutines.CoroutineScope, private val move: (from: Int, to: Int) -> Unit) {
+private class ReorderDrag(private val list: LazyListState, private val move: (from: Int, to: Int) -> Unit) {
     var index by mutableStateOf<Int?>(null); private set
     private var startOffset = 0; private var delta by mutableFloatStateOf(0f)
-    val scroll = kotlinx.coroutines.channels.Channel<Float>(kotlinx.coroutines.channels.Channel.CONFLATED)
     private val current get() = index?.let { i -> list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == i } }
     val offset: Float get() = current?.let { startOffset + delta - it.offset } ?: 0f
 
-    fun start(key: Any): Boolean = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.let { index = it.index; startOffset = it.offset; delta = 0f; true } ?: false
+    /** Starts dragging the row at [y] (list coordinates); false when there is none. */
+    fun startAt(y: Float): Boolean = list.layoutInfo.visibleItemsInfo.firstOrNull { y.toInt() in it.offset..(it.offset + it.size) }?.let { index = it.index; startOffset = it.offset; delta = 0f; true } ?: false
 
     fun drag(dy: Float) {
         delta += dy
         val item = current ?: return
-        val top = startOffset + delta; val bottom = top + item.size; val middle = (top + bottom) / 2f
-        val target = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index != item.index && middle.toInt() in it.offset..(it.offset + it.size) }
-        if (target != null) {
-            // Moving the first visible row would scroll the list along with it; keep the list where it is.
-            if (item.index == list.firstVisibleItemIndex || target.index == list.firstVisibleItemIndex) {
-                val first = list.firstVisibleItemIndex; val firstOffset = list.firstVisibleItemScrollOffset
-                scope.launch { list.scrollToItem(first, firstOffset) }
-            }
-            move(item.index, target.index); index = target.index
-        } else {
-            val edge = when {
-                delta > 0 -> (bottom - list.layoutInfo.viewportEndOffset).coerceAtLeast(0f)
-                delta < 0 -> (top - list.layoutInfo.viewportStartOffset).coerceAtMost(0f)
-                else -> 0f
-            }
-            if (edge != 0f) scroll.trySend(edge)
-        }
+        val info = list.layoutInfo
+        // Past an edge, the row is placed at the edge: the slot there takes it, so it stays among the visible rows as the list scrolls.
+        val middle = (startOffset + delta + item.size / 2f).coerceIn(info.viewportStartOffset.toFloat(), info.viewportEndOffset - 1f)
+        val target = info.visibleItemsInfo.firstOrNull { it.index != item.index && middle.toInt() in it.offset..(it.offset + it.size) } ?: return
+        // Moving the first visible row would scroll the list along with it; keep the list where it is.
+        if (item.index == list.firstVisibleItemIndex || target.index == list.firstVisibleItemIndex) list.requestScrollToItem(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset)
+        move(item.index, target.index); index = target.index
+    }
+
+    /** Pixels to scroll this frame: faster the further the held row is past an edge, up to an eighth of a row per frame. */
+    fun edgeScroll(): Float {
+        val item = current ?: return 0f
+        val info = list.layoutInfo; val top = startOffset + delta; val bottom = top + item.size
+        val past = when { bottom > info.viewportEndOffset -> bottom - info.viewportEndOffset; top < info.viewportStartOffset -> top - info.viewportStartOffset; else -> 0f }
+        return (past / item.size).coerceIn(-1f, 1f) * item.size / 8f
     }
     fun end() { index = null; delta = 0f }
 }

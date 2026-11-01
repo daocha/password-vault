@@ -109,4 +109,23 @@ class TotpTest {
         val again = TotpOrder.apply(ordered, listOf(c.id, b.id, a.id), "2027-01-01T00:00:00Z")
         assertEquals(listOf("2027-01-01T00:00:00Z", "2020-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "2026-01-01T00:00:00Z"), again.map { it.updatedAt })
     }
+
+    @Test fun orderIgnoresWhatIsNotA2faCode() {
+        val code = VaultRecord(name = "Code", type = RecordType.totp, fields = emptyList(), updatedAt = "2020-01-01T00:00:00Z")
+        val login = VaultRecord(name = "Login", updatedAt = "2020-01-01T00:00:00Z")
+        // A login id in the list, or an id that is not in the vault, gets no position and changes nothing.
+        val result = TotpOrder.apply(listOf(code, login), listOf(login.id, "not-in-vault", code.id), "2026-01-01T00:00:00Z")
+        assertTrue(result[1] === login); assertNull(TotpOrder.position(result[1]))
+        assertEquals(2, TotpOrder.position(result[0]))
+        // Other legacy values stay; a damaged position counts as none.
+        val kept = code.copy(legacy = mapOf("fileKeyCreated" to "x", TotpOrder.KEY to "oops"))
+        assertNull(TotpOrder.position(kept))
+        assertEquals(mapOf("fileKeyCreated" to "x", TotpOrder.KEY to "0"), TotpOrder.apply(listOf(kept), listOf(kept.id), "now")[0].legacy)
+        assertTrue(TotpOrder.apply(listOf(code), emptyList(), "now")[0] === code)
+    }
+
+    @Test fun scanStartsAt2x() {
+        assertEquals(2f, scanZoom(10f)); assertEquals(2f, scanZoom(2f)); assertEquals(1.5f, scanZoom(1.5f)); assertEquals(1f, scanZoom(1f)); assertEquals(1f, scanZoom(0.5f))
+        assertEquals(2f, scanZoom(null)) // Range not reported yet: ask for 2x; the camera refuses a ratio it cannot do.
+    }
 }
