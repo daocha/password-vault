@@ -174,4 +174,49 @@ final class VaultCoreTests: XCTestCase {
         let roundtrip = try VaultCSV.importRecords(VaultCSV.exportRecords(records))
         XCTAssertEqual(roundtrip.map(\.fields), records.map(\.fields))
     }
+
+    // 2FA scanning and ordering; mirrors Android's TotpTest and TotpReorderInstrumentedTest, and the checks in totpOrderChecks().
+    func testQRScanStartsAt2xWithinTheCameraRange() {
+        XCTAssertEqual(QRScanZoom.preferred, 2)
+        XCTAssertEqual(QRScanZoom.factor(maxZoom: 10), 2)
+        XCTAssertEqual(QRScanZoom.factor(maxZoom: 2), 2)
+        XCTAssertEqual(QRScanZoom.factor(maxZoom: 1.5), 1.5)
+        XCTAssertEqual(QRScanZoom.factor(maxZoom: 1), 1)
+        XCTAssertEqual(QRScanZoom.factor(maxZoom: 0.5), 1) // Never below 1x, whatever the camera reports.
+    }
+    /// A 2FA code as Android stores it after the user reordered: its position is in `legacy["totpOrder"]`.
+    private func reorderedCode(_ name: String, position: Int) throws -> VaultRecord {
+        var record = try TotpAccount(secret: Totp.decodeBase32("JBSWY3DPEHPK3PXP"), issuer: name, account: "me").record()
+        record.legacy = ["totpOrder": String(position), "fileKeyCreated": "2026-10-30T00:00:00Z"]
+        return record
+    }
+    func testAndroidWrittenOrderIsReadAsStored() throws {
+        let json = Data(#"[{"id":"7E0C5C2A-3C1B-4C5E-9A61-2B1D7A0F4E11","name":"GitHub","website":"","group":"","favorite":false,"updatedAt":"2026-11-01T00:00:00Z","fields":[{"id":"0B6E2C1D-6F7A-4B8C-9D0E-1F2A3B4C5D6E","kind":"password","label":"Authenticator","value":"otpauth://totp/GitHub:me?secret=JBSWY3DPEHPK3PXP&issuer=GitHub","question":""}],"legacy":{"totpOrder":"3"},"type":"totp"}]"#.utf8)
+        let record = try XCTUnwrap(Records.decode(json).first)
+        XCTAssertTrue(record.isTotp)
+        XCTAssertEqual(record.legacy, ["totpOrder": "3"])
+    }
+    func testOrderSurvivesAnEditAndASaveOnIOS() throws {
+        var records = [try reorderedCode("GitHub", position: 1), try reorderedCode("Mail", position: 0)]
+        records[0].name = "GitHub (work)"; records[0].favorite = true; records[0].updatedAt = "2026-11-02T00:00:00Z"
+        let saved = try Records.decode(Records.encode(records))
+        XCTAssertEqual(saved.map(\.legacy["totpOrder"]), ["1", "0"])
+        XCTAssertEqual(saved[0].legacy["fileKeyCreated"], "2026-10-30T00:00:00Z") // Other legacy values stay too.
+        XCTAssertEqual(saved[0].name, "GitHub (work)")
+    }
+    func testOrderSurvivesTheVaultOnDisk() throws {
+        let store = MemoryStorage(), engine = VaultEngine(storage: store)
+        _ = try engine.create(password: password)
+        try engine.save([try reorderedCode("GitHub", position: 1), try reorderedCode("Mail", position: 0), fixture()])
+        engine.lock()
+        let reopened = try VaultEngine(storage: store).unlock(password: password)
+        XCTAssertEqual(reopened.filter(\.isTotp).map(\.legacy["totpOrder"]), ["1", "0"])
+        XCTAssertNil(reopened.first { !$0.isTotp }?.legacy["totpOrder"])
+    }
+    func testOrderSurvivesBackupsAndTransfers() throws {
+        let records = [try reorderedCode("GitHub", position: 2)]
+        XCTAssertEqual(try VaultCrypto.importBackup(VaultCrypto.exportBackup(records, password: password), password: password).first?.legacy["totpOrder"], "2")
+        let code = Transfer.newCode()
+        XCTAssertEqual(try Transfer.open(Transfer.seal(records, code: code), code: code).first?.legacy["totpOrder"], "2")
+    }
 }
