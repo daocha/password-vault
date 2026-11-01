@@ -3,7 +3,7 @@ import VaultCore
 
 /// Android's ordinary secure-note file keys must survive imports and edits on iOS too.
 func fileKeyChecks() throws {
-    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).deletingLastPathComponent()
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../..").standardized
     let hybrid = try String(contentsOf: root.appendingPathComponent("fixtures/age-spec/hybrid-key.txt"), encoding: .utf8).components(separatedBy: .newlines)[0]
     let classic = "AGE-SECRET-KEY-1GFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPQ4EGAEX"
     let password = "A lengthy test passphrase 1!", store = MemoryStorage(), engine = VaultEngine(storage: store)
