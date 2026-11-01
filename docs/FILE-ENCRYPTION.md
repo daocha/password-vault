@@ -82,6 +82,8 @@ Like any private key, losing it loses the files. PassVault reduces the chance:
 - Deleting a key entry (alone or in a bulk delete) shows a specific warning.
 - Importing never deletes a key. A full replacement from a backup made before a key was created keeps that key (still the one new files
   use if it is the newest), and an import reusing a key's entry id for something else keeps both, the old key under a new id.
+  iOS applies the same preservation rule to the secure-note keys, validates their age encoding/checksum, and stamps older keys before
+  an edit can change their creation order on return to Android.
 - Changing the app password keeps the key: it is vault content, re-encrypted with the vault.
 
 ## Flows (Android)
@@ -96,14 +98,24 @@ Settings › Security › File encryption.
   whitespace is skipped while detecting armor, without keeping the prefix in memory. A
   passphrase file (`age -p`) is reported as such, not as "not for any key in this vault".
 - **Failure.** age authenticates each chunk, so a damaged file is found only where the damage is. Once the destination has been opened for
-  writing, any failure or cancellation empties and deletes the output, so a partial plaintext is never left behind or mistaken for the
-  whole file. If opening fails or the job is cancelled before opening, existing destination content is kept; only an empty save target is
-  removed. Cancellation is checked before opening, on every write and again after the file is closed (a small file is read in full
+  writing, exception and cancellation cleanup deletes or verifies that it emptied the output. If opening fails or the job is cancelled
+  before opening, existing destination content is kept; only an empty save target is removed. Cancellation is checked before opening, on every write and again after the file is closed (a small file is read in full
   before anything is written), and once more
   on the main thread just before success is accepted (`FileCrypt.guarded`). Locking runs on the main thread too, so nothing can
   lock in between; a complete output that is never accepted, including when the coroutine is cancelled on its way back from the
   worker thread, is removed. If the output can be neither emptied nor deleted (its provider went away, say), the user is told its name
   and that it may hold decrypted data, instead of "nothing was saved".
+- **Destinations.** Save to a new, empty document. An existing nonempty destination, or one whose emptiness cannot be checked, is refused
+  before it is opened for writing. A source exposed through a provider pipe can alias another provider's local file, so inode checks alone
+  cannot safely authorize replacement. This rule also applies to backups and transfer files.
+- **Process death.** Before writing any content, the app atomically records the destination, name and source vault in an AES-GCM journal
+  encrypted by a separate device Keystore key. It retains persistable URI access when the provider supports it. On the next launch, under
+  the same output ownership used by active jobs, it retries removal of interrupted outputs. Failed cleanup stays recorded and its warning
+  is shown in the source vault until acknowledged. A slow provider does not block vault initialization. Accepted outputs are removed from
+  the journal before success is displayed. Corrupt or
+  inaccessible recovery state blocks new output content and reports that cleanup could not be checked.
+  A stopped process cannot run cleanup: partial plaintext can remain until the app runs again, and a storage provider can retain bytes it
+  already received. Neither journaling nor truncation can revoke those copies. Choose storage accordingly.
 - **Screen.** The progress dialog keeps the screen on: the screen turning off locks the vault, which would stop the job and delete its
   output.
 - **Locking.** Locking the vault (screen off, auto-lock) or the activity being destroyed cancels a running job, with the same clean-up. While the system file picker is
@@ -153,6 +165,11 @@ Settings › Security › File encryption.
 - `FileCryptInstrumentedTest` (emulator): the same code on Android's runtime through `ContentResolver`, and that failed or cancelled
   output is emptied, including a stop that lands after a small file was read in full. A provider that refuses writes but supports deletion
   verifies that an existing destination survives a failed open (exception or null result); cancellation before opening preserves it too.
+  Pipe-backed aliases are refused without changing the source; a failed journal callback writes no plaintext.
+- `FileRecoveryInstrumentedTest` checks that a fresh instance finds and removes pending plaintext, that the journal hides names and
+  contents, that failed cleanup remains durable until acknowledged, and that tampered journals refuse new output tracking.
+- iOS security checks cover both age key encodings, replacement and colliding-id imports, equivalent secrets under different ids,
+  invalid encodings, retention across lock/unlock, and creation stamps surviving edits.
 - `AgeInteropTest` (JVM, in CI) runs against the official tools from filippo.io/age, pinned to v1.3.2 and installed with `go install`
   (Go checks the module against its checksum database). Files PassVault encrypts must open with `age -d`, for PassVault's own
   post-quantum key and a classic key from `age-keygen`; files `age` encrypts (binary and `-a`) must open in PassVault, for keys made by

@@ -165,7 +165,7 @@ public final class VaultEngine: @unchecked Sendable {
         guard let blob = decoy ? value.decoy?.blob : value.blob else { throw VaultError.locked }
         var plaintext = try VaultCrypto.open(storage.readBlob(blob), key: candidate, aad: Data(blob.utf8))
         defer { plaintext.resetBytes(in: 0..<plaintext.count) }
-        let loaded = try Records.decode(plaintext)
+        let loaded = FileKeys.stamp(try Records.decode(plaintext))
         key = candidate; records = loaded; activeDecoy = decoy; return loaded
     }
     public func unlock(password: String) throws -> [VaultRecord] { try serialized { let found = try authenticate(password, unlocking: true); return try load(found.key, decoy: found.decoy) } }
@@ -190,6 +190,7 @@ public final class VaultEngine: @unchecked Sendable {
     public func canResetDecoy() throws -> Bool { try serialized { guard !activeDecoy, key != nil else { return false }; return try state()?.decoy?.recovery != nil } }
     public func save(_ updated: [VaultRecord]) throws { try serialized {
         guard let key, var value = try state() else { throw VaultError.locked }
+        let updated = FileKeys.stamp(updated)
         let blob = UUID().uuidString
         try storage.writeBlob(VaultCrypto.seal(Records.encode(updated), key: key, aad: Data(blob.utf8)), id: blob)
         if activeDecoy { guard value.decoy != nil else { throw VaultError.locked }; value.decoy!.blob = blob } else { value.blob = blob }
@@ -318,12 +319,13 @@ public final class VaultEngine: @unchecked Sendable {
         guard key != nil else { throw VaultError.locked }
         // Matched by record id only: a record already in the vault is replaced in place (whole, fields included), the rest are added with their ids.
         let incoming = Dictionary(imported.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }), known = Set(records.map(\.id))
-        let updated = records.map { incoming[$0.id] ?? $0 } + imported.filter { !known.contains($0.id) }; try save(updated); return updated
+        let updated = records.map { incoming[$0.id] ?? $0 } + imported.filter { !known.contains($0.id) }
+        try save(FileKeys.keeping(records, in: updated)); return records
     } }
-    /// Makes the imported records the whole vault: entries the file does not contain are deleted.
+    /// Makes the imported records the whole vault, preserving file-encryption keys that would otherwise be lost.
     public func replaceAll(_ imported: [VaultRecord]) throws -> [VaultRecord] { try serialized {
         guard key != nil else { throw VaultError.locked }
-        try save(imported); return imported
+        try save(FileKeys.keeping(records, in: imported)); return records
     } }
     private func erase(_ original: DeviceState) throws {
         lock()

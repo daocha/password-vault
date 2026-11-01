@@ -28,6 +28,7 @@ func rejects(_ label: String, _ action: () throws -> Void) throws {
     throw VaultError.invalid("FAILED to reject: \(label)")
 }
 do {
+    try fileKeyChecks()
     let password = "A lengthy test passphrase 1!"
     var record = VaultRecord(); record.name = "Example, Inc."; record.fields[1].value = "test-only-secret"
     record.fields[2].value = "one\r\ntwo \"quoted\""; record.fields.append(.init(kind: .question, label: "Recovery", value: "test answer", question: "Which city?"))

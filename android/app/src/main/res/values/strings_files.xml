@@ -63,4 +63,6 @@
     <string name="files_same_file">The file cannot be saved over itself. Choose another name or folder.</string>
     <string name="files_busy">Another file is still being processed. Try again in a moment.</string>
     <string name="files_encrypted_backup_warning">Your key is not in a backup yet. If this phone is lost before you back it up, the encrypted file cannot be opened anywhere. Back up first, or keep the original.</string>
+    <string name="files_new_target">Choose a new, empty file. Existing files cannot be replaced.</string>
+    <string name="files_recovery_failed">An interrupted file could not be checked. Review files you recently saved; a partial decrypted copy may remain. Restart PassVault to try cleanup again.</string>
 </resources>

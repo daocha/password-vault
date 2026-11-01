@@ -63,4 +63,6 @@
     <string name="files_same_file">不能把文件保存到它自己上面。请换一个名称或文件夹。</string>
     <string name="files_busy">另一个文件仍在处理中，请稍后再试。</string>
     <string name="files_encrypted_backup_warning">你的密钥还没有备份。如果在备份之前丢失了这部手机，加密后的文件在任何地方都无法打开。请先备份，或保留原文件。</string>
+    <string name="files_new_target">请选择一个新的空文件。不能替换已有文件。</string>
+    <string name="files_recovery_failed">无法检查上次中断的文件。请检查最近保存的文件，可能仍有部分解密内容。重启 PassVault 可再次尝试清理。</string>
 </resources>
