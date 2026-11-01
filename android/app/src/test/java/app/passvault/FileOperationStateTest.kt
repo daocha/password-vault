@@ -10,6 +10,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FileOperationStateTest {
+    @Test fun recoveryWarningsAreDeduplicatedAndRemovedWhenRecoverySucceeds() {
+        val notices = FileNotices(); val source = FileVault(false, 1)
+        notices.add(source, "partial output", "job-1")
+        notices.add(source, "same output after recreation", "job-1")
+        notices.add(source, "different output", "job-2")
+        notices.add(source, "ordinary warning")
+        assertEquals(3, notices.pending.value.size)
+        notices.retainRecovery(setOf("job-2"))
+        assertEquals(listOf("different output", "ordinary warning"), notices.pending.value.map { it.text })
+    }
     @Test(timeout = 10000) fun cancellingKeepsTheOutputOwnedUntilCleanupFinishes() = runBlocking {
         val jobs = FileJobs(); val ticket = jobs.start()!!
         val writing = CompletableDeferred<Unit>(); val finishWriting = CompletableDeferred<Unit>()

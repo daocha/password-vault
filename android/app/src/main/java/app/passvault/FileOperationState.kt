@@ -48,15 +48,18 @@ internal data class FileVault(val decoy: Boolean, val instance: Long)
 
 /** Cleanup warnings survive locks and activity recreation, and remain until explicitly acknowledged in their source vault. */
 internal class FileNotices {
-    class Notice(val source: FileVault, val text: String)
+    class Notice(val source: FileVault, val text: String, val recoveryId: String? = null)
     private val state = MutableStateFlow<List<Notice>>(emptyList())
     val pending = state.asStateFlow()
     private val oldestInstance = mutableMapOf<Boolean, Long>()
 
-    @Synchronized fun add(source: FileVault, text: String) {
+    @Synchronized fun add(source: FileVault, text: String, recoveryId: String? = null) {
         if (source.instance < (oldestInstance[source.decoy] ?: 0L)) return
-        state.value += Notice(source, text)
+        if (recoveryId != null && state.value.any { it.recoveryId == recoveryId }) return
+        state.value += Notice(source, text, recoveryId)
     }
+
+    @Synchronized fun retainRecovery(ids: Set<String>) { state.value = state.value.filter { it.recoveryId == null || it.recoveryId in ids } }
 
     @Synchronized fun acknowledge(notice: Notice) { state.value = state.value.filterNot { it === notice } }
 

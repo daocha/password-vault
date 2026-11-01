@@ -30,6 +30,14 @@ class MainActivityFileStateInstrumentedTest {
         lateinit var old: MainActivity
         try {
             val running = ActivityScenario.launch(MainActivity::class.java); scenario = running
+            // Recovery waits for the old output owner; the vault itself must still initialize while that provider is blocked.
+            val deadline = android.os.SystemClock.uptimeMillis() + 5000
+            var ready = false
+            while (!ready && android.os.SystemClock.uptimeMillis() < deadline) {
+                running.onActivity { ready = get(it, "Ready") as Boolean }
+                if (!ready) Thread.sleep(10)
+            }
+            assertTrue("Pending file cleanup must not block vault initialization", ready)
             running.onActivity { activity ->
                 old = activity
                 set(activity, "Records", List::class.java, records)

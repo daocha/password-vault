@@ -112,7 +112,7 @@ object FileCrypt {
     /**
      * Whether [a] and [b] are the same file on the device, however they were reached: the same file through two providers (Recent or
      * Images and the storage provider, say) has unrelated URIs. Compares the open files' device and inode; false when either cannot be
-     * opened as a file (a cloud document streamed through a pipe, which cannot be the other side of a local file anyway).
+     * opened as a regular file. A pipe can still be an alias: callers must also refuse nonempty destinations.
      */
     fun sameFile(resolver: ContentResolver, a: Uri, b: Uri): Boolean = runCatching {
         resolver.openFileDescriptor(a, "r")!!.use { fa -> resolver.openFileDescriptor(b, "r")!!.use { fb ->
@@ -122,18 +122,19 @@ object FileCrypt {
     }.getOrDefault(false)
     /** The target is the source itself (see [sameFile]): nothing was written, and it must not be discarded. */
     class SameFile : Exception("The target is the source.")
+    class UnsafeTarget : Exception("Choose a new, empty destination file.")
     fun describe(resolver: ContentResolver, uri: Uri): Picked = runCatching {
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
             if (!c.moveToFirst()) null else Picked(uri, c.getString(0), if (c.isNull(1)) null else c.getLong(1))
         }
     }.getOrNull() ?: Picked(uri, null, null)
 
-    fun encrypt(resolver: ContentResolver, from: Uri, to: Uri, recipient: Age.Recipient, cancelled: () -> Boolean, progress: (Long) -> Unit) = write(resolver, from, to, cancelled) { output ->
+    fun encrypt(resolver: ContentResolver, from: Uri, to: Uri, recipient: Age.Recipient, cancelled: () -> Boolean, onOpened: () -> Unit = {}, progress: (Long) -> Unit) = write(resolver, from, to, cancelled, onOpened) { output ->
         open(resolver, from).use { input -> Age.encrypt(Counting(input, cancelled, progress), output, listOf(recipient)) }
     }
     /** Throws [AgeException] (not an age file, not for these keys, changed header) before any output is chosen. */
     fun check(resolver: ContentResolver, uri: Uri, identities: List<Age.Identity>) = open(resolver, uri).use { Age.checkHeader(it, identities) }
-    fun decrypt(resolver: ContentResolver, from: Uri, to: Uri, identities: List<Age.Identity>, cancelled: () -> Boolean, progress: (Long) -> Unit) = write(resolver, from, to, cancelled) { output ->
+    fun decrypt(resolver: ContentResolver, from: Uri, to: Uri, identities: List<Age.Identity>, cancelled: () -> Boolean, onOpened: () -> Unit = {}, progress: (Long) -> Unit) = write(resolver, from, to, cancelled, onOpened) { output ->
         open(resolver, from).use { input -> Age.decrypt(Counting(input, cancelled, progress), output, identities) }
     }
     private fun open(resolver: ContentResolver, uri: Uri): InputStream = resolver.openInputStream(uri) ?: throw java.io.FileNotFoundException()
@@ -144,17 +145,22 @@ object FileCrypt {
      * after the file is closed, since a small file is read in full before anything is written. Throws [LeftBehind] when written output
      * could be neither emptied nor deleted.
      */
-    private fun write(resolver: ContentResolver, from: Uri, to: Uri, cancelled: () -> Boolean, body: (OutputStream) -> Unit) {
+    private fun write(resolver: ContentResolver, from: Uri, to: Uri, cancelled: () -> Boolean, onOpened: () -> Unit, body: (OutputStream) -> Unit) {
         // Before "wt" truncates it: writing over the source would destroy it before it is read. Not discarded: it is the user's file.
-        if (sameFile(resolver, from, to)) throw SameFile()
+        if (sameDocument(from, to) || sameFile(resolver, from, to)) throw SameFile()
+        if (cancelled()) { discardUnwritten(resolver, to); throw Cancelled() }
+        // SAF providers can expose the source through a pipe and the target through a regular descriptor. Inode comparison cannot
+        // establish that these differ. Never truncate existing content, even when the picker offered to replace it.
+        requireEmptyTarget(resolver, to)
         val output = try {
             if (cancelled()) throw Cancelled()
             resolver.openOutputStream(to, "wt") ?: throw java.io.FileNotFoundException()
         } catch (e: Exception) { discardUnwritten(resolver, to); throw e }
         try {
+            // Durable recovery must be committed before the first plaintext byte. If recording fails, discard only this empty target.
             // Unbuffered: Age already writes whole chunks, and a BufferedOutputStream would keep a copy of the last, short chunk of
             // plaintext (all of a small file) in a buffer nobody wipes.
-            Checked(output, cancelled).use(body)
+            Checked(output, cancelled).use { onOpened(); body(it) }
             if (cancelled()) throw Cancelled()
         } catch (e: Exception) { if (!discard(resolver, to)) throw LeftBehind(e); throw e }
     }
@@ -163,15 +169,26 @@ object FileCrypt {
      * emptied and deleted, so it is never left looking like a complete backup; if it cannot even be opened, only an empty save target is
      * removed. Throws [LeftBehind] when the partial file could be neither emptied nor deleted.
      */
-    fun writeWhole(resolver: ContentResolver, uri: Uri, bytes: ByteArray) {
+    fun writeWhole(resolver: ContentResolver, uri: Uri, bytes: ByteArray, onOpened: () -> Unit = {}) {
+        requireEmptyTarget(resolver, uri)
         val output = try { resolver.openOutputStream(uri, "wt") ?: throw java.io.FileNotFoundException() } catch (e: Exception) { discardUnwritten(resolver, uri); throw e }
-        try { output.use { it.write(bytes) } } catch (e: Exception) { if (!discard(resolver, uri)) throw LeftBehind(e); throw e }
+        try { output.use { onOpened(); it.write(bytes) } } catch (e: Exception) { if (!discard(resolver, uri)) throw LeftBehind(e); throw e }
+    }
+    private fun requireEmptyTarget(resolver: ContentResolver, uri: Uri) {
+        val empty = try { open(resolver, uri).use { it.read() == -1 } }
+        catch (_: java.io.FileNotFoundException) {
+            // Local file URIs in tests do not have a save picker to create the destination first.
+            uri.scheme == "file" && uri.path?.let { !java.io.File(it).exists() } == true
+        } catch (_: Exception) { false }
+        if (!empty) throw UnsafeTarget()
     }
     /** Empties and deletes [uri]; true when no content is left (it was emptied, deleted, or both). */
     fun discard(resolver: ContentResolver, uri: Uri): Boolean {
-        val emptied = runCatching { resolver.openOutputStream(uri, "wt")?.use {} != null }.getOrDefault(false)
         val deleted = runCatching { DocumentsContract.deleteDocument(resolver, uri) }.getOrDefault(false)
-        return emptied || deleted
+        if (deleted) return true
+        return runCatching {
+            resolver.openOutputStream(uri, "wt")?.use {} != null && open(resolver, uri).use { it.read() == -1 }
+        }.getOrDefault(false)
     }
     /**
      * Runs [job] (which writes the output) on [worker], then [accept]s it on the calling thread, where locking also happens, so nothing

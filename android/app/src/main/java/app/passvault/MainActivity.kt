@@ -332,6 +332,8 @@ class MainActivity : FragmentActivity() {
     private val fileJobs = FileJobs.shared
     private var fileJob: FileJobs.Ticket? = null
     private val fileNotices = FileNotices.shared
+    private val fileRecovery by lazy { FileRecovery(applicationContext) }
+    private var recoveryUnavailable by mutableStateOf(false)
     private fun fileVault(decoy: Boolean = decoySession) = FileVault(decoy, BackupStatus(prefs, if (decoy) "decoy." else "").instance)
     private fun clearVaultHistory(decoy: Boolean) {
         BackupStatus(prefs, if (decoy) "decoy." else "").clear()
@@ -377,8 +379,8 @@ class MainActivity : FragmentActivity() {
         if (FileCrypt.sameDocument(source.uri, uri)) { messageError = true; message = getString(R.string.files_same_file); return@registerForActivityResult }
         // The provider may have renamed the file (a name already taken); ask for its name on the worker, not the main thread.
         var savedAs: String? = null
-        runFileJob(false, source.size, uri, { cancelled, progress ->
-            FileCrypt.encrypt(contentResolver, source.uri, uri, Age.parseIdentity(identity).recipient, cancelled, progress); savedAs = FileCrypt.describe(contentResolver, uri).name
+        runFileJob(false, source.size, uri, { cancelled, progress, opened ->
+            FileCrypt.encrypt(contentResolver, source.uri, uri, Age.parseIdentity(identity).recipient, cancelled, opened, progress); savedAs = FileCrypt.describe(contentResolver, uri).name
         }) { encryptedOriginal = source to (savedAs ?: FileKeys.encryptedName(source.name)) }
     }
     private val decryptSource = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -411,7 +413,7 @@ class MainActivity : FragmentActivity() {
         if (uri == null) return@registerForActivityResult
         if (source == null || !unlocked) { discardUnwritten(uri); return@registerForActivityResult }
         if (FileCrypt.sameDocument(source.uri, uri)) { messageError = true; message = getString(R.string.files_same_file); return@registerForActivityResult }
-        runFileJob(true, source.size, uri, { cancelled, progress -> FileCrypt.decrypt(contentResolver, source.uri, uri, keys.map(Age::parseIdentity), cancelled, progress) }) { message = getString(R.string.files_decrypted) }
+        runFileJob(true, source.size, uri, { cancelled, progress, opened -> FileCrypt.decrypt(contentResolver, source.uri, uri, keys.map(Age::parseIdentity), cancelled, opened, progress) }) { message = getString(R.string.files_decrypted) }
     }
     private val shareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { systemPickerOpen = false }
     /**
@@ -420,26 +422,36 @@ class MainActivity : FragmentActivity() {
      * job finished (including the coroutine being cancelled on its way back to the main thread) is caught here. Success counts only
      * once it is accepted on the main thread, where locking also runs, so nothing can lock between the last check and [done].
      */
-    private fun runFileJob(decrypting: Boolean, total: Long?, output: android.net.Uri, job: (cancelled: () -> Boolean, progress: (Long) -> Unit) -> Unit, done: () -> Unit) {
+    private fun runFileJob(decrypting: Boolean, total: Long?, output: android.net.Uri, job: (cancelled: () -> Boolean, progress: (Long) -> Unit, opened: () -> Unit) -> Unit, done: () -> Unit) {
         val ticket = fileJobs.start() ?: run { discardUnwritten(output); messageError = true; message = getString(R.string.files_busy); return }
         val epoch = generation; val sourceVault = fileVault(); fileJob = ticket; fileProgress = FileProgress(decrypting, 0, total)
         // Whether to tell the user: only in the session that ran the job (not on the unlock screen, nor in the other vault).
         fun here() = epoch == generation && unlocked
         val cancelled = { ticket.cancelled || epoch != generation }
         var shown = 0L
+        var recoveryId: String? = null
         // Progress is reported on the worker; UI state changes on the main thread, and never after this job ended.
         lifecycleScope.launch {
             try {
                 FileCrypt.guarded(Dispatchers.IO, cancelled, {
-                    FileCrypt.discard(contentResolver, output).also { if (!it) queueLeftBehind(sourceVault, output, decrypting) }
+                    FileCrypt.discard(contentResolver, output).also {
+                        if (it) fileRecovery.finish(recoveryId) else queueLeftBehind(sourceVault, output, decrypting, recoveryId)
+                    }
                 }, {
-                    try { job(cancelled) { n -> if (n - shown >= 256 * 1024) { shown = n; runOnUiThread { if (fileJob === ticket && !ticket.cancelled && here()) fileProgress = FileProgress(decrypting, n, total) } } } }
-                    catch (e: FileCrypt.LeftBehind) { queueLeftBehind(sourceVault, output, decrypting); throw e }
-                }, done)
+                    try { job(cancelled, { n -> if (n - shown >= 256 * 1024) { shown = n; runOnUiThread { if (fileJob === ticket && !ticket.cancelled && here()) fileProgress = FileProgress(decrypting, n, total) } } }, {
+                        recoveryId = fileRecovery.begin(output, sourceVault, decrypting)
+                    }) }
+                    catch (e: FileCrypt.LeftBehind) { queueLeftBehind(sourceVault, output, decrypting, recoveryId); throw e }
+                    catch (e: Exception) { fileRecovery.finish(recoveryId); throw e }
+                }, { if (fileJob === ticket) fileProgress = null })
+                // The main-thread acceptance above is the completion point. Commit it durably before displaying success.
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { completeFileOutput(recoveryId, output, sourceVault, decrypting) }
+                if (here()) done()
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } // Cleanup and any warning were handled on the worker.
             catch (e: FileCrypt.Cancelled) { if (here()) message = getString(R.string.files_cancelled) }
             catch (_: FileCrypt.LeftBehind) { /* Queued by the worker. */ }
             catch (e: FileCrypt.SameFile) { if (here()) { messageError = true; message = getString(R.string.files_same_file) } }
+            catch (e: FileCrypt.UnsafeTarget) { if (here()) { messageError = true; message = getString(R.string.files_new_target) } }
             catch (e: AgeException) { if (here()) { messageError = true; message = ageError(e) } }
             catch (e: Exception) { if (here()) { messageError = true; message = getString(R.string.files_failed) } }
             finally { fileJobs.finish(ticket); if (fileJob === ticket) { fileJob = null; fileProgress = null } }
@@ -454,14 +466,37 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { fileJobs.withOutput { FileCrypt.discardUnwritten(contentResolver, uri) } }
     }
     /** Called on the worker before coroutine cancellation can discard a cleanup failure on its way back to the activity. */
-    private fun queueLeftBehind(source: FileVault, uri: android.net.Uri, plaintext: Boolean) {
+    private fun queueLeftBehind(source: FileVault, uri: android.net.Uri, plaintext: Boolean, recoveryId: String? = null) {
         val name = FileCrypt.describe(contentResolver, uri).name ?: getString(R.string.files_unknown_name)
-        fileNotices.add(source, getString(if (plaintext) R.string.files_left_behind_plain else R.string.files_left_behind, name))
+        fileNotices.add(source, getString(if (plaintext) R.string.files_left_behind_plain else R.string.files_left_behind, name), recoveryId)
     }
     private suspend fun writeWholeFile(uri: android.net.Uri, bytes: ByteArray, source: FileVault, plaintext: Boolean) = fileJobs.withOutput {
         withContext(Dispatchers.IO) {
-            try { FileCrypt.writeWhole(contentResolver, uri, bytes) }
-            catch (e: FileCrypt.LeftBehind) { queueLeftBehind(source, uri, plaintext); throw e }
+            var recoveryId: String? = null
+            try {
+                FileCrypt.writeWhole(contentResolver, uri, bytes) { recoveryId = fileRecovery.begin(uri, source, plaintext) }
+                completeFileOutput(recoveryId, uri, source, plaintext)
+            } catch (e: FileCrypt.LeftBehind) { queueLeftBehind(source, uri, plaintext, recoveryId); throw e }
+            catch (e: Exception) { fileRecovery.finish(recoveryId); throw e }
+        }
+    }
+    /** Failure to durably accept must not leave a file looking successful while recovery still considers it unfinished. */
+    private fun completeFileOutput(id: String?, uri: android.net.Uri, source: FileVault, plaintext: Boolean) {
+        try { fileRecovery.finish(id) }
+        catch (e: Exception) {
+            if (!FileCrypt.discard(contentResolver, uri)) { queueLeftBehind(source, uri, plaintext, id); throw FileCrypt.LeftBehind(e) }
+            runCatching { fileRecovery.finish(id) }
+            throw e
+        }
+    }
+    private fun acknowledgeFileNotice(notice: FileNotices.Notice) {
+        if (notice.recoveryId == null) { fileNotices.acknowledge(notice); return }
+        lifecycleScope.launch {
+            try {
+                fileJobs.withOutput { withContext(Dispatchers.IO) { fileRecovery.finish(notice.recoveryId) } }
+                fileNotices.acknowledge(notice)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { recoveryUnavailable = true }
         }
     }
     private fun ageError(e: AgeException) = getString(when (e.kind) {
@@ -545,6 +580,19 @@ class MainActivity : FragmentActivity() {
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         lifecycleScope.launch {
             try {
+                fileJobs.withOutput { withContext(Dispatchers.IO) {
+                    val pending = fileRecovery.recover()
+                    fileNotices.retainRecovery(pending.map { it.id }.toSet())
+                    pending.forEach { entry -> fileNotices.add(entry.source, getString(
+                        if (entry.plaintext) R.string.files_left_behind_plain else R.string.files_left_behind,
+                        entry.name.ifEmpty { getString(R.string.files_unknown_name) }), entry.id) }
+                } }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { recoveryUnavailable = true }
+        }
+        // A storage provider can be slow or unavailable. Recovery owns file output, but must not block vault initialization/unlock.
+        lifecycleScope.launch {
+            try {
                 val status = withContext(vaultQueue) {
                     engine = VaultEngine(ProtectedStorage(this@MainActivity))
                     Triple(engine.exists(), engine.remainingAttempts(), engine.hasBiometric())
@@ -584,11 +632,15 @@ class MainActivity : FragmentActivity() {
                         }
                         if (unlocked) ImportDialogs()
                         if (unlocked) FileDialogs()
-                        if (unlocked) notices.firstOrNull { it.source == fileVault() }?.let { notice ->
+                        if (unlocked && recoveryUnavailable) AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Default.Warning, null) },
+                            title = { Text(stringResource(R.string.files_attention_title)) },
+                            text = { HardenWindow(); Text(stringResource(R.string.files_recovery_failed)) },
+                            confirmButton = { TextButton(onClick = { recoveryUnavailable = false }) { Text(stringResource(R.string.main_ok)) } })
+                        if (unlocked && !recoveryUnavailable) notices.firstOrNull { it.source == fileVault() }?.let { notice ->
                             AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Default.Warning, null) },
                                 title = { Text(stringResource(R.string.files_attention_title)) },
                                 text = { HardenWindow(); Text(notice.text) },
-                                confirmButton = { TextButton(onClick = { fileNotices.acknowledge(notice) }) { Text(stringResource(R.string.main_ok)) } })
+                                confirmButton = { TextButton(onClick = { acknowledgeFileNotice(notice) }) { Text(stringResource(R.string.main_ok)) } })
                         }
                         if (busy) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background.copy(alpha = .92f)) { Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { CircularProgressIndicator(); Spacer(Modifier.height(16.dp)); Text(stringResource(R.string.main_securing)) } }
                         if (message.isNotEmpty()) {
@@ -1483,7 +1535,11 @@ class MainActivity : FragmentActivity() {
             finally { prepared?.clear(); busy = false }
         }
     }
-    private fun exportError(e: Exception) = if (e is FileCrypt.LeftBehind) getString(R.string.main_export_left_behind) else e.message ?: getString(R.string.main_export_failed)
+    private fun exportError(e: Exception) = when (e) {
+        is FileCrypt.LeftBehind -> getString(R.string.main_export_left_behind)
+        is FileCrypt.UnsafeTarget -> getString(R.string.files_new_target)
+        else -> e.message ?: getString(R.string.main_export_failed)
+    }
     private fun writeExport(uri: android.net.Uri?) {
         systemPickerOpen = false
         // Locked while the picker was open: the export is gone, so remove the empty file the picker created.

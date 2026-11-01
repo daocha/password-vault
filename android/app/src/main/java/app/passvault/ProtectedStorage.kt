@@ -49,6 +49,7 @@ class ProtectedStorage(private val context: Context) {
     private val stateAliasPrefix = "passvault-state-g"
     private fun stateAlias(generation: Int) = "$stateAliasPrefix$generation"
     private val bioAlias = "passvault-biometric-v1"
+    private val recoveryAlias = "passvault-file-recovery-v1"
     private fun generate(alias: String, biometric: Boolean): SecretKey {
         check(context.getSystemService(KeyguardManager::class.java).isDeviceSecure) { "Set a device screen lock first." }
         fun spec(strongBox: Boolean) = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
@@ -71,9 +72,19 @@ class ProtectedStorage(private val context: Context) {
         val kept = keep?.let(::stateAlias)
         java.util.Collections.list(keystore.aliases()).filter { (it == legacyStateAlias || it.startsWith(stateAliasPrefix)) && it != kept }.forEach { keystore.deleteEntry(it) }
     }
-    private fun write(file: File, bytes: ByteArray) {
+    private fun write(file: File, bytes: ByteArray, requireSync: Boolean = false) {
         val atomic = AtomicFile(file); val stream = atomic.startWrite()
-        try { stream.write(bytes); atomic.finishWrite(stream) } catch (e: Exception) { atomic.failWrite(stream); throw e }
+        try {
+            stream.write(bytes)
+            // AtomicFile logs a failed sync without reporting it. External plaintext must never precede a failed journal sync.
+            if (requireSync) stream.fd.sync()
+            atomic.finishWrite(stream)
+            if (requireSync) {
+                check(!File(file.path + ".new").exists() && read(file, bytes.size).contentEquals(bytes)) { "Recovery journal was not committed." }
+                val parent = android.system.Os.open(file.parentFile!!.path, android.system.OsConstants.O_RDONLY, 0)
+                try { android.system.Os.fsync(parent) } finally { android.system.Os.close(parent) }
+            }
+        } catch (e: Exception) { atomic.failWrite(stream); throw e }
     }
     private fun read(file: File, max: Int): ByteArray {
         val atomic = AtomicFile(file)
@@ -82,6 +93,27 @@ class ProtectedStorage(private val context: Context) {
             while (true) { val n = input.read(buffer); if (n < 0) break; require(output.size() + n <= max) { "File is too large." }; output.write(buffer, 0, n) }
             output.toByteArray()
         }
+    }
+    /** Pending external outputs contain private URIs/names, so their crash-recovery journal is authenticated ciphertext too. */
+    fun readFileRecovery(): ByteArray? = VaultAccess.serialized {
+        val file = File(directory, "file-recovery")
+        if (!file.exists() && !File(directory, "file-recovery.bak").exists()) return@serialized null
+        val bytes = read(file, 256 * 1024 + 28); require(bytes.size >= 28)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, secretKey(recoveryAlias) ?: missingKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+        cipher.updateAAD("PassVault/file-recovery/v1".toByteArray())
+        cipher.doFinal(bytes.copyOfRange(12, bytes.size))
+    }
+    fun writeFileRecovery(bytes: ByteArray): Unit = VaultAccess.serialized {
+        require(bytes.size <= 256 * 1024)
+        val file = File(directory, "file-recovery")
+        val key = secretKey(recoveryAlias) ?: run {
+            check(!file.exists() && !File(directory, "file-recovery.bak").exists()) { "Recovery key is missing." }
+            generate(recoveryAlias, false)
+        }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key)
+        cipher.updateAAD("PassVault/file-recovery/v1".toByteArray())
+        write(file, cipher.iv + cipher.doFinal(bytes), requireSync = true)
     }
     fun readState(): ByteArray? = VaultAccess.serialized {
         if (File(directory, "erased").exists()) {

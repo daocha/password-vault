@@ -78,8 +78,8 @@ class FileCryptInstrumentedTest {
                 if (decrypting) FileCrypt.decrypt(resolver, sourceUri, uri, listOf(identity), { false }) {}
                 else FileCrypt.encrypt(resolver, sourceUri, uri, identity.recipient, { false }) {}
             }
-            assertThrows(FileNotFoundException::class.java) { process() }
-            assertEquals(1, provider.writeAttempts)
+            assertThrows(FileCrypt.UnsafeTarget::class.java) { process() }
+            assertEquals(0, provider.writeAttempts)
             assertEquals(0, provider.deletions)
             assertArrayEquals(original, target.readBytes())
             // Deletion is supported even though opening for writing is refused: the old cleanup would have destroyed this file.
@@ -89,6 +89,7 @@ class FileCryptInstrumentedTest {
             // A new, empty document created by the save picker still gets cleaned up when opening fails.
             target.writeBytes(byteArrayOf())
             assertThrows(FileNotFoundException::class.java) { process() }
+            assertEquals(1, provider.writeAttempts)
             assertEquals(2, provider.deletions)
             assertFalse(target.exists())
         }
@@ -138,8 +139,78 @@ class FileCryptInstrumentedTest {
         assertEquals(AgeException.Kind.noMatch, assertThrows(AgeException::class.java) { FileCrypt.check(context.contentResolver, Uri.fromFile(sealed), listOf(Age.generateIdentity())) }.kind)
     }
 
+    @Test fun recoveryMustBeRecordedBeforeAnyPlaintextIsWritten() {
+        val identity = Age.generateIdentity()
+        val plain = File(directory, "before-journal.bin").apply { writeText("synthetic secret") }
+        val sealed = File(directory, "before-journal.age")
+        FileCrypt.encrypt(context.contentResolver, Uri.fromFile(plain), Uri.fromFile(sealed), identity.recipient, { false }) {}
+        val out = File(directory, "journal-refused.bin")
+        assertThrows(java.io.IOException::class.java) {
+            FileCrypt.decrypt(context.contentResolver, Uri.fromFile(sealed), Uri.fromFile(out), listOf(identity), { false },
+                { throw java.io.IOException("Recovery journal unavailable") }) {}
+        }
+        assertTrue(!out.exists() || out.length() == 0L)
+    }
+
+    @Test fun aProviderIgnoringTruncationIsNotReportedAsCleaned() {
+        val file = File(directory, "provider-kept-plaintext.bin").apply { writeText("synthetic plaintext") }
+        val authority = "app.passvault.test.ignore-truncation"
+        val provider = WriteRefusingProvider(file, file, false, ignoreTruncation = true)
+        provider.attachInfo(context, ProviderInfo().apply { this.authority = authority })
+        val uri = DocumentsContract.buildDocumentUri(authority, "existing")
+        assertFalse(FileCrypt.discard(ContentResolver.wrap(provider), uri))
+        assertEquals("synthetic plaintext", file.readText())
+    }
+
+    @Test fun aStreamedAliasCannotDestroyTheSource() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(context.cacheDir, "encryption-review-alias.bin")
+        val original = ByteArray(4096) { (it % 251 + 1).toByte() }
+        file.writeBytes(original)
+        try {
+            val provider = object : ContentProvider() {
+                override fun onCreate() = true
+                override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+                    if (DocumentsContract.getDocumentId(uri) == "streamed-source") {
+                        check(mode == "r")
+                        val snapshot = file.readBytes()
+                        val pipe = ParcelFileDescriptor.createPipe()
+                        Thread {
+                            try { ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(snapshot) } }
+                            catch (_: java.io.IOException) { }
+                        }.start()
+                        return pipe[0]
+                    }
+                    return ParcelFileDescriptor.open(file, ParcelFileDescriptor.parseMode(mode))
+                }
+                override fun getType(uri: Uri) = "application/octet-stream"
+                override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = null
+                override fun insert(uri: Uri, values: ContentValues?): Uri? = throw UnsupportedOperationException()
+                override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?) = throw UnsupportedOperationException()
+                override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?) = throw UnsupportedOperationException()
+            }
+            val first = "app.passvault.review.stream"
+            val second = "app.passvault.review.local"
+            provider.attachInfo(context, ProviderInfo().apply { authority = "$first;$second" })
+            val resolver = ContentResolver.wrap(provider)
+            val source = DocumentsContract.buildDocumentUri(first, "streamed-source")
+            val target = DocumentsContract.buildDocumentUri(second, "local-target")
+            assertFalse(FileCrypt.sameDocument(source, target))
+            assertFalse(FileCrypt.sameFile(resolver, source, target))
+            val identity = Age.generateIdentity()
+            assertThrows(FileCrypt.UnsafeTarget::class.java) {
+                FileCrypt.encrypt(resolver, source, target, identity.recipient, { false }) {}
+            }
+            assertArrayEquals(original, file.readBytes())
+            assertThrows(FileCrypt.UnsafeTarget::class.java) {
+                FileCrypt.decrypt(resolver, source, target, listOf(identity), { false }) {}
+            }
+            assertArrayEquals(original, file.readBytes())
+        } finally { file.delete() }
+    }
+
     /** A provider that can read and delete its document, but cannot open it for writing (permissions, quota or a transient failure). */
-    private class WriteRefusingProvider(private val source: File, private val file: File, private val nullOnWrite: Boolean) : ContentProvider() {
+    private class WriteRefusingProvider(private val source: File, private val file: File, private val nullOnWrite: Boolean, private val ignoreTruncation: Boolean = false) : ContentProvider() {
         var writeAttempts = 0
         var deletions = 0
         override fun onCreate() = true
@@ -150,6 +221,7 @@ class FileCryptInstrumentedTest {
             }
             if (mode != "r") {
                 writeAttempts++
+                if (ignoreTruncation) return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_WRITE_ONLY)
                 if (nullOnWrite) return null
                 throw FileNotFoundException("Cannot open destination for writing.")
             }
@@ -157,6 +229,7 @@ class FileCryptInstrumentedTest {
         }
         override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
             check(method == "android:deleteDocument")
+            if (ignoreTruncation) throw UnsupportedOperationException("Deletion is not supported")
             deletions++; check(file.delete())
             return Bundle()
         }
