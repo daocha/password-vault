@@ -31,7 +31,7 @@ struct HealthView: View {
                         }.frame(width: 72, height: 72)
                         VStack(alignment: .leading) {
                             Text("Health score").font(.caption).foregroundStyle(.secondary)
-                            Text(report.score.map(Self.label) ?? "No passwords to check yet").font(.headline)
+                            Text(LocalizedStringKey(report.score.map(Self.label) ?? "No passwords to check yet")).font(.headline)
                             if report.checked > 0 { Text("\(report.checked) passwords checked").font(.caption).foregroundStyle(.secondary) }
                         }
                     }.padding(.vertical, 6)
@@ -85,7 +85,7 @@ struct HealthView: View {
     private func header(_ key: String, _ title: String, _ count: Int, _ body: String) -> some View {
         Button { withAnimation { toggle(key) } } label: {
             HStack {
-                VStack(alignment: .leading, spacing: 2) { Text("\(title) (\(count))"); Text(body).font(.caption).textCase(nil) }
+                VStack(alignment: .leading, spacing: 2) { Text("\(localized(title)) (\(count))"); Text(LocalizedStringKey(body)).font(.caption).textCase(nil) }
                 Spacer()
                 Image(systemName: open.contains(key) ? "chevron.up" : "chevron.down")
             }

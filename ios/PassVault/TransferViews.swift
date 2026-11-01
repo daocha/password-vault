@@ -49,7 +49,7 @@ struct TransferSendView: View {
                 } else {
                     Text("This vault is too large for QR codes. Save a transfer file instead.").multilineTextAlignment(.center)
                 }
-                Button(showCode ? "Show QR code again" : "Show transfer code") { showCode.toggle() }.buttonStyle(.borderedProminent)
+                Button(LocalizedStringKey(showCode ? "Show QR code again" : "Show transfer code")) { showCode.toggle() }.buttonStyle(.borderedProminent)
                 Button("Save as file instead") { saving = true }
                 Text("Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 if saved { Text("Transfer file saved. On the new phone, import it and type the transfer code.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center) }

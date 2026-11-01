@@ -1,5 +1,6 @@
 name: PassVault
 options:
+  developmentLanguage: en
   deploymentTarget:
     iOS: '17.0'
 configs:

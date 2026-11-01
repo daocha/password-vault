@@ -34,7 +34,7 @@ struct TotpRow: View {
             HStack(spacing: 14) {
                 RecordIcon(record: record)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(record.name.isEmpty ? "Untitled" : record.name).font(.headline).foregroundStyle(.primary)
+                    Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.headline).foregroundStyle(.primary)
                     if let account = record.totp?.account, !account.isEmpty { Text(account).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 Spacer()
@@ -104,7 +104,7 @@ struct TotpEditor: View {
                 Section {
                     Button("Scan QR code", systemImage: "qrcode.viewfinder") { requestCamera() }
                     PhotosPicker(selection: $photo, matching: .images) { Label("Read QR code from a screenshot", systemImage: "photo") }
-                    if let notice { Text(notice).font(.footnote).foregroundStyle(noticeError ? Color.red : Color.green) }
+                    if let notice { Text(LocalizedStringKey(notice)).font(.footnote).foregroundStyle(noticeError ? Color.red : Color.green) }
                     if let duplicate { Text("This 2FA code is already in your vault as “\(duplicate.name)”.").font(.footnote).foregroundStyle(.red) }
                 }
                 Section("Account") {
@@ -112,7 +112,7 @@ struct TotpEditor: View {
                     TextField("Account (optional)", text: $account).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
                     HStack {
                         if keyShown { TextField("Setup key", text: $key).font(.body.monospaced()) } else { SecureField("Setup key", text: $key) }
-                        Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(keyShown ? "Hide setup key" : "Show setup key")
+                        Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(Text(LocalizedStringKey(keyShown ? "Hide setup key" : "Show setup key")))
                     }.textInputAutocapitalization(.characters).autocorrectionDisabled()
                     if !key.isEmpty && secret == nil { Text("The key must be Base32: letters A–Z and digits 2–7.").font(.footnote).foregroundStyle(.red) }
                     Toggle("Favorite", isOn: $favorite)
@@ -138,7 +138,7 @@ struct TotpEditor: View {
                 Section { Text("Setup keys are left out of CSV exports; only encrypted backups include them. Keep a backup: losing this phone without one means losing these codes.").font(.footnote).foregroundStyle(.secondary) }
                 if !isNew { Section { Button("Delete 2FA code", role: .destructive) { confirmDelete = true } } }
             }
-            .navigationTitle(isNew ? "New 2FA code" : "Edit 2FA code").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(LocalizedStringKey(isNew ? "New 2FA code" : "Edit 2FA code")).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(trimmedName.isEmpty || candidate == nil) }
@@ -149,7 +149,7 @@ struct TotpEditor: View {
                 photo = nil
                 Task { let data = try? await item.loadTransferable(type: Data.self); handle(data.flatMap(decodeQRCode)) }
             }
-            .confirmationDialog(pendingImport?.isEmpty == false ? "Add \(pendingImport?.count ?? 0) 2FA codes?" : "Nothing new to add from this QR code.", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
+            .confirmationDialog(pendingImport?.isEmpty == false ? localizedFormat("Add %lld 2FA codes?", pendingImport?.count ?? 0) : localized("Nothing new to add from this QR code."), isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
                 if let records = pendingImport, !records.isEmpty {
                     Button("Add") { pendingImport = nil; model.run({ try $0.merge(records) }, done: { dismiss() }) }
                 }
