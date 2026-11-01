@@ -358,25 +358,49 @@ struct RecordList: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) { vaultToolbar }
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
             .onChange(of: showTotp) { _, _ in query = "" }
             .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { _ in if searchOpen { searchFocused = false; searchOpen = false } })
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { WordMark().font(.headline).accessibilityLabel("PassVault") }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Search", systemImage: "magnifyingglass") { searchOpen.toggle() }.tint(query.isEmpty ? nil : .accentColor)
-                    Button("Vault health", systemImage: "checkmark.shield") { healthFocus = nil; health = true }
-                    Button("Lock vault", systemImage: "lock") { model.lock() }
-                    Button("Settings", systemImage: "gearshape") { transfer = true }
-                }
-            }
             .sheet(item: $editing) { RecordEditor(record: $0) }
             .sheet(item: $editingTotp) { TotpEditor(record: $0) }
             .sheet(isPresented: $transfer) { TransferView() }
             .sheet(isPresented: $health) { HealthView(focus: healthFocus) }
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
+    }
+
+    /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
+    private var vaultToolbar: some View {
+        HStack(spacing: 8) {
+            WordMark().font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.8)
+                .accessibilityLabel("PassVault")
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                Button { searchOpen.toggle() } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                        .foregroundStyle(query.isEmpty ? Color.primary : Color.accentColor)
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                Button { healthFocus = nil; health = true } label: {
+                    Label("Vault health", systemImage: "checkmark.shield").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                Button { model.lock() } label: {
+                    Label("Lock vault", systemImage: "lock").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                Button { transfer = true } label: {
+                    Label("Settings", systemImage: "gearshape").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+            }
+            .labelStyle(.iconOnly)
+            .font(.title3)
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 56)
+        .background(.background)
     }
 
     private var addEntryButton: some View {
