@@ -63,12 +63,14 @@ object QrDecoder {
  *
  * A transfer's code changes four times a second, which keeps a camera's continuous focus and exposure hunting: it read every frame for a
  * moment, then none for long stretches. So in [continuous] mode focus and exposure are locked on the centre, again whenever nothing has been
- * read for [REFOCUS_MILLIS], and the camera works at 1280×720, decoding only the centre square the preview shows. It also starts at
- * [TRANSFER_ZOOM]: to fit the code in the preview, the phone is then held twice as far away, where every main camera can focus (a Galaxy
- * S23 Ultra's cannot at the distance that fills the preview at 1×; Samsung's own camera app switches to the ultra-wide there).
+ * read for [REFOCUS_MILLIS], and the camera works at 1280×720, decoding only the centre square the preview shows.
+ *
+ * Every scan starts at [SCAN_ZOOM]: to fit the code in the preview, the phone is then held twice as far away, where every main camera can
+ * focus (a Galaxy S23 Ultra's cannot at the distance that fills the preview at 1×; Samsung's own camera app switches to the ultra-wide
+ * there). A 2FA setup code on a computer screen is then read from a comfortable distance, too.
  */
 private const val REFOCUS_MILLIS = 2000L
-private const val TRANSFER_ZOOM = 2f
+private const val SCAN_ZOOM = 2f
 
 @Composable
 fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifier = Modifier, continuous: Boolean = false, analyzed: AtomicInteger? = null) {
@@ -112,10 +114,10 @@ fun QrScanner(owner: LifecycleOwner, onCode: (String) -> Unit, modifier: Modifie
                         val centre = SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(0.5f, 0.5f)
                         val action = FocusMeteringAction.Builder(centre, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE).disableAutoCancel().build()
                         focus[0] = { if (!done.get()) runCatching { camera.cameraControl.startFocusAndMetering(action) } }
-                        // The zoom range may not be known yet; a ratio out of range is then refused and the camera stays at 1x.
-                        runCatching { camera.cameraControl.setZoomRatio(TRANSFER_ZOOM.coerceAtMost(camera.cameraInfo.zoomState.value?.maxZoomRatio ?: TRANSFER_ZOOM)) }
                         lastFocus.set(System.currentTimeMillis()); focus[0]?.invoke()
                     }
+                    // The zoom range may not be known yet; a ratio out of range is then refused and the camera stays at 1x.
+                    runCatching { camera.cameraControl.setZoomRatio(SCAN_ZOOM.coerceAtMost(camera.cameraInfo.zoomState.value?.maxZoomRatio ?: SCAN_ZOOM)) }
                 }
             }, ContextCompat.getMainExecutor(context))
         }

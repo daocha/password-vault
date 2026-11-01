@@ -93,4 +93,20 @@ class TotpTest {
         assertTrue(runCatching { Totp.parseMigration("otpauth-migration://offline?data=AAAA%2B") }.isFailure)
         assertTrue(runCatching { Totp.parseMigration("otpauth-migration://offline?data=" + Base64.getEncoder().encodeToString(byteArrayOf(10, 50, 1))) }.isFailure)
     }
+
+    @Test fun customOrder() {
+        fun totp(name: String, favorite: Boolean = false) = VaultRecord(name = name, favorite = favorite, type = RecordType.totp, fields = emptyList(), updatedAt = "2020-01-01T00:00:00Z")
+        val a = totp("Alpha"); val b = totp("Beta", favorite = true); val c = totp("Gamma"); val login = VaultRecord(name = "Login", updatedAt = "2020-01-01T00:00:00Z")
+        // Never reordered: favorites first, then by name, as before.
+        assertEquals(listOf("Beta", "Alpha", "Gamma"), listOf(a, b, c).sortedWith(TotpOrder.comparator).map { it.name })
+        val ordered = TotpOrder.apply(listOf(a, login, b, c), listOf(c.id, a.id, b.id), "2026-01-01T00:00:00Z")
+        assertEquals(listOf("Gamma", "Alpha", "Beta"), ordered.filter { it.type == RecordType.totp }.sortedWith(TotpOrder.comparator).map { it.name })
+        assertTrue(ordered[1] === login) // Not a 2FA code: untouched.
+        // Survives a save and load, and a code added later goes last.
+        val restored = ordered.map { VaultRecord.from(it.json()) } + totp("Aardvark")
+        assertEquals(listOf("Gamma", "Alpha", "Beta", "Aardvark"), restored.filter { it.type == RecordType.totp }.sortedWith(TotpOrder.comparator).map { it.name })
+        // Only records whose position changes are stamped.
+        val again = TotpOrder.apply(ordered, listOf(c.id, b.id, a.id), "2027-01-01T00:00:00Z")
+        assertEquals(listOf("2027-01-01T00:00:00Z", "2020-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "2026-01-01T00:00:00Z"), again.map { it.updatedAt })
+    }
 }

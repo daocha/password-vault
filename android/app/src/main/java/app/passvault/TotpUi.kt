@@ -5,7 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -16,8 +21,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -30,6 +43,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 
 /** "123 456", "1234 5678": codes are easier to read and type in two halves. */
@@ -252,4 +266,93 @@ fun TotpEditor(
             item { Text(stringResource(R.string.totp_backup_note), Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center) }
         }
     }
+}
+
+/**
+ * Lets the user put the 2FA codes in their own order by dragging each row by its handle; screen readers get "Move up" and "Move down" actions instead. Nothing is saved until [onSave], which gets the record ids, top first.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TotpReorder(codes: List<VaultRecord>, onCancel: () -> Unit, onSave: (List<String>) -> Unit) {
+    val items = remember { codes.toMutableStateList() }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val drag = remember { ReorderDrag(listState, scope) { from, to -> items.add(to, items.removeAt(from)) } }
+    val haptics = LocalHapticFeedback.current
+    val changed = items.map { it.id } != codes.map { it.id }
+    BackHandler(onBack = onCancel)
+    LaunchedEffect(drag) { for (delta in drag.scroll) listState.scrollBy(delta) }
+    Scaffold(containerColor = MaterialTheme.colorScheme.background,
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.totp_reorder_title)) }, navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.Default.Close, stringResource(R.string.seed_discard)) } },
+            actions = { Button(onClick = { onSave(items.map { it.id }) }, enabled = changed, modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.seed_save)) } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
+        Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
+            Text(stringResource(R.string.totp_reorder_hint), Modifier.padding(start = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
+                itemsIndexed(items, key = { _, r -> r.id }) { index, record ->
+                    val dragging = drag.index == index
+                    val up = stringResource(R.string.totp_move_up); val down = stringResource(R.string.totp_move_down)
+                    Card(Modifier.fillMaxWidth()
+                        .then(if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = drag.offset } else Modifier.animateItem())
+                        .semantics { customActions = listOfNotNull(
+                            if (index > 0) CustomAccessibilityAction(up) { items.add(index - 1, items.removeAt(index)); true } else null,
+                            if (index < items.lastIndex) CustomAccessibilityAction(down) { items.add(index + 1, items.removeAt(index)); true } else null) },
+                        shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 6.dp else 0.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (dragging) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
+                        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RecordAvatar(record)
+                            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                                Text(record.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val account = remember(record) { record.totp?.account.orEmpty() }
+                                if (account.isNotBlank()) Text(account, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                            Box(Modifier.size(48.dp).pointerInput(drag, record.id) {
+                                detectDragGestures(onDragStart = { if (drag.start(record.id)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
+                                    onDrag = { change, amount -> change.consume(); drag.drag(amount.y) }, onDragEnd = drag::end, onDragCancel = drag::end)
+                            }, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Drag-and-drop for a [LazyColumn] whose items are exactly the list being ordered. The dragged row is drawn [offset] away from its slot so
+ * it stays under the finger: when its middle crosses another row the two swap through [move], and near the top or bottom edge the list
+ * scrolls (the amounts go to [scroll], which the screen applies).
+ */
+private class ReorderDrag(private val list: LazyListState, private val scope: kotlinx.coroutines.CoroutineScope, private val move: (from: Int, to: Int) -> Unit) {
+    var index by mutableStateOf<Int?>(null); private set
+    private var startOffset = 0; private var delta by mutableFloatStateOf(0f)
+    val scroll = kotlinx.coroutines.channels.Channel<Float>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    private val current get() = index?.let { i -> list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == i } }
+    val offset: Float get() = current?.let { startOffset + delta - it.offset } ?: 0f
+
+    fun start(key: Any): Boolean = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.let { index = it.index; startOffset = it.offset; delta = 0f; true } ?: false
+
+    fun drag(dy: Float) {
+        delta += dy
+        val item = current ?: return
+        val top = startOffset + delta; val bottom = top + item.size; val middle = (top + bottom) / 2f
+        val target = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index != item.index && middle.toInt() in it.offset..(it.offset + it.size) }
+        if (target != null) {
+            // Moving the first visible row would scroll the list along with it; keep the list where it is.
+            if (item.index == list.firstVisibleItemIndex || target.index == list.firstVisibleItemIndex) {
+                val first = list.firstVisibleItemIndex; val firstOffset = list.firstVisibleItemScrollOffset
+                scope.launch { list.scrollToItem(first, firstOffset) }
+            }
+            move(item.index, target.index); index = target.index
+        } else {
+            val edge = when {
+                delta > 0 -> (bottom - list.layoutInfo.viewportEndOffset).coerceAtLeast(0f)
+                delta < 0 -> (top - list.layoutInfo.viewportStartOffset).coerceAtMost(0f)
+                else -> 0f
+            }
+            if (edge != 0f) scroll.trySend(edge)
+        }
+    }
+    fun end() { index = null; delta = 0f }
 }

@@ -39,6 +39,28 @@ data class TotpAccount(val secret: ByteArray, val issuer: String = "", val accou
 /** The authenticator account stored in a `totp` record, or null when its URI is missing or damaged. */
 val VaultRecord.totp: TotpAccount? get() = fields.firstOrNull { it.label == TOTP_LABEL }?.value?.let { runCatching { Totp.parseUri(it) }.getOrNull() }
 
+/**
+ * The order the user gave the 2FA codes. It is kept in each record's `legacy` map, which every build (and iOS) reads and writes back
+ * unchanged, so backups, transfers and older builds keep it without a format change. Until the user reorders, no record has a position
+ * and the list stays as it always was: favorites first, then by name. Codes added later have no position and go after the ordered ones.
+ */
+object TotpOrder {
+    const val KEY = "totpOrder"
+    fun position(record: VaultRecord): Int? = record.legacy[KEY]?.toIntOrNull()
+    val comparator: Comparator<VaultRecord> = compareBy<VaultRecord>({ position(it) ?: Int.MAX_VALUE }, { !it.favorite }, { it.name.lowercase() })
+    /**
+     * [records] with the 2FA codes in [ordered] (ids, top first) given positions 0, 1, 2…; codes not in [ordered] keep theirs. Only a
+     * record whose position changes is touched (and stamped [now], so the backup reminder counts it); everything else is returned as is.
+     */
+    fun apply(records: List<VaultRecord>, ordered: List<String>, now: String): List<VaultRecord> {
+        val index = ordered.withIndex().associate { (i, id) -> id to i }
+        return records.map { r ->
+            val i = index[r.id]?.takeIf { r.type == RecordType.totp }
+            if (i == null || position(r) == i) r else r.copy(legacy = r.legacy + (KEY to i.toString()), updatedAt = now)
+        }
+    }
+}
+
 object Totp {
     val ALGORITHMS = listOf("SHA1", "SHA256", "SHA512")
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"

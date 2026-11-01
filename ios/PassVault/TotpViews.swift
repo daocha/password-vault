@@ -265,9 +265,9 @@ final class QRScannerController: UIViewController, AVCaptureMetadataOutputObject
         view.backgroundColor = .black
         guard let device = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else { return }
         session.addInput(input)
-        // As on Android: at 2x the phone is held twice as far from a transfer's code, where the main camera can focus (up close it cannot,
-        // and the Camera app's switch to the ultra-wide is not available here).
-        if continuous, (try? device.lockForConfiguration()) != nil { device.videoZoomFactor = min(2, device.activeFormat.videoMaxZoomFactor); device.unlockForConfiguration() }
+        // As on Android, every scan starts at 2x: the phone is held twice as far from the code, where the main camera can focus (up close it
+        // cannot, and the Camera app's switch to the ultra-wide is not available here), and a 2FA code on a computer screen is read from a comfortable distance.
+        if (try? device.lockForConfiguration()) != nil { device.videoZoomFactor = min(2, device.activeFormat.videoMaxZoomFactor); device.unlockForConfiguration() }
         let output = AVCaptureMetadataOutput()
         guard session.canAddOutput(output) else { return }
         session.addOutput(output)
