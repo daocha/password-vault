@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -764,6 +765,7 @@ class MainActivity : FragmentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun VaultScreen() {
         var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }; var creating by remember { mutableStateOf(false) }
+        var reordering by remember { mutableStateOf(false) }
         val selecting = selected.isNotEmpty(); val haptics = LocalHapticFeedback.current
         // The search bar is opened from the top bar and tucks away once the user starts scrolling the results; the query stays applied.
         var searchOpen by remember { mutableStateOf(false) }; val searchFocus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -779,9 +781,14 @@ class MainActivity : FragmentActivity() {
         // A group filter whose last entry was moved or deleted has no chip left to clear it.
         LaunchedEffect(groups) { if (group != null && group !in groups) group = null }
         LaunchedEffect(ofType) { if (kind != null && ofType.none { it.type == kind }) kind = null }
-        val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) && (kind == null || it.type == kind) }.sortedWith(compareBy({ !it.favorite }, { it.name.lowercase() }))
+        val visible = ofType.filter { it.matches(query) && (!favorites || it.favorite) && (group == null || it.group.trim() == group) && (kind == null || it.type == kind) }
+            .sortedWith(if (totpTab) TotpOrder.comparator else compareBy({ !it.favorite }, { it.name.lowercase() }))
         // Bulk actions apply only to entries the user can see: narrowing the filters drops hidden entries from the selection.
         LaunchedEffect(visible) { val ids = visible.map { it.id }.toSet(); if (!ids.containsAll(selected)) selected = selected intersect ids }
+        // Reordering always covers every code, whatever the search or favorites filter shows.
+        if (reordering && totpTab) { TotpReorder(remember { ofType.sortedWith(TotpOrder.comparator) }, onCancel = { reordering = false }) { ids ->
+            val updated = TotpOrder.apply(records, ids, Instant.now().toString()); work({ engine.save(updated); updated }) { reordering = false; message = getString(R.string.totp_reordered) }
+        }; return }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
             topBar = {
                 if (selecting) TopAppBar(title = { Text(stringResource(R.string.main_selected_count, selected.size)) }, navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, stringResource(R.string.main_cancel_selection)) } },
@@ -829,7 +836,12 @@ class MainActivity : FragmentActivity() {
                     IconBadge(when (tab) { RecordType.seed -> Icons.Outlined.AccountBalanceWallet; RecordType.totp -> Icons.Outlined.Pin; else -> Icons.Outlined.Key }, 72.dp); Spacer(Modifier.height(16.dp))
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_no_seed_phrases; RecordType.totp -> R.string.totp_empty_title; else -> R.string.main_peace_of_mind }), style = MaterialTheme.typography.titleLarge)
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_empty_seed_body; RecordType.totp -> R.string.totp_empty_body; else -> R.string.main_empty_login_body }), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                } else Text(stringResource(when (tab) { RecordType.seed -> R.string.main_count_of_seeds; RecordType.totp -> R.string.totp_count; else -> R.string.main_count_of_entries }, visible.size, ofType.size), Modifier.padding(start = 4.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else Row(Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(when (tab) { RecordType.seed -> R.string.main_count_of_seeds; RecordType.totp -> R.string.totp_count; else -> R.string.main_count_of_entries }, visible.size, ofType.size), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (totpTab && ofType.size > 1 && !selecting) TextButton(onClick = { searchOpen = false; reordering = true }, Modifier.height(32.dp).testTag(REORDER_BUTTON), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Icon(Icons.Default.SwapVert, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.totp_reorder), style = MaterialTheme.typography.labelLarge)
+                    }
+                }
                 // One clock for every visible code, so they all change together.
                 val now = if (totpTab) rememberNowMillis() else 0L
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 96.dp)) {

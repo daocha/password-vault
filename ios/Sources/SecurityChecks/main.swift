@@ -268,6 +268,7 @@ do {
     try decoyChecks()
     try transferChecks()
     try reviewFixChecks()
+    try totpOrderChecks()
     if let path = ProcessInfo.processInfo.environment["PASSVAULT_TEST_CSV"] {
         let migrated = try VaultCSV.importRecords(String(contentsOfFile: path, encoding: .utf8))
         try check(!migrated.isEmpty, "local migration fixture has records")

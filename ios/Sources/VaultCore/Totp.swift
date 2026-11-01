@@ -47,6 +47,15 @@ extension VaultRecord {
     public var totp: TotpAccount? { fields.first { $0.label == totpLabel }.flatMap { try? Totp.parseURI($0.value) } }
 }
 
+/// The camera zoom every QR scan starts at, as on Android: at 2x the phone is held twice as far from the code, where the main camera can
+/// focus (up close it cannot, and the Camera app's switch to the ultra-wide is not available to apps), and a 2FA setup code on a computer
+/// screen is read from a comfortable distance.
+public enum QRScanZoom {
+    public static let preferred = 2.0
+    /// [preferred], limited to what the camera supports (its `videoMaxZoomFactor`); never below 1x.
+    public static func factor(maxZoom: Double) -> Double { max(1, min(preferred, maxZoom)) }
+}
+
 public enum Totp {
     private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
     /// Matches Java's URLEncoder output after "+" is turned into "%20", so both platforms write identical URIs.

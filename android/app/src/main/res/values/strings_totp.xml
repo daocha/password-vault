@@ -48,4 +48,10 @@
     <string name="totp_import_batch">If the export showed several QR codes, scan each one.</string>
     <string name="totp_add_action">Add</string>
     <string name="totp_added">Added %1$d 2FA codes.</string>
+    <string name="totp_reorder">Reorder</string>
+    <string name="totp_reorder_title">Reorder 2FA codes</string>
+    <string name="totp_reorder_hint">Drag a code by its handle to move it.</string>
+    <string name="totp_move_up">Move up</string>
+    <string name="totp_move_down">Move down</string>
+    <string name="totp_reordered">Order saved.</string>
 </resources>

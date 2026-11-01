@@ -48,4 +48,10 @@
     <string name="totp_import_batch">如果导出显示了多个二维码，请逐一扫描。</string>
     <string name="totp_add_action">添加</string>
     <string name="totp_added">已添加 %1$d 个两步验证码。</string>
+    <string name="totp_reorder">排序</string>
+    <string name="totp_reorder_title">调整两步验证码顺序</string>
+    <string name="totp_reorder_hint">拖动右侧手柄即可移动验证码。</string>
+    <string name="totp_move_up">上移</string>
+    <string name="totp_move_down">下移</string>
+    <string name="totp_reordered">顺序已保存。</string>
 </resources>

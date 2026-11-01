@@ -48,4 +48,10 @@
     <string name="totp_import_batch">如果匯出顯示了多個 QR 碼，請逐一掃描。</string>
     <string name="totp_add_action">新增</string>
     <string name="totp_added">已新增 %1$d 個兩步驟驗證碼。</string>
+    <string name="totp_reorder">排序</string>
+    <string name="totp_reorder_title">調整兩步驟驗證碼順序</string>
+    <string name="totp_reorder_hint">拖曳右側把手即可移動驗證碼。</string>
+    <string name="totp_move_up">上移</string>
+    <string name="totp_move_down">下移</string>
+    <string name="totp_reordered">順序已儲存。</string>
 </resources>
