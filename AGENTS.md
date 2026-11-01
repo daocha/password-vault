@@ -12,6 +12,21 @@ it offline. Only the GitHub sideload build (`src/release`) and a debug build giv
   Instrumented tests run on an emulator with the emulator-only `qa` variant: `:app:connectedQaAndroidTest`.
 - iOS: `swift run vault-security-checks` in `ios/` (needs Xcode).
 
+## Keeping Android and iOS the same
+
+The two apps should behave the same. A change the user asks for goes into both `android/` and `ios/`, with
+tests on each, even when the request names only one platform or was found on one phone. The only exception is
+a feature left out of one platform on purpose, as `docs/FEATURES.md` records it (file encryption is Android-only,
+for example); then change only the platform that has it. If you cannot tell whether a difference is on purpose,
+ask the user before leaving the other platform out.
+
+While working, compare how the other platform handles the same screen, flow or data: limits, defaults, wording,
+error handling, validation, file formats, and what is kept or dropped on import and export. Fix a mismatch that
+your change touches in the same pull request. Tell the user about every other mismatch you notice, even if you
+leave it alone: name the behavior and what each platform does, and say whether it looks deliberate. Put the
+same list in the pull request description. When a platform difference becomes deliberate, record it in
+`docs/FEATURES.md`.
+
 ## Building the debug APK on the maintainer's Mac
 
 Do not use `scripts/` to build it (`build-android-debug.sh`, `setup-release-env.sh` and the like use
