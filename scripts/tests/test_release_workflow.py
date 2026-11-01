@@ -64,6 +64,20 @@ os.execv(os.environ['TEST_REAL_GIT'], [os.environ['TEST_REAL_GIT']] + sys.argv[1
                         STUB_BUILD.replace('SUFFIXES', "['.apk', '.SHA256SUMS']"))
         self.executable(self.repo / "scripts/build-android-play.sh",
                         STUB_BUILD.replace('SUFFIXES', "['-play.aab', '-play-mapping.txt']"))
+        self.executable(self.repo / "scripts/build-ios-app-store.sh", '''#!/usr/bin/env python3
+import json, os, pathlib, re, sys
+with open(os.environ['TEST_RELEASE_LOG'], 'a') as f: f.write(json.dumps(['ios'] + sys.argv[1:]) + '\\n')
+if os.environ.get('TEST_IOS_FAIL'): sys.exit(1)
+if '--check' in sys.argv: sys.exit(0)
+if os.environ.get('TEST_IOS_BUILD_FAIL'): sys.exit(1)
+root = pathlib.Path(__file__).resolve().parents[1]
+s = (root / 'android/app/build.gradle.kts').read_text()
+v = re.search(r'versionName = "([^"]+)"', s).group(1)
+c = re.search(r'versionCode = (\\d+)', s).group(1)
+out = root / 'dist' / f'APP-{v}-{c}-app-store'
+out.mkdir(parents=True, exist_ok=True)
+(out / 'APP.ipa').write_bytes(b'fixture')
+'''.replace('APP', APP))
         self.env = os.environ.copy()
         self.env.update(PATH=str(self.bin) + os.pathsep + os.environ["PATH"], TEST_RELEASE_LOG=str(self.log), TEST_REAL_GIT=REAL_GIT)
         self.git("init", "-q")
@@ -112,6 +126,54 @@ os.execv(os.environ['TEST_REAL_GIT'], [os.environ['TEST_REAL_GIT']] + sys.argv[1
         self.assertIn(f'{APP}-1.1.0-2-play.aab', result.stdout)
         create = next(c for c in self.calls() if c[:3] == ['gh', 'release', 'create'])
         self.assertFalse(any(x.endswith('.aab') or x.endswith('mapping.txt') for x in create))
+
+    def test_app_store_build_matches_version_and_stays_off_github(self):
+        result = self.run_release('--version', '1.1.0', '--app-store', '--skip-tests')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertTrue((self.repo / f'dist/{APP}-1.1.0-2-app-store/{APP}.ipa').exists())
+        calls = self.calls()
+        self.assertIn(['ios', '--check'], calls)
+        self.assertIn(['ios', '--skip-tests'], calls)
+        self.assertFalse(any('--upload-archive' in c for c in calls))
+        create = next(c for c in calls if c[:3] == ['gh', 'release', 'create'])
+        self.assertFalse(any(x.endswith('.ipa') for x in create))
+
+    def test_app_store_dry_run_does_not_publish_or_upload(self):
+        result = self.run_release('--app-store', '--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual('', self.git('tag'))
+        self.assertTrue(all(c[0] == 'ios' for c in self.calls()))
+        self.assertFalse(any('--upload-archive' in c for c in self.calls()))
+
+    def test_app_store_preflight_failure_stops_before_version_edit(self):
+        self.env['TEST_IOS_FAIL'] = '1'
+        result = self.run_release('--version', '1.1.0', '--app-store')
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual('', self.git('diff'))
+        self.assertFalse((self.repo / 'dist').exists())
+        self.assertFalse(any(c[:2] == ['git', 'push'] for c in self.calls()))
+
+    def test_app_store_build_failure_prevents_git_and_github_publication(self):
+        self.env['TEST_IOS_BUILD_FAIL'] = '1'
+        result = self.run_release('--app-store')
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual('', self.git('tag'))
+        self.assertFalse(any(c[:2] == ['git', 'push'] or c[:2] == ['gh', 'release'] for c in self.calls()))
+
+    def test_untracked_ios_source_stops_release(self):
+        (self.repo / 'ios').mkdir()
+        (self.repo / 'ios/Extra.swift').write_text('// uncommitted source')
+        result = self.run_release('--app-store')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('ios/Extra.swift', result.stderr)
+        self.assertFalse(any(c[0] == 'ios' or c[:2] == ['git', 'push'] for c in self.calls()))
+        self.assertFalse((self.repo / 'dist').exists())
+
+    def test_app_store_rejects_prerelease_version(self):
+        result = self.run_release('--version', '1.1.0-beta.1', '--app-store')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('three numeric', result.stderr)
+        self.assertFalse((self.repo / 'dist').exists())
 
     def test_dry_run_never_writes_git_or_calls_github(self):
         before = self.git('rev-parse', 'HEAD')

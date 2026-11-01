@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Build, sign, tag, push and publish an Android APK + SHA256SUMS to GitHub.
 # Usage: scripts/release-github.sh [--version 1.0.1] [--version-code 2]
-#        [--draft] [--prerelease] [--notes-file FILE] [--skip-tests] [--dry-run] [--play]
+#        [--draft] [--prerelease] [--notes-file FILE] [--skip-tests] [--dry-run] [--play] [--app-store]
 # --dry-run builds/verifies locally only; no commits, tags, pushes or GitHub writes.
 # --play also builds the Google Play bundle from the same source and versionCode (not uploaded anywhere).
+# --app-store also exports a signed iOS IPA locally; upload it separately with build-ios-app-store.sh.
 # Uses the current branch and origin GitHub repository. Requires committed sources to publish, and asks before
 # publishing when run in a terminal. New version names automatically increment versionCode unless explicitly provided.
 # Signing configuration: see _signing-common.sh.
@@ -11,7 +12,7 @@ set +x
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/_signing-common.sh"
-draft=0; prerelease=0; dry_run=0; skip_tests=0; play=0
+draft=0; prerelease=0; dry_run=0; skip_tests=0; play=0; app_store=0
 requested_version=''; requested_code=''; notes_file=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -28,7 +29,8 @@ while [ "$#" -gt 0 ]; do
     --dry-run) dry_run=1; shift ;;
     --skip-tests) skip_tests=1; shift ;;
     --play) play=1; shift ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    --app-store) app_store=1; shift ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) die "Unknown option: $1" ;;
   esac
 done
@@ -72,6 +74,11 @@ elif [ "$version" != "$current_version" ]; then code=$((current_code + 1)); fi
 [ "$code" -le 2100000000 ] || die 'versionCode must be at most 2100000000.'
 [ "$code" -ge "$current_code" ] || die 'versionCode cannot decrease.'
 if [ "$version" != "$current_version" ] && [ "$code" -le "$current_code" ]; then die 'A new version needs a higher versionCode.'; fi
+if [ "$app_store" = 1 ]; then
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'App Store versions must have three numeric components.'
+  [ "$code" -le 9999 ] || die 'The single-component iOS build number must be at most 9999.'
+  "$here/build-ios-app-store.sh" --check
+fi
 tag="v$version"
 git check-ref-format "refs/tags/$tag" >/dev/null || die "Invalid version tag: $tag"
 if [ "$dry_run" = 0 ]; then
@@ -110,6 +117,12 @@ if [ "$play" = 1 ]; then
   [ -f "$aab" ] || die 'Missing Play bundle.'
 fi
 forget_passwords
+if [ "$app_store" = 1 ]; then
+  if [ "$skip_tests" = 1 ]; then "$here/build-ios-app-store.sh" --skip-tests
+  else "$here/build-ios-app-store.sh"; fi
+  ipa="$root/dist/$app_name-$version-$code-app-store/$ios_scheme.ipa"
+  [ -f "$ipa" ] || die 'Missing App Store IPA.'
+fi
 if [ "$dry_run" = 1 ]; then
   printf '\nDry run complete. No Git/GitHub writes. Version edits, if any, remain for review.\n'
   exit 0
@@ -150,3 +163,4 @@ if [ "$draft" = 0 ]; then
 fi
 printf '\nRelease: %s\n' "$(gh release view "$tag" --repo "$repo" --json url --jq .url)"
 [ "$play" = 0 ] || printf 'Play bundle (upload it in Play Console with its mapping file): %s\n' "$aab"
+[ "$app_store" = 0 ] || printf 'App Store IPA (upload separately to App Store Connect): %s\n' "$ipa"

@@ -9,7 +9,7 @@ default_keystore="$HOME/.passvault-signing/passvault-upload.jks"
 default_key_alias=upload
 default_lineage="$HOME/.passvault-signing/lineage.bin"
 # Directories whose untracked files could end up in a release build.
-build_dirs=(android scripts)
+build_dirs=(android ios scripts)
 # The Play build must not update itself (Play policy) and, like every PassVault build but the sideload APK, stays offline.
 play_forbidden_permissions=(android.permission.REQUEST_INSTALL_PACKAGES android.permission.INTERNET)
 
@@ -26,3 +26,7 @@ PassVault $1 ($2): Android sideload APK (Android 11+). Verify the download again
 Source commit: $3
 NOTES
 }
+
+# iOS App Store release configuration. Versions come from Android release metadata.
+ios_scheme=PassVault
+run_ios_tests() { swift test; swift run vault-security-checks; }
