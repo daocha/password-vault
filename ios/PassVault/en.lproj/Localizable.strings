@@ -17,6 +17,7 @@
 "A little peace of mind" = "A little peace of mind";
 "A reminder appears in the app when a backup is due and something has changed. CSV exports do not count." = "A reminder appears in the app when a backup is due and something has changed. CSV exports do not count.";
 "A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden. To fill it, lock PassVault and unlock with the decoy password. This section is not shown inside the decoy vault. Face ID / Touch ID always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone could still tell that a second vault exists." = "A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden. To fill it, lock PassVault and unlock with the decoy password. This section is not shown inside the decoy vault. Face ID / Touch ID always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone could still tell that a second vault exists.";
+"Account" = "Account";
 "Account (optional)" = "Account (optional)";
 "Add" = "Add";
 "Add %lld 2FA codes?" = "Add %lld 2FA codes?";
@@ -47,6 +48,7 @@
 "Camera access is needed to scan. Allow it in Settings, choose a screenshot, or enter the setup key instead." = "Camera access is needed to scan. Allow it in Settings, choose a screenshot, or enter the setup key instead.";
 "Camera access is needed to scan. Allow it in Settings, or use a transfer file." = "Camera access is needed to scan. Allow it in Settings, or use a transfer file.";
 "Cancel" = "Cancel";
+"Card" = "Card";
 "Card expires %@" = "Card expires %@";
 "Card number" = "Card number";
 "Cardholder" = "Cardholder";
@@ -133,6 +135,7 @@
 "Hide" = "Hide";
 "Hide secret" = "Hide secret";
 "Hide setup key" = "Hide setup key";
+"History" = "History";
 "Hold this phone about 20–30 cm (8–12 in) away, so the code fills about half of the square. Up close, many cameras cannot focus." = "Hold this phone about 20–30 cm (8–12 in) away, so the code fills about half of the square. Up close, many cameras cannot focus.";
 "I understand the plaintext export risk" = "I understand the plaintext export risk";
 "I understand: 10 failed password attempts erase the local vault" = "I understand: 10 failed password attempts erase the local vault";
@@ -150,6 +153,7 @@
 "Language" = "Language";
 "Last backup %@ · %lld entries changed since" = "Last backup %@ · %lld entries changed since";
 "Last encrypted backup" = "Last encrypted backup";
+"Later" = "Later";
 "Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code." = "Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code.";
 "Length: %lld" = "Length: %lld";
 "Letters" = "Letters";
@@ -209,6 +213,7 @@
 "Receive from another phone" = "Receive from another phone";
 "Received %lld of %lld" = "Received %lld of %lld";
 "Remind on" = "Remind on";
+"Remove" = "Remove";
 "Remove decoy vault" = "Remove decoy vault";
 "Remove the decoy vault and everything in it? Your real vault is not affected." = "Remove the decoy vault and everything in it? Your real vault is not affected.";
 "Repeat decoy password" = "Repeat decoy password";
@@ -269,10 +274,12 @@
 "Unlock with Face ID / Touch ID" = "Unlock with Face ID / Touch ID";
 "Unlock with your password and enable biometrics first." = "Unlock with your password and enable biometrics first.";
 "Unlock your password vault" = "Unlock your password vault";
+"Untitled" = "Untitled";
 "Untitled record" = "Untitled record";
 "Use at least 12 characters." = "Use at least 12 characters.";
 "Use at most 4096 UTF-8 bytes." = "Use at most 4096 UTF-8 bytes.";
 "Username" = "Username";
+"Value" = "Value";
 "Vault file is too large." = "Vault file is too large.";
 "Vault health" = "Vault health";
 "Waiting for the first code…" = "Waiting for the first code…";

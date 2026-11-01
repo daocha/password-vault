@@ -17,6 +17,7 @@
 "A little peace of mind" = "讓你多一份安心";
 "A reminder appears in the app when a backup is due and something has changed. CSV exports do not count." = "備份到期且內容有變更時，App 會顯示提醒。CSV 匯出不計為備份。";
 "A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden. To fill it, lock PassVault and unlock with the decoy password. This section is not shown inside the decoy vault. Face ID / Touch ID always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone could still tell that a second vault exists." = "第二個 App 密碼可開啟獨立的誘餌保險庫。如果被迫解鎖 PassVault，輸入誘餌密碼，對方只能看到你放入誘餌庫的內容，真實項目仍然隱藏。要新增誘餌內容，請鎖定 PassVault 後使用誘餌密碼解鎖。本設定在誘餌庫中隱藏。Face ID / Touch ID 始終開啟真實保險庫；如可能被迫使用生物辨識，請將其關閉。熟悉 PassVault 並檢查手機的人仍可能發現第二個保險庫的存在。";
+"Account" = "帳號";
 "Account (optional)" = "帳戶（選填）";
 "Add" = "新增";
 "Add %lld 2FA codes?" = "新增 %lld 個兩步驗證碼？";
@@ -47,6 +48,7 @@
 "Camera access is needed to scan. Allow it in Settings, choose a screenshot, or enter the setup key instead." = "掃描需要相機權限。請在系統設定中允許存取，或選擇截圖、手動輸入設定金鑰。";
 "Camera access is needed to scan. Allow it in Settings, or use a transfer file." = "掃描需要相機權限。請在系統設定中允許存取，或使用傳輸檔案。";
 "Cancel" = "取消";
+"Card" = "卡片";
 "Card expires %@" = "卡片到期日期：%@";
 "Card number" = "卡號";
 "Cardholder" = "持卡人";
@@ -133,6 +135,7 @@
 "Hide" = "隱藏";
 "Hide secret" = "隱藏機密內容";
 "Hide setup key" = "隱藏設定金鑰";
+"History" = "歷史紀錄";
 "Hold this phone about 20–30 cm (8–12 in) away, so the code fills about half of the square. Up close, many cameras cannot focus." = "請將本機放在約 20–30 公分外，讓 QR 碼大約佔方框的一半。距離太近時，很多相機無法對焦。";
 "I understand the plaintext export risk" = "我了解明文匯出的風險";
 "I understand: 10 failed password attempts erase the local vault" = "我了解：密碼連續輸入錯誤 10 次會清除本機保險庫";
@@ -150,6 +153,7 @@
 "Language" = "語言";
 "Last backup %@ · %lld entries changed since" = "上次備份 %@ · 此後有 %lld 個項目變更";
 "Last encrypted backup" = "上次加密備份";
+"Later" = "稍後";
 "Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code." = "離開 PassVault 去傳送檔案時它會鎖定。10 分鐘內再次解鎖，此畫面會帶著同一個傳輸碼回來。";
 "Length: %lld" = "長度：%lld";
 "Letters" = "字母";
@@ -209,6 +213,7 @@
 "Receive from another phone" = "從另一部手機接收";
 "Received %lld of %lld" = "已接收 %lld / %lld";
 "Remind on" = "提醒日期";
+"Remove" = "移除";
 "Remove decoy vault" = "移除誘餌密碼庫";
 "Remove the decoy vault and everything in it? Your real vault is not affected." = "移除誘餌保險庫及其中的所有內容？真實保險庫不受影響。";
 "Repeat decoy password" = "再次輸入誘餌密碼";
@@ -269,10 +274,12 @@
 "Unlock with Face ID / Touch ID" = "使用 Face ID / Touch ID 解鎖";
 "Unlock with your password and enable biometrics first." = "請先使用密碼解鎖並啟用生物辨識。";
 "Unlock your password vault" = "解鎖密碼保險庫";
+"Untitled" = "未命名";
 "Untitled record" = "未命名項目";
 "Use at least 12 characters." = "請至少使用 12 個字元。";
 "Use at most 4096 UTF-8 bytes." = "UTF-8 編碼不能超過 4096 位元組。";
 "Username" = "使用者名稱";
+"Value" = "內容";
 "Vault file is too large." = "保險庫檔案過大。";
 "Vault health" = "密碼庫健康";
 "Waiting for the first code…" = "正在等待第一個碼…";

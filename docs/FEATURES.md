@@ -5,6 +5,7 @@ This repository is a native implementation under development, not an audited or 
 | Capability | Implementation |
 | --- | --- |
 | Offline iOS / Android | SwiftUI and Jetpack Compose; no server or runtime network client |
+| Appearance and language | Both apps remember System / Light / Dark appearance and System default / English / Simplified Chinese / Traditional Chinese language choices. iOS applies the chosen appearance and locale across the app and includes translated interface resources |
 | Master-password unlock | Argon2id + authenticated key wrapping + OS-protected device secret |
 | Face ID / Touch ID / Android strong biometrics | Key release protected by the platform, requires real-device verification |
 | CRUD, search, favorites, groups | Implemented in both native UIs |
