@@ -27,3 +27,11 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: PassVault/PassVault.entitlements
+
+schemes:
+  PassVault:
+    build:
+      targets:
+        PassVault: all
+    archive:
+      config: Release
