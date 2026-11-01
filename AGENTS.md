@@ -14,11 +14,17 @@ it offline. Only the GitHub sideload build (`src/release`) and a debug build giv
 
 ## Keeping Android and iOS the same
 
-The two apps should behave the same. A change the user asks for goes into both `android/` and `ios/`, with
-tests on each, even when the request names only one platform or was found on one phone. The only exception is
-a feature left out of one platform on purpose, as `docs/FEATURES.md` records it (file encryption is Android-only,
-for example); then change only the platform that has it. If you cannot tell whether a difference is on purpose,
-ask the user before leaving the other platform out.
+The two apps should behave the same. By default, a change the user asks for goes into both `android/` and
+`ios/`, with tests on each, even when the request mentions one platform in passing ("on Android the list...")
+or the problem was found on one phone. There are two exceptions:
+
+- The user explicitly limits the change to one platform ("Android only", "don't touch iOS"). Follow that, and
+  say in your reply and in the pull request that the platforms now differ.
+- The feature is left out of one platform on purpose, as `docs/FEATURES.md` records it (file encryption is
+  Android-only, for example). Change only the platform that has it.
+
+If you cannot tell whether the user meant one platform only, or whether a difference is on purpose, ask before
+leaving the other platform out.
 
 While working, compare how the other platform handles the same screen, flow or data: limits, defaults, wording,
 error handling, validation, file formats, and what is kept or dropped on import and export. Fix a mismatch that
