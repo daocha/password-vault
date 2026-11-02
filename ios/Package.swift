@@ -5,7 +5,7 @@ let package = Package(
     products: [.library(name: "VaultCore", targets: ["VaultCore"]), .executable(name: "vault-security-checks", targets: ["SecurityChecks"])],
     dependencies: [.package(url: "https://github.com/jedisct1/swift-sodium.git", exact: "0.11.0")],
     targets: [
-        .target(name: "VaultCore", dependencies: [.product(name: "Clibsodium", package: "swift-sodium")]),
+        .target(name: "VaultCore", dependencies: [.product(name: "Clibsodium", package: "swift-sodium")], resources: [.process("Resources")]),
         .testTarget(name: "VaultCoreTests", dependencies: ["VaultCore"]),
         .executableTarget(name: "SecurityChecks", dependencies: ["VaultCore", .product(name: "Clibsodium", package: "swift-sodium")])
     ]

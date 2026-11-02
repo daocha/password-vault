@@ -72,7 +72,7 @@ fun SeedDetail(record: VaultRecord, onBack: () -> Unit, onEdit: () -> Unit, onDe
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.seed_back)) } },
             actions = {
-                IconButton(onClick = onToggleFavorite) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (record.favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = onToggleFavorite) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (record.favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                 IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, stringResource(R.string.seed_edit)) }
                 Box { IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.seed_more)) }
                     DropdownMenu(menu, { menu = false }) { DropdownMenuItem(text = { Text(stringResource(R.string.seed_delete_menu)) }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; deleting = true }) } }
@@ -152,7 +152,7 @@ fun SeedEditor(initial: VaultRecord, isNew: Boolean, onCancel: () -> Unit, onSav
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(if (keyOnly) (if (isNew) R.string.seed_title_new_key else R.string.seed_title_edit_key) else if (isNew) R.string.seed_title_new_phrase else R.string.seed_title_edit_phrase)) }, navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.Default.Close, stringResource(R.string.seed_discard)) } },
             actions = {
-                IconButton(onClick = { favorite = !favorite }) { Icon(if (favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = { favorite = !favorite }) { Icon(if (favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                 Button(onClick = ::save, enabled = name.isNotBlank() && problem == null && confirmedWritten, modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.seed_save)) }
             }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
         LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

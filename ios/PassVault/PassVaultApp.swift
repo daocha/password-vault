@@ -136,17 +136,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            VaultRoot().environmentObject(model)
-                .tint(Color(red: 0.12, green: 0.32, blue: 0.66))
+            LocalizedVaultRoot().environmentObject(model)
+                .tint(Color.aPrimary)
                 .overlay { if phase != .active { Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) } } }
                 .onChange(of: phase) { _, phase in
                     if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
                     if phase == .background { model.didEnterBackground() }
-                    if phase == .active { model.didBecomeActive() }
+                    if phase == .active { model.didBecomeActive(); AppSettings.shared.applyInterfaceStyle() }
                 }
                 // Locking the phone (not just leaving the app to share the file) ends a pending transfer.
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in model.deviceDidLock() }
         }
+    }
+}
+
+/// Changing language recreates presented screens as Android's activity recreation does.
+/// The model remains outside this identity so the open vault and its records are retained.
+struct LocalizedVaultRoot: View {
+    @ObservedObject private var settings = AppSettings.shared
+    var body: some View {
+        VaultRoot()
+            .id(settings.language)
+            .environment(\.locale, settings.language.locale)
+            .preferredColorScheme(settings.colorScheme)
+            .onAppear { settings.applyInterfaceStyle() }
     }
 }
 
@@ -155,7 +168,7 @@ struct VaultRoot: View {
     var body: some View {
         Group { if model.unlocked { RecordList() } else { UnlockView() } }
             .safeAreaInset(edge: .bottom) {
-                if !model.message.isEmpty { Text(model.message).font(.footnote).foregroundStyle(.red).padding().frame(maxWidth: .infinity).background(.regularMaterial) }
+                if !model.message.isEmpty { Text(LocalizedStringKey(model.message)).font(.footnote).foregroundStyle(.red).padding().frame(maxWidth: .infinity).background(.regularMaterial) }
             }
             .overlay { if model.busy { ZStack { Color.black.opacity(0.15).ignoresSafeArea(); ProgressView("Securing your vault…").padding(28).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) } } }
             .disabled(model.busy)
@@ -173,31 +186,35 @@ struct UnlockView: View {
             Form {
                 Section {
                     VStack(spacing: 12) {
-                        Image(systemName: "lock.shield.fill").font(.system(size: 56)).foregroundStyle(.tint)
+                        Image("vault_icon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 112, height: 112)
+                            .accessibilityLabel("PassVault lock")
                         WordMark().font(.largeTitle.bold())
-                        Text("Your passwords. Only on your device.").foregroundStyle(.secondary)
+                        Text("Your passwords. Only on your device.").foregroundStyle(Color.aOnSurfaceVariant)
                     }.frame(maxWidth: .infinity).padding(.vertical, 24)
                 }.listRowBackground(Color.clear)
-                Section(model.exists ? "Welcome back" : "Create your private vault") {
+                Section(LocalizedStringKey(model.exists ? "Welcome back" : "Create your private vault")) {
                     if model.erased {
                         Text("The local vault has been erased. You can create a new one and restore an exported backup.")
                         Button("Start a new vault") { resetConfirmation = true }
                     }
-                    SecureField("Master passphrase", text: $password).textContentType(.password)
+                    SecureField("Master passphrase", text: $password).font(.system(size: 15)).textContentType(.password)
                     if !model.exists {
-                        SecureField("Repeat passphrase", text: $confirmation)
+                        SecureField("Repeat passphrase", text: $confirmation).font(.system(size: 15))
                         PasswordMismatch(password: password, repeated: confirmation)
-                        Text("\(VaultCrypto.passwordProblem(password) ?? VaultCrypto.passwordRule) There is no password reset or cloud recovery.").font(.footnote)
+                        Text(localized(VaultCrypto.passwordProblem(password) ?? VaultCrypto.passwordRule) + " " + localized("There is no password reset or cloud recovery.")).font(.footnote)
                         Toggle("I understand: 10 failed password attempts erase the local vault", isOn: $acknowledge)
                     }
-                    Button(model.exists ? "Unlock vault" : "Create vault") {
+                    Button(LocalizedStringKey(model.exists ? "Unlock vault" : "Create vault")) {
                         let value = password; password = ""; confirmation = ""
                         let exists = model.exists
                         model.run { engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }
                     }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
                         Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { model.run { try $0.unlockBiometric() } }
-                        Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(.secondary)
+                        Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
                     }
                 }
             }
@@ -222,10 +239,14 @@ struct PasswordMismatch: View {
 struct ExpiryBadge: View {
     let record: VaultRecord
     var body: some View {
-        switch record.expiryState() {
-        case .expired: Label("Expired", systemImage: "calendar.badge.exclamationmark").font(.caption2).foregroundStyle(.red)
-        case .soon: Label("Expires soon", systemImage: "calendar.badge.clock").font(.caption2).foregroundStyle(.orange)
-        default: EmptyView()
+        let state = record.expiryState()
+        if state == .expired || state == .soon {
+            HStack(spacing: 3) {
+                Image(systemName: "calendar").font(.system(size: 11))
+                Text(LocalizedStringKey(state == .expired ? "Expired" : "Expires soon")).font(.caption2.weight(.medium))
+            }
+            .foregroundStyle(.red).padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
         }
     }
 }
@@ -235,12 +256,15 @@ func groupColor(_ name: String) -> Color { let c = groupColorRGB(name); return C
 /// A group's name in its own color: colored border, a light tint behind the text, and the normal text color so contrast holds in light and dark mode.
 struct GroupTag: View {
     let name: String
+    var large = false
+    @ScaledMetric(relativeTo: .caption2) private var fontSize = 11.0
+    @ScaledMetric(relativeTo: .footnote) private var largeFontSize = 14.0
     var body: some View {
-        let tint = groupColor(name)
-        Text(name.trimmingCharacters(in: .whitespaces)).font(.caption2).foregroundStyle(.primary).lineLimit(1)
-            .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(tint, lineWidth: 1))
+        let tint = groupColor(name), radius: CGFloat = large ? 8 : 6
+        Text(name.trimmingCharacters(in: .whitespacesAndNewlines)).font(.system(size: large ? largeFontSize : fontSize, weight: .medium)).foregroundStyle(Color.aOnSurface).lineLimit(1)
+            .padding(.horizontal, large ? 10 : 6).padding(.vertical, large ? 4 : 1)
+            .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(tint, lineWidth: 1))
     }
 }
 
@@ -258,187 +282,11 @@ struct RecordIcon: View {
     var body: some View {
         if record.isLogin || record.isTotp, let brand = findBrand(website: record.website, name: record.name) {
             Image(brand.assetName).resizable().scaledToFit().accessibilityLabel(brand.title).frame(width: 34, height: 34).clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
                 .frame(width: 38)
         } else {
-            Image(systemName: record.favorite ? "star.fill" : record.isCard ? "creditcard.fill" : record.isNote ? "note.text" : "key.fill").foregroundStyle(.tint).frame(width: 30)
-        }
-    }
-}
-
-struct RecordList: View {
-    @EnvironmentObject var model: VaultModel
-    @State private var query = ""
-    /// The search field is opened from the toolbar and tucks away once the list is dragged; the query stays applied.
-    @State private var searchOpen = false
-    @FocusState private var searchFocused: Bool
-    @State private var favorites = false
-    @State private var editing: VaultRecord?
-    @State private var editingTotp: VaultRecord?
-    @State private var showTotp = false
-    @State private var transfer = false
-    @State private var health = false
-    /// The health group to open and scroll to (the expiry banner opens "expiring"); nil opens the report with every group collapsed.
-    @State private var healthFocus: String?
-    var filtered: [VaultRecord] { model.records.filter { $0.isTotp == showTotp && $0.matches(query) && (!favorites || $0.favorite) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
-    var body: some View {
-        NavigationStack {
-            List {
-                if searchOpen {
-                    Section {
-                        HStack {
-                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            TextField("Search names, usernames, notes", text: $query).focused($searchFocused).submitLabel(.search)
-                            if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.borderless).accessibilityLabel("Clear search") }
-                        }
-                    }
-                }
-                Section {
-                    Picker("Show", selection: $showTotp) { Text("Passwords").tag(false); Text("2FA codes").tag(true) }.pickerStyle(.segmented)
-                    Toggle("Favorites only", isOn: $favorites)
-                }
-                if model.backupDue {
-                    Section {
-                        Label(model.lastBackup.map { "Last backup \($0.formatted(.relative(presentation: .named))) · \(BackupReminder.changedSince(model.records, lastBackup: $0)) entries changed since" }
-                              ?? "No backup yet. If this phone is lost or reset, these entries are gone.", systemImage: "externaldrive.badge.exclamationmark")
-                        HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless)
-                    }
-                }
-                let expiring = model.records.filter { $0.needsNotice() }.count
-                if expiring > 0 {
-                    Button { healthFocus = "expiring"; health = true } label: {
-                        HStack { Label("Expired or due within 14 days: \(expiring)", systemImage: "calendar.badge.exclamationmark").lineLimit(1); Spacer(); Text("Review") }.font(.footnote)
-                    }.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                }
-                Section(showTotp ? "\(filtered.count) codes" : "\(filtered.count) records") {
-                    ForEach(filtered) { record in
-                        if record.isTotp { Button { editingTotp = record } label: { TotpRow(record: record) } } else {
-                        Button { editing = record } label: {
-                            HStack(spacing: 14) {
-                                RecordIcon(record: record)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(record.name.isEmpty ? "Untitled record" : record.name).font(.headline).foregroundStyle(.primary)
-                                    if record.isCard, !record.cardSummary.isEmpty { Text(record.cardSummary).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                                    else if !record.website.isEmpty { Text(record.website).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                                    if !record.group.trimmingCharacters(in: .whitespaces).isEmpty { GroupTag(name: record.group) }
-                                }
-                                Spacer()
-                                ExpiryBadge(record: record)
-                            }.padding(.vertical, 5)
-                        }
-                        }
-                    }.onDelete { offsets in
-                        let ids = Set(offsets.map { filtered[$0].id }), updated = model.records.filter { !ids.contains($0.id) }
-                        model.run { try $0.save(updated); return updated }
-                    }
-                }
-            }
-            .overlay {
-                if showTotp && !model.records.contains(where: \.isTotp) { ContentUnavailableView("No 2FA codes", systemImage: "qrcode.viewfinder", description: Text("Tap + and scan the QR code a site shows when you turn on two-factor authentication, or enter its setup key. Codes are generated offline on this device. To move from Google Authenticator, export there and scan its QR code here.")) }
-                else if !showTotp && model.records.isEmpty { ContentUnavailableView("A little peace of mind", systemImage: "lock.shield", description: Text("Add your first password or import your Password Keeper CSV.")) }
-            }
-            .navigationTitle("PassVault").navigationBarTitleDisplayMode(.inline)
-            .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
-            .onChange(of: showTotp) { _, _ in query = "" }
-            .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { _ in if searchOpen { searchFocused = false; searchOpen = false } })
-            .toolbar {
-                ToolbarItem(placement: .principal) { WordMark().font(.headline) }
-                ToolbarItem(placement: .topBarLeading) { Button("Lock", systemImage: "lock") { model.lock() } }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Search", systemImage: "magnifyingglass") { searchOpen.toggle() }.tint(query.isEmpty ? nil : .accentColor)
-                    Button("Vault health", systemImage: "heart.text.square") { healthFocus = nil; health = true }
-                    Button("Import, export & security", systemImage: "gearshape") { transfer = true }
-                    if showTotp {
-                        Button("Add 2FA code", systemImage: "plus") { var record = VaultRecord(); record.type = "totp"; record.fields = []; editingTotp = record }
-                    } else {
-                        Menu("Add record", systemImage: "plus") {
-                            Button("Login", systemImage: "key") { editing = VaultRecord() }
-                            Button("Payment card", systemImage: "creditcard") { editing = VaultRecord.new(type: "card") }
-                            Button("Secure note", systemImage: "note.text") { editing = VaultRecord.new(type: "note") }
-                        }
-                    }
-                }
-            }
-            .sheet(item: $editing) { RecordEditor(record: $0) }
-            .sheet(item: $editingTotp) { TotpEditor(record: $0) }
-            .sheet(isPresented: $transfer) { TransferView() }
-            .sheet(isPresented: $health) { HealthView(focus: healthFocus) }
-            .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
-        }
-    }
-}
-
-struct RecordEditor: View {
-    @ObservedObject private var settings = AppSettings.shared
-    @EnvironmentObject var model: VaultModel
-    @Environment(\.dismiss) var dismiss
-    @State var record: VaultRecord
-    @State private var revealed = Set<String>()
-    @State private var historyField: VaultField?
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Password generator") { GeneratorOptionsEditor(options: $settings.generator) }
-                Section(record.isCard ? "Card" : record.isNote ? "Secure note" : "Website or app") {
-                    TextField("Name", text: $record.name)
-                    if !record.isNote { TextField("Website/App name", text: $record.website).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    TextField("Group", text: $record.group)
-                    Toggle("Favorite", isOn: $record.favorite)
-                    // A card's own expiry date is its reminder.
-                    if !record.isCard {
-                        Toggle("Expiry reminder", isOn: Binding(get: { record.expires != nil }, set: { record.expires = $0 ? Expiry.format(Expiry.components(Date().addingTimeInterval(86400 * 365))) : nil }))
-                        if let expires = record.expires, let date = Expiry.parseDate(expires).flatMap(Expiry.localDate) {
-                            DatePicker("Remind on", selection: Binding(get: { date }, set: { record.expires = Expiry.format(Expiry.components($0)) }), displayedComponents: .date)
-                        }
-                    } else if let date = record.expiryDate.flatMap(Expiry.localDate) {
-                        Text("Card expires \(date.formatted(date: .abbreviated, time: .omitted))").font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-                Section("Fields · drag the handles to reorder") {
-                    ForEach($record.fields) { $field in
-                        VStack(alignment: .leading) {
-                            TextField("Field label", text: $field.label).font(.caption).foregroundStyle(.secondary)
-                            if field.kind == .question { TextField("Security question", text: $field.question) }
-                            HStack {
-                                let cardInput = CardInput.of(field.label).flatMap { input in input.digits(field.value).map { _ in input } }
-                                if field.secret && !revealed.contains(field.id) { SecureField(field.kind == .question ? "Answer" : cardNumericLabels.contains(field.label) ? field.label : "Password", text: cardInput.map { input in Binding(get: { field.value }, set: { field.value = input.clean($0) }) } ?? $field.value).keyboardType(cardNumericLabels.contains(field.label) ? .numberPad : .default) }
-                                // A card number or expiry is stored as digits only and shown grouped; legacy values like "03/27" are edited as their digits.
-                                else if let cardInput { TextField(field.label == cardExpiryLabel ? "MM/YY" : "Value", text: Binding(get: { cardInput.formatted(cardInput.digits(field.value) ?? "") }, set: { field.value = cardInput.edited($0, from: cardInput.digits(field.value) ?? "") })).keyboardType(.numberPad) }
-                                else { TextField(field.label == cardExpiryLabel ? "MM/YY" : "Value", text: $field.value, axis: .vertical).keyboardType(cardNumericLabels.contains(field.label) ? .numberPad : .default) }
-                                if field.secret {
-                                    Button { if !revealed.insert(field.id).inserted { revealed.remove(field.id) } } label: { Image(systemName: revealed.contains(field.id) ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(revealed.contains(field.id) ? "Hide secret" : "Reveal secret")
-                                }
-                            }.textInputAutocapitalization(.never).autocorrectionDisabled()
-                            HStack {
-                                if field.kind == .password && !cardNumericLabels.contains(field.label) { Button("Generate strong password") { do { field.value = try VaultCrypto.generatePassword(settings.generator) } catch { model.message = error.localizedDescription } }.font(.caption).buttonStyle(.borderless) }
-                                Spacer()
-                                if !field.historyNewestFirst.isEmpty { Button("History", systemImage: "clock.arrow.circlepath") { historyField = field }.font(.caption).buttonStyle(.borderless) }
-                                if settings.allowCopy {
-                                    Button("Copy", systemImage: "doc.on.doc") { SecretClipboard.copy(field.label == cardExpiryLabel ? Cards.formattedExpiry(field.value) : field.value) }.font(.caption).buttonStyle(.borderless)
-                                }
-                            }
-                        }.padding(.vertical, 4)
-                    }.onMove { record.fields.move(fromOffsets: $0, toOffset: $1) }.onDelete { record.fields.remove(atOffsets: $0) }
-                }
-                Section {
-                    Menu("Add field", systemImage: "plus.circle") {
-                        ForEach(FieldKind.allCases, id: \.self) { kind in Button(kind == .question ? "Security question & answer" : kind.rawValue.capitalized) { record.fields.append(.init(kind: kind, label: kind.rawValue.capitalized)) } }
-                    }
-                }
-            }.environment(\.editMode, .constant(.active))
-                .sheet(item: $historyField) { PasswordHistoryView(field: $0) }
-                .navigationTitle(record.name.isEmpty ? (record.isCard ? "New card" : record.isNote ? "New secure note" : "New record") : record.name)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Save") {
-                        record.updatedAt = ISO8601DateFormatter().string(from: Date())
-                        record = record.recordingPasswordChanges(previous: model.records.first { $0.id == record.id })
-                        var updated = model.records
-                        if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
-                        let snapshot = updated
-                        model.run({ try $0.save(snapshot); return snapshot }, done: { dismiss() })
-                    }.disabled(record.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-                }
+            Image(systemName: record.isSeed ? "wallet.bifold" : record.isCard ? "creditcard.fill" : record.isNote ? "note.text" : "key.fill")
+                .font(.title3).foregroundStyle(.tint).frame(width: 34, height: 34)
+                .frame(width: 38)
         }
     }
 }
@@ -454,11 +302,11 @@ struct PasswordHistoryView: View {
             List(Array(field.historyNewestFirst.enumerated()), id: \.offset) { index, change in
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(change.changedAt > 0 ? Date(timeIntervalSince1970: TimeInterval(change.changedAt)).formatted(date: .abbreviated, time: .shortened) : "Unknown date").font(.caption).foregroundStyle(.secondary)
+                        Text(change.changedAt > 0 ? Date(timeIntervalSince1970: TimeInterval(change.changedAt)).formatted(date: .abbreviated, time: .shortened) : "Unknown date").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                         Text(shown.contains(index) ? change.value : "••••••••••").font(.body.monospaced())
                     }
                     Spacer()
-                    Button { if !shown.insert(index).inserted { shown.remove(index) } } label: { Image(systemName: shown.contains(index) ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(shown.contains(index) ? "Hide" : "Reveal")
+                    Button { if !shown.insert(index).inserted { shown.remove(index) } } label: { Image(systemName: shown.contains(index) ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(Text(LocalizedStringKey(shown.contains(index) ? "Hide" : "Reveal")))
                     if settings.allowCopy { Button { SecretClipboard.copy(change.value) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("Copy earlier password") }
                 }
             }.navigationTitle("Password history \(field.label)").navigationBarTitleDisplayMode(.inline).toolbar { Button("Done") { dismiss() } }
@@ -473,6 +321,33 @@ struct ExportDocument: FileDocument {
     init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
+/// One focused settings dialog at a time; passwords are cleared whenever it closes.
+private enum VaultSettingsPanel: String, Identifiable {
+    case language, autoLock, biometrics, decoy, changePassword, generator, clipboard, backupReminder, send, exportEncrypted, exportCSV
+    var id: String { rawValue }
+    var requiresPassword: Bool {
+        switch self {
+        case .biometrics, .decoy, .changePassword, .send, .exportEncrypted, .exportCSV: true
+        default: false
+        }
+    }
+    var title: String {
+        switch self {
+        case .language: "Language"
+        case .autoLock: "Auto-lock"
+        case .biometrics: "Biometric unlock"
+        case .decoy: "Decoy vault"
+        case .changePassword: "Change app password"
+        case .generator: "Password generator"
+        case .clipboard: "Clear copied text"
+        case .backupReminder: "Backup reminder"
+        case .send: "Send to another phone"
+        case .exportEncrypted: "Export encrypted backup"
+        case .exportCSV: "Export plaintext CSV"
+        }
+    }
+}
+
 struct TransferView: View {
     @ObservedObject private var settings = AppSettings.shared
     @EnvironmentObject var model: VaultModel
@@ -492,96 +367,62 @@ struct TransferView: View {
     @State private var encryptedImport: EncryptedImport?
     @State private var newPassword = ""
     @State private var confirmNew = ""
+    @State private var panel: VaultSettingsPanel?
+    @State private var health = false
     var body: some View {
         NavigationStack {
             Form {
-                Section("App password") { SecureField("Current app password", text: $password) }
-                // Biometrics always open the real vault, so the decoy vault neither shows nor changes them.
-                if !model.decoy {
-                    Section("Biometric unlock") {
-                        Button("Enable Face ID / Touch ID") { let value = password; password = ""; model.run { try $0.enableBiometrics(password: value); return nil } }.disabled(password.isEmpty)
+                Section(header: Text("Appearance").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Theme")
+                        Picker("Theme", selection: $settings.theme) {
+                            ForEach(AppTheme.allCases) { Text(LocalizedStringKey($0.label)).tag($0) }
+                        }.pickerStyle(.segmented)
                     }
-                    Section {
-                        if model.hasDecoy {
-                            // A new password for the decoy, for when it is forgotten; what is in the decoy is kept.
-                            if model.canResetDecoy {
-                                SecureField("New decoy password", text: $decoyPassword)
-                                SecureField("Repeat decoy password", text: $confirmDecoy)
-                                PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
-                                if !decoyPassword.isEmpty { Text(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.").font(.footnote) }
-                                Button("Change decoy password") {
-                                    let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
-                                    model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: { model.message = "Decoy password changed." })
-                                }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
-                            } else {
-                                Text("This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again.").font(.footnote)
-                            }
-                            Button("Remove decoy vault", role: .destructive) { removingDecoy = true }.disabled(password.isEmpty)
-                        } else {
-                            SecureField("Decoy password", text: $decoyPassword)
-                            SecureField("Repeat decoy password", text: $confirmDecoy)
-                            PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
-                            if !decoyPassword.isEmpty { Text(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.").font(.footnote) }
-                            Button("Set up decoy vault") {
-                                let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
-                                model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.canResetDecoy = true; model.message = "Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it." })
-                            }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
-                        }
-                    } header: { Text("Decoy vault") } footer: {
-                        Text("A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden. To fill it, lock PassVault and unlock with the decoy password. This section is not shown inside the decoy vault. Face ID / Touch ID always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone could still tell that a second vault exists.")
+                    settingsRow("Language", icon: "globe", summary: settings.language.label) { open(.language) }
+                        .accessibilityIdentifier("settings.language")
+                }
+                Section(header: Text("Security").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
+                    settingsRow("Vault health", icon: "checkmark.shield") { health = true }
+                    settingsRow("Auto-lock", icon: "timer", summary: settings.autoLock.label) { open(.autoLock) }
+                    if !model.decoy {
+                        settingsRow("Biometric unlock", icon: "faceid") { open(.biometrics) }
+                    }
+                    settingsRow("Change app password", icon: "key") { open(.changePassword) }
+                    if !model.decoy {
+                        settingsRow("Decoy vault", icon: "theatermasks", summary: model.hasDecoy ? "On" : "Off") { open(.decoy) }
                     }
                 }
-                Section("Change master password") {
-                    SecureField("New passphrase", text: $newPassword)
-                    SecureField("Repeat new passphrase", text: $confirmNew)
-                    PasswordMismatch(password: newPassword, repeated: confirmNew)
-                    Button("Change password") {
-                        let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
-                        model.run { try $0.changePassword(current: current, new: next); return nil }
-                    }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || !samePassword(newPassword, confirmNew))
-                    Text(model.decoy ? "Existing exported backups keep their original password." : "Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again above.").font(.footnote)
+                Section(header: Text("Random password").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
+                    settingsRow("Password generator", icon: "sparkles", summary: localizedFormat("%lld characters", settings.generator.length)) { open(.generator) }
                 }
-                Section {
-                    LabeledContent("Last encrypted backup", value: model.lastBackup.map { "\($0.formatted(date: .abbreviated, time: .shortened)) (\($0.formatted(.relative(presentation: .named))))" } ?? "Never")
-                    Picker("Backup reminder", selection: Binding(get: { model.backupIntervalDays }, set: { model.setBackupInterval($0) })) {
-                        ForEach(BackupReminder.intervals, id: \.self) { days in Text(days == 0 ? "Off" : days == 7 ? "Every week" : days == 14 ? "Every 2 weeks" : "Every month").tag(days) }
-                    }
-                } header: { Text("Backups") } footer: {
-                    Text("PassVault keeps no cloud copy: if this phone is lost or reset, only your own backups bring your entries back. A reminder appears in the app when a backup is due and something has changed. CSV exports do not count, because they leave out 2FA keys, cards and notes.")
-                }
-                Section {
-                    Button("Import file") { importing = true }
-                } header: { Text("Import") } footer: {
-                    Text("PassVault backups, KeePass (.kdbx or XML), Bitwarden (JSON or CSV), 1Password (.1pux or CSV), Password Keeper (.pkb2 or CSV), and CSV from browsers and other managers. The format is recognised from the file.")
-                }
-                Section {
-                    Button("Send to another phone", systemImage: "iphone.and.arrow.forward") { send() }.disabled(password.isEmpty)
-                    Button("Receive from another phone", systemImage: "qrcode.viewfinder") { receive() }
-                } header: { Text("Move to another phone") } footer: {
-                    Text("No network needed: the old phone shows a moving QR code, encrypted with a one-time code shown only on its screen, for the new phone to scan. A transfer file works too. Sending asks for the app password above.")
-                }
-                Section("Export") {
-                    Toggle("Plaintext CSV", isOn: $csv)
-                    if csv {
-                        Text("CSV files expose every password. Keep them out of spreadsheets: cells may contain formulas. Delete your migration copy after checking the import.").font(.footnote).foregroundStyle(.orange)
-                        Toggle("I understand the plaintext export risk", isOn: $csvConsent)
-                    } else {
-                        Text("Encrypted exports use your app password. Keep it safe; there is no recovery service.").font(.footnote)
-                    }
-                    Button("Export all passwords") { export() }.disabled(password.isEmpty || (csv && !csvConsent))
-                }
-                Section {
-                    Picker("Auto-lock", selection: $settings.autoLock) { ForEach(AutoLock.allCases) { Text($0.label).tag($0) } }
-                    Toggle("Allow copying", isOn: $settings.allowCopy)
+                Section(header: Text("Clipboard").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
+                    Toggle(isOn: $settings.allowCopy) { Label("Allow copying", systemImage: "doc.on.doc") }
                     if settings.allowCopy {
-                        Picker("Clear copied text", selection: $settings.clipboardClear) { ForEach(ClipboardClear.allCases) { Text($0.label).tag($0) } }
-                        Toggle("Clear copied text when the vault locks", isOn: $settings.clearClipboardOnLock)
+                        settingsRow("Clear copied text", icon: "timer", summary: settings.clipboardClear.label) { open(.clipboard) }
+                        Toggle(isOn: $settings.clearClipboardOnLock) { Label("Clear copied text when the vault locks", systemImage: "lock") }
                     }
-                } header: { Text("Security") } footer: {
-                    Text("Copied values stay on this device only: they are not shared with your other devices through Universal Clipboard. Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Unlocking with the app password or biometrics clears failed attempts.")
                 }
-                Section("Password generator") { GeneratorOptionsEditor(options: $settings.generator) }
-            }.navigationTitle("Vault settings").toolbar { Button("Done") { dismiss() } }
+                Section {
+                    settingsRow("Last encrypted backup", icon: "clock.arrow.circlepath", summary: model.lastBackup.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never") { open(.exportEncrypted) }
+                    settingsRow("Backup reminder", icon: "bell.badge", summary: backupIntervalLabel(model.backupIntervalDays)) { open(.backupReminder) }
+                    settingsRow("Import file", icon: "folder", summary: "Backups and exports from other password managers") { importing = true }
+                    settingsRow("Send to another phone", icon: "iphone.and.arrow.forward") { open(.send) }
+                    settingsRow("Receive from another phone", icon: "qrcode.viewfinder") { receive() }
+                    settingsRow("Export encrypted backup", icon: "lock.doc") { open(.exportEncrypted) }
+                    settingsRow("Export plaintext CSV", icon: "doc.text") { open(.exportCSV) }
+                } header: { Text("Backup & migration") } footer: {
+                    Text("PassVault keeps no cloud copy. Only your own encrypted backups can restore your vault if this phone is lost or reset. CSV leaves out 2FA keys, cards and notes.")
+                }
+                Section {
+                    Text("Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Unlocking with the app password or biometrics clears failed attempts.").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
+                }
+            }.scrollContentBackground(.hidden).background(Color.aBackground).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+                .toolbar { Button("Done") { dismiss() } }
+                .sheet(item: $panel, onDismiss: clearPasswords) { panel in
+                    settingsDialog(panel)
+                }
+                .sheet(isPresented: $health) { HealthView(focus: nil) }
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
                     do {
                         let data = try readPicked(result.get())
@@ -599,15 +440,148 @@ struct TransferView: View {
                     receiving = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { encryptedImport = EncryptedImport(data: data) }
                 } }
                 .sheet(item: $encryptedImport) { file in DecryptImportView(file: file) { records in encryptedImport = nil; if model.unlocked { pendingImport = records } } }
-                .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
-                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
-                }
                 .confirmationDialog("Import \(pendingImport?.count ?? 0) records?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
                     Button("Import") { if let records = pendingImport { model.run { try $0.merge(records) } }; pendingImport = nil }
                     Button("Full replacement", role: .destructive) { if let records = pendingImport { model.run { try $0.replaceAll(records) } }; pendingImport = nil }
                     Button("Cancel", role: .cancel) { pendingImport = nil }
                 } message: {
                     Text("Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.")
+                }
+
+        }
+    }
+    private func clearPasswords() {
+        password = ""; newPassword = ""; confirmNew = ""; decoyPassword = ""; confirmDecoy = ""; csvConsent = false
+    }
+
+    private func open(_ next: VaultSettingsPanel) {
+        clearPasswords()
+        csv = next == .exportCSV
+        panel = next
+    }
+
+    private func backupIntervalLabel(_ days: Int) -> String {
+        days == 0 ? "Off" : days == 7 ? "Every week" : days == 14 ? "Every 2 weeks" : "Every month"
+    }
+
+    /// A settings row as on Android: the icon in a tinted circle, the title in the normal text colour, the current value under it in the secondary colour.
+    /// A plain button style keeps Form from painting the whole row in the tint colour.
+    private func settingsRow(_ title: String, icon: String, summary: String? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 16)).foregroundStyle(Color.aOnSecondaryContainer)
+                    .frame(width: 36, height: 36).background(Color.aSecondaryContainer, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(title)).font(.callout).foregroundStyle(Color.aOnSurface)
+                    if let summary { Text(LocalizedStringKey(summary)).font(.caption).foregroundStyle(Color.aOnSurfaceVariant) }
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
+            }.padding(.vertical, 2).contentShape(Rectangle())
+        }.buttonStyle(.plain)
+    }
+
+    private func settingsDialog(_ panel: VaultSettingsPanel) -> some View {
+        NavigationStack {
+            Form {
+                if panel.requiresPassword {
+                    Section("App password") { SecureField("Current app password", text: $password).font(.system(size: 15)).textContentType(.password) }
+                }
+                switch panel {
+                case .language:
+                    Section {
+                        ForEach(AppLanguage.allCases) { language in
+                            choice(language.label, selected: settings.language == language) { settings.language = language; self.panel = nil }
+                                .accessibilityIdentifier("language.\(language.rawValue)")
+                        }
+                    }
+                case .autoLock:
+                    Section {
+                        ForEach(AutoLock.allCases) { option in
+                            choice(option.label, selected: settings.autoLock == option) { settings.autoLock = option; self.panel = nil }
+                        }
+                    } footer: { Text("PassVault locks after leaving the app for the selected time, or when the device locks.") }
+                case .clipboard:
+                    Section {
+                        ForEach(ClipboardClear.allCases) { option in
+                            choice(option.label, selected: settings.clipboardClear == option) { settings.clipboardClear = option; self.panel = nil }
+                        }
+                    } footer: { Text("Copied values stay on this device only and are never shared through Universal Clipboard.") }
+                case .backupReminder:
+                    Section {
+                        ForEach(BackupReminder.intervals, id: \.self) { days in
+                            choice(backupIntervalLabel(days), selected: model.backupIntervalDays == days) { model.setBackupInterval(days); self.panel = nil }
+                        }
+                    } footer: { Text("A reminder appears in the app when a backup is due and something has changed. CSV exports do not count.") }
+                case .generator:
+                    Section { GeneratorOptionsEditor(options: $settings.generator) } footer: { Text("Defaults for newly generated passwords.") }
+                case .biometrics:
+                    Section("Biometric unlock") {
+                        Button("Enable Face ID / Touch ID") { let value = password; password = ""; model.run { try $0.enableBiometrics(password: value); return nil } }.disabled(password.isEmpty)
+                    }
+                case .decoy:
+                    Section {
+                        if model.hasDecoy {
+                            // A new password for the decoy, for when it is forgotten; what is in the decoy is kept.
+                            if model.canResetDecoy {
+                                SecureField("New decoy password", text: $decoyPassword).font(.system(size: 15))
+                                SecureField("Repeat decoy password", text: $confirmDecoy).font(.system(size: 15))
+                                PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
+                                if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
+                                Button("Change decoy password") {
+                                    let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
+                                    model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: { model.message = "Decoy password changed." })
+                                }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
+                            } else {
+                                Text("This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again.").font(.footnote)
+                            }
+                            Button("Remove decoy vault", role: .destructive) { removingDecoy = true }.disabled(password.isEmpty)
+                        } else {
+                            SecureField("Decoy password", text: $decoyPassword).font(.system(size: 15))
+                            SecureField("Repeat decoy password", text: $confirmDecoy).font(.system(size: 15))
+                            PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
+                            if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
+                            Button("Set up decoy vault") {
+                                let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
+                                model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.canResetDecoy = true; model.message = "Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it." })
+                            }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
+                        }
+                    } header: { Text("Decoy vault") } footer: {
+                        Text("A second app password that opens a separate, harmless vault. If someone forces you to unlock PassVault, enter the decoy password: they see only what you put in the decoy vault, and your real entries stay hidden. To fill it, lock PassVault and unlock with the decoy password. This section is not shown inside the decoy vault. Face ID / Touch ID always opens your real vault, so turn it off if you might be made to use it. Someone who knows PassVault well and examines the phone could still tell that a second vault exists.")
+                    }
+                case .changePassword:
+                    Section("Change app password") {
+                        SecureField("New app password", text: $newPassword).font(.system(size: 15))
+                        SecureField("Repeat new app password", text: $confirmNew).font(.system(size: 15))
+                        PasswordMismatch(password: newPassword, repeated: confirmNew)
+                        Button("Change password") {
+                            let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
+                            model.run { try $0.changePassword(current: current, new: next); return nil }
+                        }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || !samePassword(newPassword, confirmNew))
+                        Text(LocalizedStringKey(model.decoy ? "Existing exported backups keep their original password." : "Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again in Settings.")).font(.footnote)
+                    }
+                case .send:
+                    Section {
+                        Button("Continue") { send() }.disabled(password.isEmpty)
+                    } footer: { Text("No network needed. The old phone shows a moving QR code encrypted with a one-time transfer code. A transfer file works too.") }
+                case .exportEncrypted, .exportCSV:
+                    Section("Export") {
+                        if csv {
+                            Text("CSV files expose every password. Keep them out of spreadsheets: cells may contain formulas. Delete your migration copy after checking the import.").font(.footnote).foregroundStyle(.orange)
+                            Toggle("I understand the plaintext export risk", isOn: $csvConsent)
+                        } else {
+                            Text("Encrypted exports use your app password. Keep it safe; there is no recovery service.").font(.footnote)
+                        }
+                        Button("Export") { export() }.disabled(password.isEmpty || (csv && !csvConsent))
+                    }
+                }
+            }
+            .disabled(model.busy)
+            .overlay { if model.busy { ProgressView("Securing your vault…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
+            .navigationTitle(LocalizedStringKey(panel.title)).navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { self.panel = nil }.disabled(model.busy) } }
+                .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
+                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
                 }
                 .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { result in
                     document = nil
@@ -617,7 +591,21 @@ struct TransferView: View {
                     }
                 }
         }
+        .interactiveDismissDisabled(model.busy)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
+
+    private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(LocalizedStringKey(title)).foregroundStyle(Color.aOnSurface)
+                Spacer()
+                if selected { Image(systemName: "checkmark").foregroundStyle(.tint) }
+            }
+        }.accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     private func send() {
         guard !model.busy, let engine = model.engine else { return }
         let pass = password; password = ""; model.busy = true
@@ -681,19 +669,19 @@ struct DecryptImportView: View {
                 Section {
                     // The transfer code is read off another screen, so it is typed in the clear.
                     if transfer { TextField("Transfer code", text: Binding(get: { Transfer.typingShown(password) }, set: { password = Transfer.typingEdited($0, from: password) })).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.body.monospaced()) }
-                    else { SecureField(keepass ? "Database password" : "File password", text: $password) }
+                    else { SecureField(keepass ? "Database password" : "File password", text: $password).font(.system(size: 15)) }
                     if keepass {
                         if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }
                         else { HStack { Label("Key file chosen", systemImage: "key.fill"); Spacer(); Button("Remove") { keyFile = nil } } }
                     }
                 } footer: {
-                    Text(transfer ? "Enter the transfer code shown on the other phone." : keepass ? "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds."
-                         : keeper ? "Enter the password you chose when exporting this .pkb2 file from Password Keeper." : "Enter the password this backup was exported with.")
+                    Text(LocalizedStringKey(transfer ? "Enter the transfer code shown on the other phone." : keepass ? "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds."
+                         : keeper ? "Enter the password you chose when exporting this .pkb2 file from Password Keeper." : "Enter the password this backup was exported with."))
                 }
-                if !error.isEmpty { Text(error).foregroundStyle(.red).font(.footnote) }
+                if !error.isEmpty { Text(LocalizedStringKey(error)).foregroundStyle(.red).font(.footnote) }
                 if working { ProgressView("Decrypting…") }
             }
-            .navigationTitle(transfer ? "Transfer from another phone" : keepass ? "KeePass database" : keeper ? "Password Keeper backup" : "Encrypted backup").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(LocalizedStringKey(transfer ? "Transfer from another phone" : keepass ? "KeePass database" : keeper ? "Password Keeper backup" : "Encrypted backup")).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Decrypt") { decrypt() }.disabled(working || (password.isEmpty && !keepass)) }

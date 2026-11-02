@@ -829,7 +829,7 @@ class MainActivity : FragmentActivity() {
         LaunchedEffect(listState) { snapshotFlow { listState.isScrollInProgress }.collect { if (it && searchOpen) { focusManager.clearFocus(); searchOpen = false } } }
         val type = tab; val seedTab = tab == RecordType.seed; val totpTab = tab == RecordType.totp
         val ofType = records.filter { it.type.tab == type }
-        val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
+        val groups = remember(records) { VaultFolders.names(records) }
         // A group filter whose last entry was moved or deleted has no chip left to clear it.
         LaunchedEffect(groups) { if (group != null && group !in groups) group = null }
         LaunchedEffect(ofType) { if (kind != null && ofType.none { it.type == kind }) kind = null }
@@ -909,7 +909,10 @@ class MainActivity : FragmentActivity() {
                         val isSelected = record.id in selected
                         fun toggle() { selected = if (isSelected) selected - record.id else selected + record.id }
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
-                            Row(Modifier.clickable { if (selecting) toggle() else { viewing = record; editing = false } }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            // An expired or due-soon entry gets a badge at the bottom right, so its row grows by a line.
+                            val badged = record.expiryState().let { it == ExpiryState.expired || it == ExpiryState.soon }
+                            Box(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().clickable { if (selecting) toggle() else { viewing = record; editing = false } }.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (badged) 32.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 // Tapping the icon selects; tapping anywhere else opens the entry (or toggles it while selecting).
                                 Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClickLabel = if (isSelected) stringResource(R.string.main_deselect) else stringResource(R.string.main_select)) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); toggle() }, contentAlignment = Alignment.Center) {
                                     when {
@@ -923,10 +926,11 @@ class MainActivity : FragmentActivity() {
                                     if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (record.type.tab == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
                                 }
-                                ExpiryBadge(record)
-                                if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = FavoriteStar)
                                 if (record.type == RecordType.totp) { if (!selecting) TotpRowCode(totp, now, if (allowCopy) ::copySecret else null) }
                                 else if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (badged) Box(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp)) { ExpiryBadge(record) }
                             }
                         }
                     }
@@ -1021,7 +1025,7 @@ class MainActivity : FragmentActivity() {
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
             topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = { viewing = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
                 actions = {
-                    IconButton(onClick = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                     // Editing could damage a file key, and with it every file encrypted to it.
                     if (!fileKey) IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, stringResource(R.string.main_edit)) }
                     Box { IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.main_more)) }
@@ -1134,7 +1138,7 @@ class MainActivity : FragmentActivity() {
                 else -> if (isNew) R.string.main_new_entry else R.string.main_edit_entry
             })) }, navigationIcon = { IconButton(onClick = { cancel() }) { Icon(Icons.Default.Close, stringResource(R.string.main_discard_changes)) } },
                 actions = {
-                    IconButton(onClick = { record = record.copy(favorite = !record.favorite) }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { record = record.copy(favorite = !record.favorite) }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                     Button(onClick = { val saved = record.copy(name = record.name.trim(), updatedAt = Instant.now().toString()).recordingPasswordChanges(records.firstOrNull { it.id == record.id }); saveRecord(saved) { viewing = saved; editing = false } }, enabled = record.name.isNotBlank(), modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.main_save)) }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
             LazyColumn(Modifier.padding(padding), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1225,9 +1229,11 @@ class MainActivity : FragmentActivity() {
         val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
         var expanded by remember { mutableStateOf(false) }
         val typed = value.trim()
-        val options = if (typed.isEmpty()) groups else groups.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true) }
-        ExposedDropdownMenuBox(expanded && options.isNotEmpty(), { expanded = it }) {
-            OutlinedTextField(value, { change(it); expanded = true }, Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable), label = { Text(stringResource(R.string.main_group)) }, leadingIcon = { Icon(Icons.Outlined.Folder, null) },
+        // Typing narrows the list to matching groups; opening it with the arrow always lists every group, and picking one replaces the current group.
+        var showAll by remember { mutableStateOf(false) }
+        val options = if (showAll || typed.isEmpty()) groups else groups.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true) }
+        ExposedDropdownMenuBox(expanded && options.isNotEmpty(), { expanded = it; if (it) showAll = true }) {
+            OutlinedTextField(value, { change(it); showAll = false; expanded = true }, Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable), label = { Text(stringResource(R.string.main_group)) }, leadingIcon = { Icon(Icons.Outlined.Folder, null) },
                 trailingIcon = { if (groups.isNotEmpty()) ExposedDropdownMenuDefaults.TrailingIcon(expanded && options.isNotEmpty(), Modifier.menuAnchor(ExposedDropdownMenuAnchorType.SecondaryEditable)) },
                 supportingText = if (groups.isNotEmpty() && typed.isNotEmpty() && groups.none { it.equals(typed, ignoreCase = true) }) { { Text(stringResource(R.string.main_new_group)) } } else null,
                 singleLine = true, shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
