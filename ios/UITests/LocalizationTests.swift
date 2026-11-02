@@ -35,10 +35,11 @@ final class LocalizationTests: XCTestCase {
         biometrics.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         let currentPassword = app.secureTextFields["Current app password"]
         XCTAssertTrue(currentPassword.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "The biometric password prompt should open its keyboard without a swipe")
         XCTAssertTrue(currentPassword.isHittable)
-        currentPassword.typeText("test")
-        XCTAssertTrue(app.buttons["Enable Face ID / Touch ID"].isEnabled)
+        // Type through the app without tapping the field: this requires automatic keyboard focus.
+        // A connected simulator hardware keyboard can hide the onscreen Keyboard element.
+        app.typeText("test")
+        XCTAssertTrue(app.buttons["Enable Face ID / Touch ID"].isEnabled, "The biometric password prompt must accept typing without a tap or swipe")
         app.buttons["settings.panel.done"].tap()
         selectLanguage("zh-Hans", in: app)
         openSettings(app)
