@@ -67,8 +67,15 @@ enum ClipboardClear: String, CaseIterable, Identifiable {
     static let shared = AppSettings()
     private let defaults = UserDefaults.standard
     private let appearance = AppearancePreferences()
-    @Published var theme: AppTheme { didSet { appearance.theme = theme } }
+    @Published var theme: AppTheme { didSet { appearance.theme = theme; applyInterfaceStyle() } }
     @Published var language: AppLanguage { didSet { appearance.language = language } }
+    /// Sets the style on every window, so sheets and covers follow the chosen theme at once. SwiftUI's preferredColorScheme alone left presented screens (the settings sheet holding this picker) and the root on the old style.
+    func applyInterfaceStyle() {
+        let style: UIUserInterfaceStyle = switch theme { case .system: .unspecified; case .light: .light; case .dark: .dark }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows { window.overrideUserInterfaceStyle = style }
+        }
+    }
     var colorScheme: ColorScheme? {
         switch theme {
         case .system: nil

@@ -142,7 +142,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 .onChange(of: phase) { _, phase in
                     if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
                     if phase == .background { model.didEnterBackground() }
-                    if phase == .active { model.didBecomeActive() }
+                    if phase == .active { model.didBecomeActive(); AppSettings.shared.applyInterfaceStyle() }
                 }
                 // Locking the phone (not just leaving the app to share the file) ends a pending transfer.
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in model.deviceDidLock() }
@@ -159,6 +159,7 @@ struct LocalizedVaultRoot: View {
             .id(settings.language)
             .environment(\.locale, settings.language.locale)
             .preferredColorScheme(settings.colorScheme)
+            .onAppear { settings.applyInterfaceStyle() }
     }
 }
 
