@@ -378,7 +378,7 @@
 "Your passwords are never uploaded or sent anywhere. PassVault checks them here, on this device, and nothing leaves it. Because it works offline, it cannot look passwords up in online lists of leaked passwords." = "Your passwords are never uploaded or sent anywhere. PassVault checks them here, on this device, and nothing leaves it. Because it works offline, it cannot look passwords up in online lists of leaked passwords.";
 "Your passwords. Only on your device." = "Your passwords. Only on your device.";
 "Your vault was saved by a newer version of PassVault. Update the app to open it." = "Your vault was saved by a newer version of PassVault. Update the app to open it.";
-"age secret key" = "age secret key";
+"age secret key" = "File encryption key";
 "简体中文" = "简体中文";
 "繁體中文" = "繁體中文";
 
@@ -427,7 +427,6 @@
 "Weak" = "Weak";
 "Unchanged since %@" = "Unchanged since %@";
 "Apply" = "Apply";
-"age secret key" = "File encryption key";
 "File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files." = "File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files.";
 "This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it." = "This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it.";
 "This includes %lld 2FA codes. Without another copy of their setup keys or the sites' recovery codes, you may lose access to those accounts." = "This includes %lld 2FA codes. Without another copy of their setup keys or the sites' recovery codes, you may lose access to those accounts.";

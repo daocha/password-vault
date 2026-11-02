@@ -42,6 +42,10 @@ final class AppearancePreferencesTests: XCTestCase {
     func testTranslationsHaveMatchingKeysAndFormatArguments() throws {
         func table(_ language: String) throws -> [String: String] {
             let data = try Data(contentsOf: appResources.appendingPathComponent("\(language).lproj/Localizable.strings"))
+            let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+            let keyPattern = try NSRegularExpression(pattern: #"(?m)^"((?:\\.|[^"\\])*)"\s*="#)
+            let keys = keyPattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).map { String(text[Range($0.range(at: 1), in: text)!]) }
+            XCTAssertEqual(keys.count, Set(keys).count, "\(language): duplicate localization keys")
             return try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String])
         }
         let english = try table("en")
