@@ -1,8 +1,11 @@
 name: iOS
 
-# CI for every push and pull request. The installable IPA is produced by the
+# CI for pull requests and pushes to main. The installable IPA is produced by the
 # manual test-builds workflow when signing credentials are available.
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
