@@ -16,6 +16,7 @@ final class MemoryStorage: VaultStorage {
     func hasBlobs() throws -> Bool { !blobs.isEmpty }
     func saveBiometricKey(_ data: Data) throws { biometric = data }
     func readBiometricKey() throws -> Data { guard let biometric else { throw VaultError.locked }; return biometric }
+    func hasBiometricKey() throws -> Bool { biometric != nil }
     func deleteBiometricKey() throws { biometric = nil }
 }
 var checks = 0
@@ -28,6 +29,7 @@ func rejects(_ label: String, _ action: () throws -> Void) throws {
     throw VaultError.invalid("FAILED to reject: \(label)")
 }
 do {
+    try parityRegressionChecks()
     try listParityChecks()
     try seedChecks()
     try fileKeyChecks()

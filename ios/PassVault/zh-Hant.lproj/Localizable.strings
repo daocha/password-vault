@@ -4,8 +4,8 @@
 "%lld characters" = "%lld 個字元";
 "%lld codes" = "%lld 個驗證碼";
 "%lld of %lld codes" = "%lld / %lld 個驗證碼";
-"%lld of %lld entries" = "共 %lld 個項目，顯示 %lld 個";
-"%lld of %lld seed phrases" = "共 %lld 組助記詞，顯示 %lld 組";
+"%lld of %lld entries" = "共 %2$lld 個項目，顯示 %1$lld 個";
+"%lld of %lld seed phrases" = "共 %2$lld 組助記詞，顯示 %1$lld 組";
 "%lld password attempts remaining" = "剩餘 %lld 次密碼嘗試機會";
 "%lld passwords checked" = "已檢查 %lld 個密碼";
 "%lld records" = "%lld 個項目";
@@ -378,7 +378,7 @@
 "Your passwords are never uploaded or sent anywhere. PassVault checks them here, on this device, and nothing leaves it. Because it works offline, it cannot look passwords up in online lists of leaked passwords." = "你的密碼絕不會被上傳或傳送到任何地方。PassVault 只在這部裝置上檢查它們，任何內容都不會離開裝置。由於完全離線運作，它無法在網上的外洩密碼清單中查詢你的密碼。";
 "Your passwords. Only on your device." = "你的密碼，只保存在你的裝置上。";
 "Your vault was saved by a newer version of PassVault. Update the app to open it." = "你的密碼庫由較新版本的 PassVault 儲存。請更新應用程式後再開啟。";
-"age secret key" = "age 私鑰";
+"age secret key" = "檔案加密金鑰";
 "简体中文" = "简体中文";
 "繁體中文" = "繁體中文";
 
@@ -426,3 +426,7 @@
 "Very weak" = "非常弱";
 "Weak" = "弱";
 "Unchanged since %@" = "自 %@ 起未更改";
+"Apply" = "套用";
+"File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files." = "iOS 不支援檔案加密。此金鑰會保留在加密備份及傳輸到 Android 的資料中。請使用 Android 版 PassVault 加密或解密檔案。";
+"This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it." = "其中包含檔案加密金鑰。除非你仍有包含此金鑰的備份，否則使用它加密的檔案將永遠無法再次開啟。";
+"This includes %lld 2FA codes. Without another copy of their setup keys or the sites' recovery codes, you may lose access to those accounts." = "其中包含 %lld 個兩步驗證碼。如果沒有其他設定金鑰副本或網站的復原碼，你可能無法再登入這些帳戶。";

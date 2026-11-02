@@ -41,7 +41,7 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
     public var website = ""
     public var group = ""
     public var favorite = false
-    public var updatedAt = ISO8601DateFormatter().string(from: Date())
+    public var updatedAt = VaultTimestamp.format()
     public var fields: [VaultField] = [
         .init(kind: .username, label: "Username"),
         .init(kind: .password, label: "Password"),
@@ -58,9 +58,10 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
     public var isNote: Bool { type == "note" }
     public init() {}
     public func matches(_ query: String) -> Bool {
+        guard !query.isEmpty else { return true }
         // A card's expiry is stored as digits ("0226") but found as shown, too ("02/26").
         let searchable = [name, website, group] + fields.filter { !$0.secret }.flatMap { $0.label == cardExpiryLabel ? [$0.value, Cards.formattedExpiry($0.value)] : [$0.value] } + [totp?.account].compactMap { $0 }
-        return query.isEmpty || searchable.contains { $0.localizedCaseInsensitiveContains(query) }
+        return searchable.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }
 /// A stable color for a group as (red, green, blue) in 0...1, derived from its name (trimmed, ignoring case) so it never has to be stored and

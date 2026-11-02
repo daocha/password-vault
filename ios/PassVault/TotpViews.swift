@@ -20,7 +20,7 @@ struct TotpCountdown: View {
         let remaining = account.remaining(at: date), urgent = remaining <= 5
         ZStack {
             Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 3)
-            Circle().trim(from: 0, to: Double(remaining) / Double(account.period)).stroke(urgent ? Color.red : Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
+            Circle().trim(from: 0, to: account.remainingFraction(at: date)).stroke(urgent ? Color.red : Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
             Text("\(remaining)").font((size >= 48 ? Font.subheadline : Font.caption2).monospacedDigit()).foregroundStyle(urgent ? Color.red : Color.secondary)
         }.frame(width: size, height: size).accessibilityLabel("\(remaining) seconds left")
     }
@@ -37,7 +37,7 @@ struct TotpRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var subtitleHeight = 18.0
     @ScaledMetric(relativeTo: .title3) private var codeSize = 22.0
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        TimelineView(.periodic(from: .now, by: 0.25)) { context in
             HStack(spacing: 16) {
                 RowLeading(record: record, selection: selection)
                 VStack(alignment: .leading, spacing: 0) {
@@ -126,7 +126,7 @@ struct TotpDetail: View {
     @ViewBuilder private func codeCard(_ account: TotpAccount?) -> some View {
         SurfaceCard {
             if let account {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in
                     let code = account.code(at: context.date)
                     HStack(spacing: 8) {
                         Text(formatTotpCode(code)).font(.system(size: 34, weight: .semibold, design: .monospaced))
@@ -196,7 +196,7 @@ struct TotpReorderView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(model.busy) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let updated = TotpOrder.apply(model.records, ordered: codes.map(\.id), now: ISO8601DateFormatter().string(from: Date()))
+                        let updated = TotpOrder.apply(model.records, ordered: codes.map(\.id), now: VaultTimestamp.format())
                         model.run({ try $0.save(updated); return updated }, done: { dismiss() })
                     }.disabled(model.busy || codes.map(\.id) == originalIDs)
                 }
@@ -282,7 +282,7 @@ struct TotpEditor: View {
                     advancedCard
                     if let candidate {
                         SurfaceCard(radius: 16) {
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                            TimelineView(.periodic(from: .now, by: 0.25)) { context in
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("Current code").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
@@ -399,7 +399,7 @@ struct TotpEditor: View {
         // Keep any other fields (e.g. from a backup made elsewhere) instead of silently dropping them.
         fields += original.fields.filter { $0.label != totpLabel && $0.id != note?.id }
         record.name = trimmedName; record.favorite = favorite; record.type = "totp"; record.fields = fields
-        record.updatedAt = ISO8601DateFormatter().string(from: Date())
+        record.updatedAt = VaultTimestamp.format()
         var updated = model.records
         if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
         let snapshot = updated

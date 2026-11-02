@@ -50,7 +50,7 @@ data class VaultRecord(
     /** A seed-type record that holds a bare private key instead of a mnemonic. */
     val privateKey: String? get() = fields.firstOrNull { it.label == PRIVATE_KEY_LABEL }?.value
     /** A card's expiry is stored as digits ("0226") but found as shown, too ("02/26"). */
-    fun matches(query: String) = (listOf(name, website, group) + fields.filter { !it.secret }.flatMap { if (it.label == CARD_EXPIRY_LABEL) listOf(it.value, Cards.formattedExpiry(it.value)) else listOf(it.value) }
+    fun matches(query: String) = query.isEmpty() || (listOf(name, website, group) + fields.filter { !it.secret }.flatMap { if (it.label == CARD_EXPIRY_LABEL) listOf(it.value, Cards.formattedExpiry(it.value)) else listOf(it.value) }
         + listOfNotNull(totp?.account)).any { it.contains(query, ignoreCase = true) }
     fun json() = JSONObject().put("id", id).put("name", name).put("website", website).put("group", group).put("favorite", favorite).put("updatedAt", updatedAt).put("fields", JSONArray(fields.map { it.json() })).put("legacy", JSONObject(legacy)).apply { if (type != RecordType.login) put("type", type.name); if (expires.isNotEmpty()) put("expires", expires) }
     companion object {

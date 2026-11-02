@@ -160,7 +160,7 @@ struct RecordEditor: View {
         if record.isNote { return isNew ? "New secure note" : "Edit secure note" }
         return isNew ? "New entry" : "Edit entry"
     }
-    private var groups: [String] { VaultListFilter.folders(in: model.records) }
+    private var groups: [String] { VaultListFilter.editableFolders(in: model.records) }
 
     var body: some View {
         NavigationStack {
@@ -303,7 +303,7 @@ struct RecordEditor: View {
 
     private func save() {
         record.name = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        record.updatedAt = ISO8601DateFormatter().string(from: Date())
+        record.updatedAt = VaultTimestamp.format()
         record = record.recordingPasswordChanges(previous: model.records.first { $0.id == record.id })
         var updated = model.records
         if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }

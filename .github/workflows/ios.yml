@@ -33,7 +33,7 @@ jobs:
           -configuration Debug -destination 'generic/platform=iOS'
           CODE_SIGNING_ALLOWED=NO build
 
-      - name: Test language switching in Simulator
+      - name: Test vault lifecycle, settings and language switching in Simulator
         working-directory: ios
         run: >-
           xcodebuild -project PassVault.xcodeproj -scheme PassVault

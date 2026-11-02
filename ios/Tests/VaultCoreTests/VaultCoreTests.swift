@@ -2,6 +2,7 @@ import XCTest
 @testable import VaultCore
 
 final class MemoryStorage: VaultStorage {
+    func hasBiometricKey() throws -> Bool { biometric != nil }
     var state: Data?
     var blobs = [String: Data]()
     var biometric: Data?
