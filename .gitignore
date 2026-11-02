@@ -34,6 +34,7 @@ secrets.*
 credentials*.json
 # Gradle/Android local config (SDK path, signing passwords)
 local.properties
+ios/Config/AppStore.local.xcconfig
 
 # --- Real vault data and migration files (only the fake test fixtures are tracked) ---------------
 *.csv
