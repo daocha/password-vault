@@ -31,8 +31,11 @@ struct RecordList: View {
             VStack(spacing: 0) {
                 vaultToolbar
                 listControls
-                List {
+                VStack(alignment: .leading, spacing: 8) {
                     notices
+                    recordSummary
+                }.padding(.horizontal, 16).padding(.bottom, 8)
+                List {
                     if tabRecords.isEmpty { emptyState.listRowBackground(Color.clear) }
                     ForEach(filtered) { record in
                         Button {
@@ -110,20 +113,22 @@ struct RecordList: View {
                     }
                 }
             }.fixedSize(horizontal: false, vertical: true)
-            if !tabRecords.isEmpty {
-                HStack {
-                    Text(localizedFormat(showTotp ? "%lld of %lld codes" : tab == .seed ? "%lld of %lld seed phrases" : "%lld of %lld entries", filtered.count, tabRecords.count))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    if showTotp && tabRecords.count > 1 {
-                        Button {
-                            searchOpen = false; searchFocused = false; reordering = true
-                        } label: { Label("Reorder", systemImage: "arrow.up.arrow.down") }
-                        .font(.callout.weight(.medium)).accessibilityIdentifier("totp-reorder-button")
-                    }
-                }.frame(minHeight: 24)
-            }
         }.padding(.horizontal, 16).padding(.bottom, 4)
+    }
+    @ViewBuilder private var recordSummary: some View {
+        if !tabRecords.isEmpty {
+            HStack {
+                Text(localizedFormat(showTotp ? "%lld of %lld codes" : tab == .seed ? "%lld of %lld seed phrases" : "%lld of %lld entries", filtered.count, tabRecords.count))
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if showTotp && tabRecords.count > 1 {
+                    Button {
+                        searchOpen = false; searchFocused = false; reordering = true
+                    } label: { Label("Reorder", systemImage: "arrow.up.arrow.down") }
+                    .font(.callout.weight(.medium)).accessibilityIdentifier("totp-reorder-button")
+                }
+            }.frame(minHeight: 24)
+        }
     }
     @ViewBuilder private var notices: some View {
         if model.backupDue {
@@ -131,13 +136,13 @@ struct RecordList: View {
                 Label(model.lastBackup.map { localizedFormat("Last backup %@ · %lld entries changed since", $0.formatted(.relative(presentation: .named)), BackupReminder.changedSince(model.records, lastBackup: $0)) }
                       ?? localized("No backup yet. If this phone is lost or reset, these entries are gone."), systemImage: "externaldrive.badge.exclamationmark").font(.caption)
                 HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless)
-            }.padding(.vertical, 4).listRowSeparator(.hidden)
+            }.padding(.vertical, 4)
         }
         let expiring = model.records.filter { $0.needsNotice() }.count
         if expiring > 0 {
             Button { healthFocus = "expiring"; health = true } label: {
                 HStack { Label("Expired or due within 14 days: \(expiring)", systemImage: "calendar.badge.exclamationmark").lineLimit(1); Spacer(); Text("Review") }.font(.footnote)
-            }.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)).listRowSeparator(.hidden)
+            }.padding(.vertical, 6)
         }
     }
     @ViewBuilder private var emptyState: some View {
