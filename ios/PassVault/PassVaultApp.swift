@@ -31,6 +31,9 @@ import AVFoundation
     private(set) var engine: VaultEngine? = nil
     private var generation = 0
     private var pendingLock: Task<Bool, Never>?
+    private var biometricAutoPrompted = false
+    private var protectedDataAvailable = true
+    private var deviceLockHandled = false
     init(engine suppliedEngine: VaultEngine? = nil, defaults: UserDefaults = .standard) {
         backupPreferences = defaults
         var initialized: VaultEngine?
@@ -101,6 +104,7 @@ import AVFoundation
     }
     /// The app left the screen: lock now, or note the time so a later return can lock once the chosen delay has passed.
     func didEnterBackground() {
+        biometricAutoPrompted = false
         guard unlocked else { return }
         switch AppSettings.shared.autoLock.delay {
         case 0?: lock()
@@ -108,13 +112,36 @@ import AVFoundation
         default: backgroundedAt = Date()
         }
     }
-    func didBecomeActive() {
-        defer { backgroundedAt = nil }
-        guard unlocked, let since = backgroundedAt, let delay = AppSettings.shared.autoLock.delay, Date().timeIntervalSince(since) >= delay else { return }
-        lock()
+    func didBecomeActive(protectedDataAvailable: Bool = true) {
+        guard protectedDataAvailable else { deviceDidLock(); return }
+        self.protectedDataAvailable = true
+        deviceLockHandled = false
+        if unlocked, let since = backgroundedAt, let delay = AppSettings.shared.autoLock.delay, Date().timeIntervalSince(since) >= delay { lock() }
+        backgroundedAt = nil
+        autoUnlockWithBiometrics()
+    }
+    func autoUnlockWithBiometrics() {
+        // Face ID can make the scene inactive and active again. Attempt only once per foreground visit,
+        // so cancelling (or falling back to the app password) never immediately opens another prompt.
+        guard protectedDataAvailable, exists, !erased, !unlocked, !busy, biometricEnabled, !biometricAutoPrompted else { return }
+        biometricAutoPrompted = true
+        run { try $0.unlockBiometric() }
     }
     /// A device lock always overrides the background delay, as screen-off does on Android.
-    func deviceDidLock() { sending = nil; lock() }
+    func deviceDidLock() {
+        protectedDataAvailable = false
+        guard !deviceLockHandled else { return }
+        deviceLockHandled = true
+        biometricAutoPrompted = false
+        sending = nil; lock()
+    }
+    /// A suspended app may miss the unavailable event. Availability returning is also evidence of a
+    /// device-lock cycle: discard the retained session before resuming, regardless of the timeout.
+    func deviceDidUnlock() {
+        if !deviceLockHandled { deviceDidLock() }
+        protectedDataAvailable = true
+        deviceLockHandled = false
+    }
     func resetErased() {
         guard let engine else { return }
         do {
@@ -127,7 +154,20 @@ import AVFoundation
 }
 
 /// Third-party keyboards could log revealed passwords and notes typed into ordinary text fields; only the system keyboard is allowed.
-final class AppDelegate: NSObject, UIApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, UIApplicationDelegate {
+    weak var model: VaultModel?
+
+    func applicationProtectedDataWillBecomeUnavailable(_ application: UIApplication) {
+        model?.deviceDidLock()
+    }
+
+    func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
+        model?.deviceDidUnlock()
+        if application.applicationState == .active {
+            model?.didBecomeActive(protectedDataAvailable: application.isProtectedDataAvailable)
+        }
+    }
+
     func application(_ application: UIApplication, shouldAllowExtensionPointIdentifier extensionPointIdentifier: UIApplication.ExtensionPointIdentifier) -> Bool {
         extensionPointIdentifier != .keyboard
     }
@@ -157,14 +197,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         WindowGroup {
             LocalizedVaultRoot().environmentObject(model)
                 .tint(Color.aPrimary)
+                .onAppear {
+                    appDelegate.model = model
+                    if phase == .active { model.didBecomeActive(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable) }
+                }
+                .onChange(of: model.biometricEnabled) { _, _ in if phase == .active { model.autoUnlockWithBiometrics() } }
+                .onChange(of: model.busy) { _, busy in if phase == .active && !busy { model.autoUnlockWithBiometrics() } }
                 .overlay { if phase != .active { Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) } } }
                 .onChange(of: phase) { _, phase in
                     if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
                     if phase == .background { model.didEnterBackground() }
-                    if phase == .active { model.didBecomeActive(); AppSettings.shared.applyInterfaceStyle() }
+                    if phase == .active { model.didBecomeActive(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable); AppSettings.shared.applyInterfaceStyle() }
                 }
-                // Locking the phone (not just leaving the app to share the file) ends a pending transfer.
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in model.deviceDidLock() }
         }
     }
 }
@@ -505,7 +549,7 @@ struct TransferView: View {
         NavigationStack {
             Form {
                 if panel.requiresPassword {
-                    Section("App password") { SecureField("Current app password", text: $password).font(.system(size: 15)).textContentType(.password) }
+                    Section("App password") { SettingsPasswordField(text: $password) }
                 }
                 switch panel {
                 case .language:
@@ -599,7 +643,7 @@ struct TransferView: View {
             .disabled(model.busy)
             .overlay { if model.busy { ProgressView("Securing your vault…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
             .navigationTitle(LocalizedStringKey(panel.title)).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { self.panel = nil }.disabled(model.busy) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { self.panel = nil }.disabled(model.busy).accessibilityIdentifier("settings.panel.done") } }
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
                     Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
                 }
@@ -612,7 +656,7 @@ struct TransferView: View {
                 }
         }
         .interactiveDismissDisabled(model.busy)
-        .presentationDetents([.medium, .large])
+        .presentationDetents(panel.requiresPassword ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
@@ -688,7 +732,7 @@ struct DecryptImportView: View {
             Form {
                 Section {
                     // The transfer code is read off another screen, so it is typed in the clear.
-                    if transfer { TextField("Transfer code", text: Binding(get: { Transfer.typingShown(password) }, set: { password = Transfer.typingEdited($0, from: password) })).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.body.monospaced()) }
+                    if transfer { TransferCodeField(code: $password) }
                     else { SecureField(keepass ? "Database password" : "File password", text: $password).font(.system(size: 15)) }
                     if keepass {
                         if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }

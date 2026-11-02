@@ -23,6 +23,24 @@ final class LocalizationTests: XCTestCase {
             app.buttons["Create vault"].tap()
         }
         openSettings(app)
+        let biometrics = app.switches["settings.biometrics"].firstMatch
+        XCTAssertTrue(biometrics.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0..<3 {
+            if biometrics.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(biometrics.isHittable, app.debugDescription)
+        // SwiftUI can expose the whole labelled row as a Switch. Its centre is the label,
+        // which does not toggle on every runtime. Hit the native control on the right.
+        biometrics.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        let currentPassword = app.secureTextFields["Current app password"]
+        XCTAssertTrue(currentPassword.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(currentPassword.isHittable)
+        // Type through the app without tapping the field: this requires automatic keyboard focus.
+        // A connected simulator hardware keyboard can hide the onscreen Keyboard element.
+        app.typeText("test")
+        XCTAssertTrue(app.buttons["Enable Face ID / Touch ID"].isEnabled, "The biometric password prompt must accept typing without a tap or swipe")
+        app.buttons["settings.panel.done"].tap()
         selectLanguage("zh-Hans", in: app)
         openSettings(app)
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 10))
@@ -63,7 +81,14 @@ final class LocalizationTests: XCTestCase {
     }
 
     private func selectLanguage(_ language: String, in app: XCUIApplication) {
-        app.buttons["settings.language"].tap()
+        let languageRow = app.buttons["settings.language"]
+        // Opening biometrics can scroll Settings down. Bring the language row back into view.
+        for _ in 0..<3 {
+            if languageRow.isHittable { break }
+            app.swipeDown()
+        }
+        XCTAssertTrue(languageRow.isHittable, app.debugDescription)
+        languageRow.tap()
         let option = app.buttons["language.\(language)"]
         XCTAssertTrue(option.waitForExistence(timeout: 10))
         option.tap()
