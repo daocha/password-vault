@@ -13,7 +13,13 @@ final class LocalizationTests: XCTestCase {
             app.secureTextFields["Master passphrase"].typeText(password)
             app.secureTextFields["Repeat passphrase"].tap()
             app.secureTextFields["Repeat passphrase"].typeText(password)
-            app.switches.firstMatch.tap()
+            let consent = app.switches.firstMatch
+            consent.tap()
+            // SwiftUI exposes both the labelled container and its native switch.
+            // On runtimes where tapping the label only scrolls it into view, hit the control.
+            if consent.value as? String != "1" { consent.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap() }
+            XCTAssertEqual(consent.value as? String, "1")
+            XCTAssertTrue(app.buttons["Create vault"].isEnabled)
             app.buttons["Create vault"].tap()
         }
         openSettings(app)
