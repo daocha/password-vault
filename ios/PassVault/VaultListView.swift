@@ -53,7 +53,7 @@ struct RecordList: View {
                         }
                         .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, record.showsExpiryBadge ? 32 : 12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(isSelected ? Color.accentColor.opacity(0.18) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.aCard, in: RoundedRectangle(cornerRadius: 16))
                         .overlay(alignment: .bottomTrailing) { ExpiryBadge(record: record).padding(.trailing, 12).padding(.bottom, 8) }
                         .contentShape(RoundedRectangle(cornerRadius: 16))
                         .onTapGesture {
@@ -77,10 +77,10 @@ struct RecordList: View {
                     if searchOpen { searchFocused = false; searchOpen = false }
                 })
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color.aBackground)
             .overlay(alignment: .bottomTrailing) {
                 if !selecting {
-                    addEntryButton.buttonStyle(.borderedProminent)
+                    addEntryButton.buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary)
                         .buttonBorderShape(.roundedRectangle(radius: 16)).controlSize(.large).padding(16)
                 }
             }
@@ -114,7 +114,7 @@ struct RecordList: View {
             tabBar
             if searchOpen {
                 HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Image(systemName: "magnifyingglass").foregroundStyle(Color.aOnSurfaceVariant)
                     TextField("Search names, usernames, notes", text: $query).focused($searchFocused).submitLabel(.search)
                     if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Clear search") }
                 }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 20))
@@ -147,7 +147,7 @@ struct RecordList: View {
                         Image(systemName: tabIcon(item)).font(.system(size: 13))
                         Text(LocalizedStringKey(item.label)).lineLimit(1).minimumScaleFactor(0.75)
                     }
-                    .font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
+                    .font(.system(size: 13, weight: .medium)).foregroundStyle(Color.aOnSurface)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(tab == item ? Color.accentColor.opacity(0.2) : Color.clear)
                     .contentShape(Rectangle())
@@ -187,7 +187,7 @@ struct RecordList: View {
             }
             Button { confirmDelete = true } label: { Label("Delete selected", systemImage: "trash").frame(width: 44, height: 44).contentShape(Rectangle()) }
         }
-        .labelStyle(.iconOnly).font(.title3).buttonStyle(.plain).foregroundStyle(.primary)
+        .labelStyle(.iconOnly).font(.title3).buttonStyle(.plain).foregroundStyle(Color.aOnSurface)
         .padding(.horizontal, 16).frame(minHeight: 56)
         .background(Color.accentColor.opacity(0.18))
     }
@@ -195,7 +195,7 @@ struct RecordList: View {
         if !tabRecords.isEmpty {
             HStack {
                 Text(localizedFormat(showTotp ? "%lld of %lld codes" : tab == .seed ? "%lld of %lld seed phrases" : "%lld of %lld entries", filtered.count, tabRecords.count))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                 Spacer()
                 if showTotp && tabRecords.count > 1 && !selecting {
                     Button {
@@ -212,7 +212,7 @@ struct RecordList: View {
             VStack(alignment: .leading, spacing: 4) {
                 Label(model.lastBackup.map { localizedFormat("Last backup %@ · %lld entries changed since", $0.formatted(.relative(presentation: .named)), BackupReminder.changedSince(model.records, lastBackup: $0)) }
                       ?? localized("No backup yet. If this phone is lost or reset, these entries are gone."), systemImage: "externaldrive.badge.exclamationmark").font(.footnote)
-                HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless).font(.footnote)
+                HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(Color.aOnSurfaceVariant) }.buttonStyle(.borderless).font(.footnote)
             }
             .foregroundStyle(Color.noticeText)
             .padding(.horizontal, 16).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
@@ -226,7 +226,7 @@ struct RecordList: View {
                     Text("Expired or due within 14 days: \(expiring)").font(.caption).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     Text("Review").font(.footnote.weight(.medium)).foregroundStyle(Color.accentColor)
                 }
-                .foregroundStyle(.primary).padding(.horizontal, 12).padding(.vertical, 8)
+                .foregroundStyle(Color.aOnSurface).padding(.horizontal, 12).padding(.vertical, 8)
                 .background(Color.noticeBackground, in: RoundedRectangle(cornerRadius: 12)).contentShape(RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain)
         }
@@ -274,7 +274,7 @@ struct RecordList: View {
             .labelStyle(.iconOnly)
             .font(.title3)
             .buttonStyle(.plain)
-            .foregroundStyle(.primary)
+            .foregroundStyle(Color.aOnSurface)
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 56)
@@ -318,7 +318,7 @@ private struct VaultFilterChip: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon).font(.system(size: fontSize, weight: .medium))
-                .foregroundStyle(.primary).padding(.horizontal, 10).frame(minHeight: 32)
+                .foregroundStyle(Color.aOnSurface).padding(.horizontal, 10).frame(minHeight: 32)
                 .background(selected ? tint.opacity(0.2) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected || alwaysOutlined ? tint : Color.secondary.opacity(0.5), lineWidth: selected ? 2 : 1))
                 .padding(.vertical, 6).contentShape(Rectangle())
@@ -383,9 +383,9 @@ struct VaultEntryRow: View {
             RowLeading(record: record, selection: selection)
             VStack(alignment: .leading, spacing: 0) {
                 Text(record.name.isEmpty ? localized("Untitled record") : record.name)
-                    .font(.system(size: titleSize, weight: .medium)).foregroundStyle(.primary)
+                    .font(.system(size: titleSize, weight: .medium)).foregroundStyle(Color.aOnSurface)
                     .lineLimit(textSize.isAccessibilitySize ? 2 : 1).frame(minHeight: titleHeight, alignment: .leading)
-                if !subtitle.isEmpty { Text(verbatim: subtitle).font(.system(size: subtitleSize)).foregroundStyle(.secondary).lineLimit(textSize.isAccessibilitySize ? 2 : 1).frame(minHeight: subtitleHeight, alignment: .leading) }
+                if !subtitle.isEmpty { Text(verbatim: subtitle).font(.system(size: subtitleSize)).foregroundStyle(Color.aOnSurfaceVariant).lineLimit(textSize.isAccessibilitySize ? 2 : 1).frame(minHeight: subtitleHeight, alignment: .leading) }
                 if VaultTab.passwords.contains(record) && !VaultListFilter.folderName(record).isEmpty {
                     GroupTag(name: VaultListFilter.folderName(record)).padding(.top, 4)
                 }

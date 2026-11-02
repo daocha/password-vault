@@ -36,7 +36,7 @@ struct TransferSendView: View {
         NavigationStack {
             VStack(spacing: 16) {
                 Text("On the new phone, open PassVault, go to Settings, Receive from another phone, and point its camera at this screen. Keep this screen open until it is done.")
-                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .font(.callout).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center)
                 if showCode {
                     VStack(spacing: 12) {
                         Text("Transfer code").font(.headline)
@@ -45,14 +45,14 @@ struct TransferSendView: View {
                     }.padding(24).frame(maxWidth: .infinity).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
                 } else if let frames, let image = qrImage(frames.frame(index)) {
                     Image(uiImage: image).interpolation(.none).resizable().scaledToFit().padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
-                    Text("Code \(index % frames.count + 1) of \(frames.count)").font(.caption).foregroundStyle(.secondary)
+                    Text("Code \(index % frames.count + 1) of \(frames.count)").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                 } else {
                     Text("This vault is too large for QR codes. Save a transfer file instead.").multilineTextAlignment(.center)
                 }
-                Button(LocalizedStringKey(showCode ? "Show QR code again" : "Show transfer code")) { showCode.toggle() }.buttonStyle(.borderedProminent)
+                Button(LocalizedStringKey(showCode ? "Show QR code again" : "Show transfer code")) { showCode.toggle() }.buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary)
                 Button("Save as file instead") { saving = true }
-                Text("Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                if saved { Text("Transfer file saved. On the new phone, import it and type the transfer code.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center) }
+                Text("Leaving PassVault to send the file locks it. Unlock again within 10 minutes and this screen comes back with the same code.").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center)
+                if saved { Text("Transfer file saved. On the new phone, import it and type the transfer code.").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center) }
                 Spacer()
             }
             .padding()
@@ -81,14 +81,14 @@ struct TransferReceiveView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                Text("Point the camera at the moving QR code on the old phone. It does not need every code: ones it misses are made up by later ones.").font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("Point the camera at the moving QR code on the old phone. It does not need every code: ones it misses are made up by later ones.").font(.callout).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center)
                 QRScannerView(onCode: { text in
                     guard !finished, collector.add(text) else { return }
                     received = collector.received; total = collector.total
                     if let data = collector.result() { finished = true; done(data) }
                 }, continuous: true).aspectRatio(1, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 12))
                 Text("Hold this phone about 20–30 cm (8–12 in) away, so the code fills about half of the square. Up close, many cameras cannot focus.")
-                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .font(.footnote).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center)
                 if total == 0 { Text("Waiting for the first code…") } else {
                     ProgressView(value: Double(received), total: Double(total))
                     Text("Received \(received) of \(total)")

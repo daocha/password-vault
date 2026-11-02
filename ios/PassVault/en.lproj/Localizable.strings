@@ -423,3 +423,6 @@
 "From image" = "From image";
 "%@ · %lld digits · %lld s" = "%@ · %lld digits · %lld s";
 "Delete private key" = "Delete private key";
+"Very weak" = "Very weak";
+"Weak" = "Weak";
+"Unchanged since %@" = "Unchanged since %@";

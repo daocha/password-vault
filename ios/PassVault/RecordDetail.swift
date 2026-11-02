@@ -72,11 +72,11 @@ struct RecordDetail: View {
                         header(record)
                         fieldsCard(record)
                         if let updated = formatUpdated(record.updatedAt) {
-                            Text(localizedFormat("Updated %@", updated)).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                            Text(localizedFormat("Updated %@", updated)).font(.caption).foregroundStyle(Color.aOnSurfaceVariant).frame(maxWidth: .infinity)
                         }
                     }.padding(.horizontal, 16).padding(.bottom, 32)
                 }
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(Color.aBackground)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
@@ -108,8 +108,8 @@ struct RecordDetail: View {
         VStack(spacing: 0) {
             RecordAvatar(record: record, size: 72)
             Text(record.name).font(.title2).multilineTextAlignment(.center).padding(.top, 12)
-            if !record.website.isEmpty { Text(verbatim: record.website).font(.subheadline).foregroundStyle(.secondary) }
-            if record.isCard && !record.cardSummary.isEmpty { Text(verbatim: record.cardSummary).font(.subheadline).foregroundStyle(.secondary) }
+            if !record.website.isEmpty { Text(verbatim: record.website).font(.subheadline).foregroundStyle(Color.aOnSurfaceVariant) }
+            if record.isCard && !record.cardSummary.isEmpty { Text(verbatim: record.cardSummary).font(.subheadline).foregroundStyle(Color.aOnSurfaceVariant) }
             if !VaultListFilter.folderName(record).isEmpty { GroupTag(name: VaultListFilter.folderName(record), large: true).padding(.top, 8) }
             if let date = record.expiryDate.flatMap(Expiry.localDate) {
                 let state = record.expiryState()
@@ -122,14 +122,14 @@ struct RecordDetail: View {
     private func fieldsCard(_ record: VaultRecord) -> some View {
         VStack(spacing: 0) {
             if record.fields.isEmpty {
-                Text("No fields. Tap edit to add a username or password.").foregroundStyle(.secondary).padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                Text("No fields. Tap edit to add a username or password.").foregroundStyle(Color.aOnSurfaceVariant).padding(20).frame(maxWidth: .infinity, alignment: .leading)
             }
             ForEach(Array(record.fields.enumerated()), id: \.element.id) { index, field in
                 if index > 0 { Divider().padding(.leading, 72) }
                 fieldRow(field)
             }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+        .background(Color.aCard, in: RoundedRectangle(cornerRadius: 20))
     }
 
     private func fieldRow(_ field: VaultField) -> some View {
@@ -138,7 +138,7 @@ struct RecordDetail: View {
         return HStack(spacing: 0) {
             IconBadge(symbol: fieldSymbol(field))
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.caption).foregroundStyle(.secondary)
+                Text(name).font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                 if field.kind == .question && !field.question.isEmpty { Text(field.question).font(.subheadline) }
                 if field.value.isEmpty { Text("—").foregroundStyle(.tertiary) }
                 else if shown { Text(verbatim: shownValue(field)).font(field.kind == .password ? .body.monospaced() : .body).textSelection(.disabled) }
@@ -160,7 +160,7 @@ struct RecordDetail: View {
     }
 
     private func iconButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+        Button(action: action) { Image(systemName: symbol).foregroundStyle(Color.aOnSurfaceVariant).frame(width: 44, height: 44).contentShape(Rectangle()) }
             .buttonStyle(.plain).accessibilityLabel(label)
     }
 

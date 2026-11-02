@@ -423,3 +423,6 @@
 "From image" = "从图片读取";
 "%@ · %lld digits · %lld s" = "%@ · %lld 位 · %lld 秒";
 "Delete private key" = "删除私钥";
+"Very weak" = "非常弱";
+"Weak" = "弱";
+"Unchanged since %@" = "自 %@ 起未更改";

@@ -41,8 +41,8 @@ struct TotpRow: View {
             HStack(spacing: 16) {
                 RowLeading(record: record, selection: selection)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.system(size: titleSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1).frame(minHeight: titleHeight, alignment: .leading)
-                    if let account = record.totp?.account, !account.isEmpty { Text(account).font(.system(size: subtitleSize)).foregroundStyle(.secondary).lineLimit(1).frame(minHeight: subtitleHeight, alignment: .leading) }
+                    Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.system(size: titleSize, weight: .medium)).foregroundStyle(Color.aOnSurface).lineLimit(1).frame(minHeight: titleHeight, alignment: .leading)
+                    if let account = record.totp?.account, !account.isEmpty { Text(account).font(.system(size: subtitleSize)).foregroundStyle(Color.aOnSurfaceVariant).lineLimit(1).frame(minHeight: subtitleHeight, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 if record.favorite { Image(systemName: "star.fill").font(.system(size: 18)).foregroundStyle(Color.favoriteStar).accessibilityLabel("Favorites") }
                 if selection?.selecting == true { EmptyView() }
@@ -82,7 +82,7 @@ struct TotpDetail: View {
                         VStack(spacing: 0) {
                             RecordAvatar(record: record, size: 72)
                             Text(record.name).font(.title2).multilineTextAlignment(.center).padding(.top, 12)
-                            if let account, !account.account.isEmpty { Text(verbatim: account.account).font(.subheadline).foregroundStyle(.secondary) }
+                            if let account, !account.account.isEmpty { Text(verbatim: account.account).font(.subheadline).foregroundStyle(Color.aOnSurfaceVariant) }
                         }.frame(maxWidth: .infinity).padding(.top, 8)
                         codeCard(account)
                         if let account { keyCard(account) }
@@ -90,15 +90,15 @@ struct TotpDetail: View {
                             SurfaceCard {
                                 HStack(alignment: .top, spacing: 16) {
                                     IconBadge(symbol: "note.text")
-                                    VStack(alignment: .leading, spacing: 2) { Text("Notes").font(.caption).foregroundStyle(.secondary); Text(verbatim: notes) }
+                                    VStack(alignment: .leading, spacing: 2) { Text("Notes").font(.caption).foregroundStyle(Color.aOnSurfaceVariant); Text(verbatim: notes) }
                                 }
                             }
                         }
                         Text("Setup keys are left out of CSV exports; only encrypted backups include them. Keep a backup: losing this phone without one means losing these codes.")
-                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                            .font(.caption).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center).frame(maxWidth: .infinity)
                     }.padding(.horizontal, 16).padding(.bottom, 32)
                 }
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(Color.aBackground)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") }
@@ -154,11 +154,11 @@ struct TotpDetail: View {
             HStack(spacing: 0) {
                 IconBadge(symbol: "key")
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Setup key").font(.caption).foregroundStyle(.secondary)
+                    Text("Setup key").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                     Text(verbatim: keyShown ? key : "••••••••••").font(keyShown ? .body.monospaced() : .body)
-                    Text(localizedFormat("%@ · %lld digits · %lld s", account.algorithm, account.digits, account.period)).font(.caption2).foregroundStyle(.secondary)
+                    Text(localizedFormat("%@ · %lld digits · %lld s", account.algorithm, account.digits, account.period)).font(.caption2).foregroundStyle(Color.aOnSurfaceVariant)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
-                Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .buttonStyle(.plain).accessibilityLabel(Text(LocalizedStringKey(keyShown ? "Hide setup key" : "Show setup key")))
             }.padding(.leading, 16).padding(.trailing, 4).padding(.vertical, 12)
         }
@@ -183,7 +183,7 @@ struct TotpReorderView: View {
     var body: some View {
         NavigationStack {
             List {
-                Text("Drag a code by its handle to move it.").font(.callout).foregroundStyle(.secondary)
+                Text("Drag a code by its handle to move it.").font(.callout).foregroundStyle(Color.aOnSurfaceVariant)
                 ForEach(codes) { record in
                     VaultEntryRow(record: record)
                     .accessibilityAction(named: Text("Move up")) { move(record.id, by: -1) }
@@ -263,7 +263,7 @@ struct TotpEditor: View {
                 VStack(spacing: 12) {
                     HStack(spacing: 8) {
                         Button { requestCamera() } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity, minHeight: 52) }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary)
                         PhotosPicker(selection: $photo, matching: .images) {
                             Label("From image", systemImage: "photo").frame(maxWidth: .infinity, minHeight: 52)
                                 .overlay(RoundedRectangle(cornerRadius: 26).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
@@ -276,7 +276,7 @@ struct TotpEditor: View {
                     OutlinedField(label: localized("Setup key"), icon: "key", text: $key, secure: !keyShown, monospaced: true, capitalization: .characters,
                                   supporting: localized(!key.isEmpty && secret == nil ? "The key must be Base32: letters A–Z and digits 2–7." : "The Base32 key shown with the QR code"),
                                   supportingIsError: !key.isEmpty && secret == nil, error: !key.isEmpty && secret == nil) {
-                        Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+                        Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 36, height: 36).contentShape(Rectangle()) }
                             .buttonStyle(.plain).accessibilityLabel(Text(LocalizedStringKey(keyShown ? "Hide setup key" : "Show setup key")))
                     }
                     advancedCard
@@ -285,7 +285,7 @@ struct TotpEditor: View {
                             TimelineView(.periodic(from: .now, by: 1)) { context in
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("Current code").font(.caption).foregroundStyle(.secondary)
+                                        Text("Current code").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                                         Text(formatTotpCode(candidate.code(at: context.date))).font(.title2.monospaced()).foregroundStyle(.tint).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                                     }
                                     Spacer()
@@ -296,17 +296,17 @@ struct TotpEditor: View {
                     }
                     OutlinedField(label: localized("Notes (optional)"), text: $notes, multiline: true, capitalization: .sentences)
                     Text("Setup keys are left out of CSV exports; only encrypted backups include them. Keep a backup: losing this phone without one means losing these codes.")
-                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                        .font(.caption).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center).frame(maxWidth: .infinity)
                 }.padding(.horizontal, 16).padding(.bottom, 32)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color.aBackground)
             .navigationTitle(LocalizedStringKey(isNew ? "New 2FA code" : "Edit 2FA code")).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
-                    Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(trimmedName.isEmpty || candidate == nil || model.busy)
+                    Button("Save") { save() }.buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary).disabled(trimmedName.isEmpty || candidate == nil || model.busy)
                 }
             }
             .sheet(isPresented: $scanning) { QRScannerSheet { text in scanning = false; handle(text) } }
@@ -334,7 +334,7 @@ struct TotpEditor: View {
                 }.buttonStyle(.plain)
                 if advanced {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so.").font(.caption).foregroundStyle(.secondary)
+                        Text("Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so.").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                         Text("Algorithm").font(.subheadline.weight(.medium))
                         Picker("Algorithm", selection: $algorithm) { ForEach(TotpAccount.algorithms, id: \.self) { Text($0).tag($0) } }.pickerStyle(.segmented)
                         Text("Digits").font(.subheadline.weight(.medium))

@@ -57,7 +57,7 @@ struct SeedWordGrid: View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
             ForEach(words.indices, id: \.self) { index in
                 HStack(spacing: 0) {
-                    Text("\(index + 1)").font(.caption2).foregroundStyle(.secondary).frame(width: 22, alignment: .leading)
+                    Text("\(index + 1)").font(.caption2).foregroundStyle(Color.aOnSurfaceVariant).frame(width: 22, alignment: .leading)
                     Text(verbatim: words[index]).font(.system(.callout, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
                     .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
@@ -121,7 +121,7 @@ struct SeedDetail: View {
                                     else { SeedWordGrid(words: record.seedWords) }
                                 } else {
                                     Text(LocalizedStringKey(record.privateKey == nil ? "Hidden. Make sure no one can see your screen before showing the words." : "Hidden. Make sure no one can see your screen before showing the key."))
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                                 }
                             }
                         }
@@ -130,10 +130,10 @@ struct SeedDetail: View {
                                 HStack(spacing: 0) {
                                     IconBadge(symbol: "key.horizontal")
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("BIP-39 passphrase").font(.caption).foregroundStyle(.secondary)
+                                        Text("BIP-39 passphrase").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                                         Text(verbatim: passphraseShown ? passphrase : "••••••••••").font(passphraseShown ? .body.monospaced() : .body).textSelection(.disabled)
                                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
-                                    Button { passphraseShown.toggle() } label: { Image(systemName: passphraseShown ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                                    Button { passphraseShown.toggle() } label: { Image(systemName: passphraseShown ? "eye.slash" : "eye").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 44, height: 44).contentShape(Rectangle()) }
                                         .buttonStyle(.plain).accessibilityLabel(passphraseShown ? "Hide" : "Reveal")
                                 }.padding(.leading, 16).padding(.trailing, 4).padding(.vertical, 12)
                             }
@@ -142,15 +142,15 @@ struct SeedDetail: View {
                             SurfaceCard {
                                 HStack(alignment: .top, spacing: 16) {
                                     IconBadge(symbol: "note.text")
-                                    VStack(alignment: .leading, spacing: 2) { Text("Notes").font(.caption).foregroundStyle(.secondary); Text(verbatim: notes) }
+                                    VStack(alignment: .leading, spacing: 2) { Text("Notes").font(.caption).foregroundStyle(Color.aOnSurfaceVariant); Text(verbatim: notes) }
                                 }
                             }
                         }
                         Text("Seed phrases and private keys are never copied to the clipboard and are left out of CSV exports; only encrypted backups include them.")
-                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                            .font(.caption).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center).frame(maxWidth: .infinity)
                     }.padding(.horizontal, 16).padding(.bottom, 32)
                 }
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(Color.aBackground)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") }
@@ -231,12 +231,12 @@ struct SeedEditor: View {
     /// An outlined box as wide as the screen. The label sits above the text once there is some, and inside the box as a placeholder until then (the UIKit text view has none).
     private func outlined<Content: View>(_ label: String, icon: String? = nil, filled: Bool, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 12) {
-            if let icon { Image(systemName: icon).foregroundStyle(.secondary) }
+            if let icon { Image(systemName: icon).foregroundStyle(Color.aOnSurfaceVariant) }
             VStack(alignment: .leading, spacing: 0) {
-                if filled { Text(label).font(.caption).foregroundStyle(.secondary) }
+                if filled { Text(label).font(.caption).foregroundStyle(Color.aOnSurfaceVariant) }
                 content().frame(maxWidth: .infinity, alignment: .leading)
                     .background(alignment: .topLeading) {
-                        if !filled { Text(label).foregroundStyle(.secondary).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+                        if !filled { Text(label).foregroundStyle(Color.aOnSurfaceVariant).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
                     }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -244,7 +244,7 @@ struct SeedEditor: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
     }
     private func eye(_ on: Bool, toggle: @escaping () -> Void) -> some View {
-        Button(action: toggle) { Image(systemName: on ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+        Button(action: toggle) { Image(systemName: on ? "eye.slash" : "eye").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 36, height: 36).contentShape(Rectangle()) }
             .buttonStyle(.plain).accessibilityLabel(on ? "Hide" : "Reveal")
     }
     var body: some View {
@@ -276,7 +276,7 @@ struct SeedEditor: View {
                                 Button { acknowledged.toggle() } label: {
                                     HStack(spacing: 10) {
                                         Image(systemName: acknowledged ? "checkmark.square.fill" : "square").foregroundStyle(acknowledged ? Color.accentColor : Color.secondary)
-                                        Text("I wrote these words down offline, in order.").font(.subheadline).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                                        Text("I wrote these words down offline, in order.").font(.subheadline).foregroundStyle(Color.aOnSurface).multilineTextAlignment(.leading)
                                         Spacer(minLength: 0)
                                     }.contentShape(Rectangle())
                                 }.buttonStyle(.plain)
@@ -311,13 +311,13 @@ struct SeedEditor: View {
                             outlined(localized("BIP-39 passphrase (optional)"), filled: !passphrase.isEmpty) {
                                 HStack { SeedInput(title: "BIP-39 passphrase (optional)", text: $passphrase, secure: !passphraseShown).frame(maxWidth: .infinity); eye(passphraseShown) { passphraseShown.toggle() } }
                             }
-                            Text("The optional “25th word”. Leave empty if your wallet doesn't use one.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12)
+                            Text("The optional “25th word”. Leave empty if your wallet doesn't use one.").font(.caption).foregroundStyle(Color.aOnSurfaceVariant).padding(.horizontal, 12)
                         }
                     }
                     outlined(localized("Notes (optional)"), filled: !notes.isEmpty) { SeedInput(title: "Notes (optional)", text: $notes).frame(minHeight: 44) }
                 }.padding(.horizontal, 16).padding(.bottom, 32)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color.aBackground)
             .navigationTitle(LocalizedStringKey(mode == "key" ? (isNew ? "New private key" : "Edit private key") : isNew ? "New seed phrase" : "Edit seed phrase"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -325,7 +325,7 @@ struct SeedEditor: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
-                    Button("Save") { save() }.buttonStyle(.borderedProminent)
+                    Button("Save") { save() }.buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary)
                         .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || problem != nil || !acknowledged || model.busy)
                 }
             }

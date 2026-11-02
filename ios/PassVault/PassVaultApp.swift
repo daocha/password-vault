@@ -137,7 +137,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     var body: some Scene {
         WindowGroup {
             LocalizedVaultRoot().environmentObject(model)
-                .tint(Color(red: 0.12, green: 0.32, blue: 0.66))
+                .tint(Color.aPrimary)
                 .overlay { if phase != .active { Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) } } }
                 .onChange(of: phase) { _, phase in
                     if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
@@ -192,7 +192,7 @@ struct UnlockView: View {
                             .frame(width: 112, height: 112)
                             .accessibilityLabel("PassVault lock")
                         WordMark().font(.largeTitle.bold())
-                        Text("Your passwords. Only on your device.").foregroundStyle(.secondary)
+                        Text("Your passwords. Only on your device.").foregroundStyle(Color.aOnSurfaceVariant)
                     }.frame(maxWidth: .infinity).padding(.vertical, 24)
                 }.listRowBackground(Color.clear)
                 Section(LocalizedStringKey(model.exists ? "Welcome back" : "Create your private vault")) {
@@ -214,7 +214,7 @@ struct UnlockView: View {
                     }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
                         Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { model.run { try $0.unlockBiometric() } }
-                        Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(.secondary)
+                        Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
                     }
                 }
             }
@@ -261,7 +261,7 @@ struct GroupTag: View {
     @ScaledMetric(relativeTo: .footnote) private var largeFontSize = 14.0
     var body: some View {
         let tint = groupColor(name), radius: CGFloat = large ? 8 : 6
-        Text(name.trimmingCharacters(in: .whitespacesAndNewlines)).font(.system(size: large ? largeFontSize : fontSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
+        Text(name.trimmingCharacters(in: .whitespacesAndNewlines)).font(.system(size: large ? largeFontSize : fontSize, weight: .medium)).foregroundStyle(Color.aOnSurface).lineLimit(1)
             .padding(.horizontal, large ? 10 : 6).padding(.vertical, large ? 4 : 1)
             .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).stroke(tint, lineWidth: 1))
@@ -302,7 +302,7 @@ struct PasswordHistoryView: View {
             List(Array(field.historyNewestFirst.enumerated()), id: \.offset) { index, change in
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(change.changedAt > 0 ? Date(timeIntervalSince1970: TimeInterval(change.changedAt)).formatted(date: .abbreviated, time: .shortened) : "Unknown date").font(.caption).foregroundStyle(.secondary)
+                        Text(change.changedAt > 0 ? Date(timeIntervalSince1970: TimeInterval(change.changedAt)).formatted(date: .abbreviated, time: .shortened) : "Unknown date").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                         Text(shown.contains(index) ? change.value : "••••••••••").font(.body.monospaced())
                     }
                     Spacer()
@@ -372,7 +372,7 @@ struct TransferView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Appearance") {
+                Section(header: Text("Appearance").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Theme")
                         Picker("Theme", selection: $settings.theme) {
@@ -382,7 +382,7 @@ struct TransferView: View {
                     settingsRow("Language", icon: "globe", summary: settings.language.label) { open(.language) }
                         .accessibilityIdentifier("settings.language")
                 }
-                Section("Security") {
+                Section(header: Text("Security").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
                     settingsRow("Vault health", icon: "checkmark.shield") { health = true }
                     settingsRow("Auto-lock", icon: "timer", summary: settings.autoLock.label) { open(.autoLock) }
                     if !model.decoy {
@@ -393,10 +393,10 @@ struct TransferView: View {
                         settingsRow("Decoy vault", icon: "theatermasks", summary: model.hasDecoy ? "On" : "Off") { open(.decoy) }
                     }
                 }
-                Section("Random password") {
+                Section(header: Text("Random password").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
                     settingsRow("Password generator", icon: "sparkles", summary: localizedFormat("%lld characters", settings.generator.length)) { open(.generator) }
                 }
-                Section("Clipboard") {
+                Section(header: Text("Clipboard").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
                     Toggle(isOn: $settings.allowCopy) { Label("Allow copying", systemImage: "doc.on.doc") }
                     if settings.allowCopy {
                         settingsRow("Clear copied text", icon: "timer", summary: settings.clipboardClear.label) { open(.clipboard) }
@@ -415,9 +415,9 @@ struct TransferView: View {
                     Text("PassVault keeps no cloud copy. Only your own encrypted backups can restore your vault if this phone is lost or reset. CSV leaves out 2FA keys, cards and notes.")
                 }
                 Section {
-                    Text("Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Unlocking with the app password or biometrics clears failed attempts.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Local vault erasure follows 10 failed app-password attempts. Copied encrypted backups cannot enforce an attempt limit. Unlocking with the app password or biometrics clears failed attempts.").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
                 }
-            }.navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+            }.scrollContentBackground(.hidden).background(Color.aBackground).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { dismiss() } }
                 .sheet(item: $panel, onDismiss: clearPasswords) { panel in
                     settingsDialog(panel)
@@ -464,18 +464,21 @@ struct TransferView: View {
         days == 0 ? "Off" : days == 7 ? "Every week" : days == 14 ? "Every 2 weeks" : "Every month"
     }
 
+    /// A settings row as on Android: the icon in a tinted circle, the title in the normal text colour, the current value under it in the secondary colour.
+    /// A plain button style keeps Form from painting the whole row in the tint colour.
     private func settingsRow(_ title: String, icon: String, summary: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: icon).foregroundStyle(.tint).frame(width: 28)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(LocalizedStringKey(title)).foregroundStyle(.primary)
-                    if let summary { Text(LocalizedStringKey(summary)).font(.caption).foregroundStyle(.secondary) }
+                Image(systemName: icon).font(.system(size: 16)).foregroundStyle(Color.aOnSecondaryContainer)
+                    .frame(width: 36, height: 36).background(Color.aSecondaryContainer, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(title)).font(.callout).foregroundStyle(Color.aOnSurface)
+                    if let summary { Text(LocalizedStringKey(summary)).font(.caption).foregroundStyle(Color.aOnSurfaceVariant) }
                 }
                 Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-            }.padding(.vertical, 4)
-        }
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
+            }.padding(.vertical, 2).contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 
     private func settingsDialog(_ panel: VaultSettingsPanel) -> some View {
@@ -596,7 +599,7 @@ struct TransferView: View {
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
-                Text(LocalizedStringKey(title)).foregroundStyle(.primary)
+                Text(LocalizedStringKey(title)).foregroundStyle(Color.aOnSurface)
                 Spacer()
                 if selected { Image(systemName: "checkmark").foregroundStyle(.tint) }
             }

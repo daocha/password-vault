@@ -21,7 +21,7 @@ struct OutlinedField<Trailing: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 12) {
-                if let icon { Image(systemName: icon).foregroundStyle(.secondary) }
+                if let icon { Image(systemName: icon).foregroundStyle(Color.aOnSurfaceVariant) }
                 VStack(alignment: .leading, spacing: 0) {
                     if !text.isEmpty || focused { Text(label).font(.caption).foregroundStyle(error ? Color.red : focused ? Color.accentColor : Color.secondary) }
                     field.focused($focused).font(monospaced ? .body.monospaced() : .body)
@@ -58,7 +58,7 @@ struct SurfaceCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         content.padding(padding).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: radius))
+            .background(Color.aCard, in: RoundedRectangle(cornerRadius: radius))
     }
 }
 
@@ -69,14 +69,14 @@ struct ExpiryField: View {
     private var date: Date? { value.flatMap(Expiry.parseDate).flatMap(Expiry.localDate) }
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "calendar").foregroundStyle(.secondary)
+            Image(systemName: "calendar").foregroundStyle(Color.aOnSurfaceVariant)
             VStack(alignment: .leading, spacing: 0) {
-                Text("Expiry reminder").font(.caption).foregroundStyle(.secondary)
+                Text("Expiry reminder").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                 Text(date.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? localized("None")).font(.body)
             }
             Spacer()
             if date != nil {
-                Button { value = nil } label: { Image(systemName: "xmark").foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                Button { value = nil } label: { Image(systemName: "xmark").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .buttonStyle(.plain).accessibilityLabel("Remove reminder")
             }
         }
@@ -134,7 +134,7 @@ struct GeneratorSheet: View {
         }
         .padding(24)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .background(Color.aCard)
         .presentationDetents([.height(460), .large])
         .onAppear { regenerate() }
         .onChange(of: options) { _, _ in regenerate() }
@@ -167,9 +167,9 @@ struct RecordEditor: View {
             List {
                 detailsCard.rowStyle(top: 0)
                 HStack {
-                    Text("Fields").font(.headline).foregroundStyle(.secondary)
+                    Text("Fields").font(.headline).foregroundStyle(Color.aOnSurfaceVariant)
                     Spacer()
-                    if record.fields.count > 1 { Text("Drag ⋮⋮ to reorder").font(.caption2).foregroundStyle(.secondary) }
+                    if record.fields.count > 1 { Text("Drag ⋮⋮ to reorder").font(.caption2).foregroundStyle(Color.aOnSurfaceVariant) }
                 }.rowStyle(top: 6).moveDisabled(true)
                 ForEach($record.fields) { $field in
                     fieldCard($field).rowStyle()
@@ -179,7 +179,7 @@ struct RecordEditor: View {
                 addFieldMenu.rowStyle().moveDisabled(true)
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color.aBackground)
             .environment(\.editMode, .constant(record.fields.count > 1 ? .active : .inactive))
             .navigationTitle(LocalizedStringKey(title)).navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -187,7 +187,7 @@ struct RecordEditor: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { record.favorite.toggle() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
-                    Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(record.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
+                    Button("Save") { save() }.buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary).disabled(record.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
                 }
             }
             .sheet(item: Binding(get: { generatingFor.map(GeneratingField.init) }, set: { generatingFor = $0?.id })) { target in
@@ -223,7 +223,7 @@ struct RecordEditor: View {
                 if !groups.isEmpty {
                     Menu {
                         ForEach(groups, id: \.self) { name in Button { record.group = name } label: { Label(name, systemImage: "folder") } }
-                    } label: { Image(systemName: "chevron.down").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+                    } label: { Image(systemName: "chevron.down").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 36, height: 36).contentShape(Rectangle()) }
                         .accessibilityLabel("Group")
                 }
             }
@@ -231,7 +231,7 @@ struct RecordEditor: View {
                 VStack(spacing: 0) {
                     ForEach(matches, id: \.self) { name in
                         Button { record.group = name } label: {
-                            Label(name, systemImage: "folder").foregroundStyle(.primary).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.horizontal, 12).contentShape(Rectangle())
+                            Label(name, systemImage: "folder").foregroundStyle(Color.aOnSurface).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.horizontal, 12).contentShape(Rectangle())
                         }.buttonStyle(.plain)
                     }
                 }
@@ -250,7 +250,7 @@ struct RecordEditor: View {
                 IconBadge(symbol: fieldSymbol(f), size: 36).padding(.top, 8)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(name).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                        Text(name).font(.subheadline.weight(.medium)).foregroundStyle(Color.aOnSurfaceVariant)
                         Spacer()
                         Button { record.fields.removeAll { $0.id == f.id } } label: { Image(systemName: "minus.circle").foregroundStyle(.red).frame(width: 36, height: 36).contentShape(Rectangle()) }
                             .buttonStyle(.plain).accessibilityLabel(localizedFormat("Remove %@", name))
@@ -262,10 +262,10 @@ struct RecordEditor: View {
                         if f.secret {
                             HStack(spacing: 0) {
                                 if f.kind == .password && !cardNumericLabels.contains(f.label) {
-                                    Button { generatingFor = f.id } label: { Image(systemName: "sparkles").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+                                    Button { generatingFor = f.id } label: { Image(systemName: "sparkles").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 36, height: 36).contentShape(Rectangle()) }
                                         .buttonStyle(.plain).accessibilityLabel("Generate password")
                                 }
-                                Button { if !revealed.insert(f.id).inserted { revealed.remove(f.id) } } label: { Image(systemName: hidden ? "eye" : "eye.slash").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+                                Button { if !revealed.insert(f.id).inserted { revealed.remove(f.id) } } label: { Image(systemName: hidden ? "eye" : "eye.slash").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 36, height: 36).contentShape(Rectangle()) }
                                     .buttonStyle(.plain).accessibilityLabel(hidden ? "Reveal" : "Hide")
                             }
                         }
