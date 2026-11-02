@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 import VaultCore
 @testable import PassVault
 
@@ -97,6 +98,82 @@ final class ModelTestStorage: VaultStorage {
             XCTAssertTrue(model.records.isEmpty, option.rawValue)
             XCTAssertNil(model.sending, option.rawValue)
         }
+    }
+
+    func testUnlockCallbackLocksBackgroundVaultEvenWhenLockCallbackWasMissed() throws {
+        let original = AppSettings.shared.autoLock
+        defer { AppSettings.shared.autoLock = original }
+        for option in AutoLock.allCases {
+            let engine = VaultEngine(storage: ModelTestStorage())
+            _ = try engine.create(password: password)
+            let model = VaultModel(engine: engine)
+            model.records = [VaultRecord()]; model.unlocked = true
+            model.sending = TransferPayload(code: "test", data: Data(), decoy: false)
+            AppSettings.shared.autoLock = option
+            model.didEnterBackground()
+            // The app was suspended at the Home screen. Only the unlock callback reaches it.
+            let delegate = AppDelegate(); delegate.model = model
+            delegate.applicationProtectedDataDidBecomeAvailable(UIApplication.shared)
+            model.didBecomeActive()
+            XCTAssertFalse(model.unlocked, option.rawValue)
+            XCTAssertTrue(model.records.isEmpty, option.rawValue)
+            XCTAssertNil(model.sending, option.rawValue)
+        }
+    }
+
+    func testBackgroundReturnWithoutPhoneLockPreservesDelayedSessionAndTransfer() throws {
+        let original = AppSettings.shared.autoLock
+        defer { AppSettings.shared.autoLock = original }
+        for option in [AutoLock.oneMinute, .fiveMinutes, .deviceLock] {
+            let engine = VaultEngine(storage: ModelTestStorage())
+            _ = try engine.create(password: password)
+            let model = VaultModel(engine: engine)
+            model.records = [VaultRecord()]; model.unlocked = true
+            model.sending = TransferPayload(code: "test", data: Data(), decoy: false)
+            AppSettings.shared.autoLock = option
+            model.didEnterBackground(); model.didBecomeActive()
+            XCTAssertTrue(model.unlocked, option.rawValue)
+            XCTAssertEqual(model.records.count, 1, option.rawValue)
+            XCTAssertNotNil(model.sending, option.rawValue)
+        }
+    }
+
+    func testBackgroundPhoneUnlockRequiresFreshBiometrics() async throws {
+        let original = AppSettings.shared.autoLock
+        defer { AppSettings.shared.autoLock = original }
+        AppSettings.shared.autoLock = .deviceLock
+        let storage = ModelTestStorage(), engine = VaultEngine(storage: storage)
+        _ = try engine.create(password: password)
+        try engine.enableBiometrics(password: password)
+        let model = VaultModel(engine: engine)
+        model.records = [VaultRecord()]; model.unlocked = true
+        model.didEnterBackground()
+        model.deviceDidUnlock() // No preceding deviceDidLock: the app was suspended.
+        XCTAssertFalse(model.unlocked)
+        storage.cancelBiometric = true
+        model.didBecomeActive()
+        await waitForWork(model)
+        XCTAssertEqual(storage.biometricReads, 1)
+        XCTAssertFalse(model.unlocked)
+        model.didBecomeActive()
+        XCTAssertFalse(model.busy, "Cancelling must not repeat the biometric prompt")
+    }
+
+    func testNoBiometricRequestWhileProtectedDataIsUnavailable() async throws {
+        let storage = ModelTestStorage(), engine = VaultEngine(storage: storage)
+        _ = try engine.create(password: password)
+        try engine.enableBiometrics(password: password)
+        let model = VaultModel(engine: engine)
+        let delegate = AppDelegate(); delegate.model = model
+        delegate.applicationProtectedDataWillBecomeUnavailable(UIApplication.shared)
+        model.didBecomeActive(protectedDataAvailable: false)
+        model.autoUnlockWithBiometrics()
+        XCTAssertFalse(model.busy)
+        XCTAssertEqual(storage.biometricReads, 0)
+        model.deviceDidUnlock(); model.didBecomeActive()
+        await waitForWork(model)
+        XCTAssertTrue(model.unlocked)
+        XCTAssertEqual(storage.biometricReads, 1)
     }
 
     func testResetClearsBothVaultsBackupHistoriesBeforeCreatingANewVault() throws {
