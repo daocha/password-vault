@@ -16,6 +16,7 @@ private struct SeedInput: UIViewRepresentable {
     let title: String
     @Binding var text: String
     var secure = false
+    var cursorChanged: ((Bool) -> Void)? = nil
     func makeUIView(context: Context) -> SeedTextView {
         let view = SeedTextView()
         view.delegate = context.coordinator
@@ -43,6 +44,10 @@ private struct SeedInput: UIViewRepresentable {
         var parent: SeedInput
         init(_ parent: SeedInput) { self.parent = parent }
         func textViewDidChange(_ view: UITextView) { parent.text = view.text }
+        func textViewDidChangeSelection(_ view: UITextView) {
+            let atEnd = view.selectedRange.upperBound == view.text.utf16.count
+            DispatchQueue.main.async { self.parent.cursorChanged?(atEnd) }
+        }
     }
 }
 
@@ -140,6 +145,7 @@ struct SeedEditor: View {
     @State private var keyShown = false
     @State private var passphraseShown = false
     @State private var generationError = ""
+    @State private var cursorAtEnd = true
     init(initial: VaultRecord, isNew: Bool) {
         self.initial = initial; self.isNew = isNew
         _name = State(initialValue: initial.name); _favorite = State(initialValue: initial.favorite)
@@ -150,6 +156,11 @@ struct SeedEditor: View {
         _acknowledged = State(initialValue: !isNew)
     }
     private var words: [String] { mode == "generate" ? generated : Bip39.split(typed) }
+    private var suggestions: [String] {
+        guard cursorAtEnd, let last = typed.last, !last.isWhitespace, let prefix = Bip39.split(typed).last else { return [] }
+        let candidates = Bip39.suggestions(prefix)
+        return candidates == [prefix] ? [] : candidates
+    }
     private var problem: String? {
         if mode == "key" { return WalletPrivateKey.problem(key).map(localized) }
         if !Bip39.wordCounts.contains(words.count) { return localizedFormat("Enter 12 or 24 words (%lld so far).", words.count) }
@@ -186,12 +197,12 @@ struct SeedEditor: View {
                     }
                 } else {
                     Section("Seed words, separated by spaces") {
-                        SeedInput(title: "Seed words, separated by spaces", text: $typed).frame(minHeight: 100)
+                        SeedInput(title: "Seed words, separated by spaces", text: $typed, cursorChanged: { cursorAtEnd = $0 }).frame(minHeight: 100)
                         if let problem { Text(LocalizedStringKey(problem)).font(.footnote).foregroundStyle(.red) }
-                        if let partial = typed.last, !partial.isWhitespace, let prefix = Bip39.split(typed).last {
+                        if !suggestions.isEmpty, let prefix = Bip39.split(typed).last {
                             ScrollView(.horizontal) {
                                 HStack {
-                                    ForEach(Bip39.suggestions(prefix), id: \.self) { word in
+                                    ForEach(suggestions, id: \.self) { word in
                                         Button(word) {
                                             let preceding = typed.dropLast(prefix.count)
                                             typed = String(preceding) + word + " "
@@ -222,6 +233,7 @@ struct SeedEditor: View {
             }
             .onAppear { if mode == "generate" && generated.isEmpty { generate() } }
             .onChange(of: count) { _, _ in generate() }
+            .onChange(of: typed) { _, text in if text != text.lowercased() { typed = text.lowercased() } }
             .onChange(of: mode) { _, mode in
                 keyShown = false; passphraseShown = false
                 if mode == "generate" { if generated.count != count { generate() }; acknowledged = false }
