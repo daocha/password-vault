@@ -390,7 +390,7 @@ struct VaultEntryRow: View {
                     GroupTag(name: VaultListFilter.folderName(record)).padding(.top, 4)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            if record.favorite { Image(systemName: "star.fill").font(.system(size: 18)).foregroundStyle(Color.accentColor).accessibilityLabel("Favorites") }
+            if record.favorite { Image(systemName: "star.fill").font(.system(size: 18)).foregroundStyle(Color.favoriteStar).accessibilityLabel("Favorites") }
             if let selection, !selection.selecting, !record.isTotp {
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
@@ -458,4 +458,9 @@ extension Color {
     /// Android's tertiaryContainer / onTertiaryContainer (see Theme.kt), light and dark, so the list notices match the Android app.
     static let noticeBackground = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0x24 / 255, green: 0x50 / 255, blue: 0x24 / 255, alpha: 1) : UIColor(red: 0xBC / 255, green: 0xF0 / 255, blue: 0xB4 / 255, alpha: 1) })
     static let noticeText = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0xBC / 255, green: 0xF0 / 255, blue: 0xB4 / 255, alpha: 1) : UIColor(red: 0x00, green: 0x22 / 255, blue: 0x04 / 255, alpha: 1) })
+}
+
+extension Color {
+    /// The favourite star on every screen (same amber as Android), in light and dark.
+    static let favoriteStar = Color(red: 1.0, green: 0.757, blue: 0.027)
 }

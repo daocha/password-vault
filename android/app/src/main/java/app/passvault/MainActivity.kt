@@ -926,7 +926,7 @@ class MainActivity : FragmentActivity() {
                                     if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (record.type.tab == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
                                 }
-                                if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = FavoriteStar)
                                 if (record.type == RecordType.totp) { if (!selecting) TotpRowCode(totp, now, if (allowCopy) ::copySecret else null) }
                                 else if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -1025,7 +1025,7 @@ class MainActivity : FragmentActivity() {
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
             topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = { viewing = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
                 actions = {
-                    IconButton(onClick = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                     // Editing could damage a file key, and with it every file encrypted to it.
                     if (!fileKey) IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, stringResource(R.string.main_edit)) }
                     Box { IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.main_more)) }
@@ -1138,7 +1138,7 @@ class MainActivity : FragmentActivity() {
                 else -> if (isNew) R.string.main_new_entry else R.string.main_edit_entry
             })) }, navigationIcon = { IconButton(onClick = { cancel() }) { Icon(Icons.Default.Close, stringResource(R.string.main_discard_changes)) } },
                 actions = {
-                    IconButton(onClick = { record = record.copy(favorite = !record.favorite) }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { record = record.copy(favorite = !record.favorite) }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                     Button(onClick = { val saved = record.copy(name = record.name.trim(), updatedAt = Instant.now().toString()).recordingPasswordChanges(records.firstOrNull { it.id == record.id }); saveRecord(saved) { viewing = saved; editing = false } }, enabled = record.name.isNotBlank(), modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.main_save)) }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
             LazyColumn(Modifier.padding(padding), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

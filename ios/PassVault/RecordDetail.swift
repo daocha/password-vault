@@ -83,7 +83,7 @@ struct RecordDetail: View {
                         Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back")
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { toggleFavorite(record) } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.accentColor : Color.primary) }
+                        Button { toggleFavorite(record) } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                             .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
                         Button { revealed = []; editing = record } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
                         Menu {

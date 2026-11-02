@@ -185,7 +185,7 @@ struct RecordEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { record.favorite.toggle() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.accentColor : Color.primary) }
+                    Button { record.favorite.toggle() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
                     Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(record.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
                 }

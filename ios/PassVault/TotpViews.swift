@@ -44,7 +44,7 @@ struct TotpRow: View {
                     Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.system(size: titleSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1).frame(minHeight: titleHeight, alignment: .leading)
                     if let account = record.totp?.account, !account.isEmpty { Text(account).font(.system(size: subtitleSize)).foregroundStyle(.secondary).lineLimit(1).frame(minHeight: subtitleHeight, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                if record.favorite { Image(systemName: "star.fill").font(.system(size: 18)).foregroundStyle(Color.accentColor).accessibilityLabel("Favorites") }
+                if record.favorite { Image(systemName: "star.fill").font(.system(size: 18)).foregroundStyle(Color.favoriteStar).accessibilityLabel("Favorites") }
                 if selection?.selecting == true { EmptyView() }
                 else if let totp = record.totp {
                     let code = totp.code(at: context.date)
@@ -103,7 +103,7 @@ struct TotpDetail: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { toggleFavorite() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.accentColor : Color.primary) }
+                        Button { toggleFavorite() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                             .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
                         Button { keyShown = false; editing = record } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
                         Menu {
@@ -304,7 +304,7 @@ struct TotpEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.accentColor : Color.primary) }
+                    Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
                     Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(trimmedName.isEmpty || candidate == nil || model.busy)
                 }

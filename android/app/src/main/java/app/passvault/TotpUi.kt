@@ -95,7 +95,7 @@ fun TotpDetail(record: VaultRecord, onCopy: ((String) -> Unit)?, onBack: () -> U
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.seed_back)) } },
             actions = {
-                IconButton(onClick = onToggleFavorite) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (record.favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (record.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = onToggleFavorite) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (record.favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                 IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, stringResource(R.string.seed_edit)) }
                 Box { IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.seed_more)) }
                     DropdownMenu(menu, { menu = false }) { DropdownMenuItem(text = { Text(stringResource(R.string.totp_delete_menu)) }, leadingIcon = { Icon(Icons.Outlined.Delete, null) }, onClick = { menu = false; deleting = true }) } }
@@ -212,7 +212,7 @@ fun TotpEditor(
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(title = { Text(stringResource(if (isNew) R.string.totp_title_new else R.string.totp_title_edit)) }, navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.Default.Close, stringResource(R.string.seed_discard)) } },
             actions = {
-                IconButton(onClick = { favorite = !favorite }) { Icon(if (favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = { favorite = !favorite }) { Icon(if (favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                 Button(onClick = ::save, enabled = name.isNotBlank() && candidate != null, modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.seed_save)) }
             }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
         LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -331,7 +331,7 @@ fun TotpReorder(codes: List<VaultRecord>, onCancel: () -> Unit, onSave: (List<St
                                 val account = remember(record) { record.totp?.account.orEmpty() }
                                 if (account.isNotBlank()) Text(account, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                            if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = FavoriteStar)
                             Box(Modifier.size(48.dp).testTag(REORDER_HANDLE), contentAlignment = Alignment.Center) { Icon(Icons.Default.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }

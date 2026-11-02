@@ -17,6 +17,9 @@ enum class ThemeMode(val label: String, @StringRes val labelRes: Int) {
     system("System", R.string.seed_theme_system), light("Light", R.string.seed_theme_light), dark("Dark", R.string.seed_theme_dark)
 }
 
+/** The favourite star on every screen, the same in light and dark. */
+val FavoriteStar = Color(0xFFFFC107)
+
 private val LightColors = lightColorScheme(
     primary = Color(0xFF244E87), onPrimary = Color.White, primaryContainer = Color(0xFFD6E3FF), onPrimaryContainer = Color(0xFF001B3D),
     secondary = Color(0xFF555F71), onSecondary = Color.White, secondaryContainer = Color(0xFFD9E3F8), onSecondaryContainer = Color(0xFF121C2B),

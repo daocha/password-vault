@@ -160,7 +160,7 @@ struct SeedDetail: View {
                             if let index = updated.firstIndex(where: { $0.id == recordID }) { updated[index].favorite.toggle() }
                             let snapshot = updated
                             model.run { try $0.save(snapshot); return snapshot }
-                        } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.accentColor : Color.primary) }
+                        } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                             .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
                         Button { shown = false; passphraseShown = false; editing = true } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
                         Menu {
@@ -323,7 +323,7 @@ struct SeedEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.accentColor : Color.primary) }
+                    Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
                     Button("Save") { save() }.buttonStyle(.borderedProminent)
                         .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || problem != nil || !acknowledged || model.busy)
