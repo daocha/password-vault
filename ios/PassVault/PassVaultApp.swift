@@ -418,7 +418,6 @@ struct TransferView: View {
     @State private var confirmNew = ""
     @State private var panel: VaultSettingsPanel?
     @State private var health = false
-    @FocusState private var passwordFocused: Bool
     var body: some View {
         NavigationStack {
             Form {
@@ -516,7 +515,6 @@ struct TransferView: View {
         return (pendingImport?.contains(where: \.isFileKey) == true ? localized(fileKeyUnsupportedMessage) + "\n\n" : "") + explanation
     }
     private func clearPasswords() {
-        passwordFocused = false
         password = ""; newPassword = ""; confirmNew = ""; decoyPassword = ""; confirmDecoy = ""; csvConsent = false
     }
 
@@ -551,7 +549,7 @@ struct TransferView: View {
         NavigationStack {
             Form {
                 if panel.requiresPassword {
-                    Section("App password") { SecureField("Current app password", text: $password).font(.system(size: 15)).textContentType(.password).focused($passwordFocused) }
+                    Section("App password") { SettingsPasswordField(text: $password) }
                 }
                 switch panel {
                 case .language:
@@ -660,10 +658,6 @@ struct TransferView: View {
         .interactiveDismissDisabled(model.busy)
         .presentationDetents(panel.requiresPassword ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
-        .background {
-            SheetAppearanceObserver { passwordFocused = panel.requiresPassword }
-                .allowsHitTesting(false).accessibilityHidden(true)
-        }
     }
 
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
