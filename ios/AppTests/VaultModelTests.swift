@@ -6,6 +6,8 @@ final class ModelTestStorage: VaultStorage {
     var state: Data?
     var blobs = [String: Data]()
     var biometric: Data?
+    var biometricReads = 0
+    var cancelBiometric = false
     func readState() throws -> Data? { state }
     func writeState(_ data: Data) throws { state = data }
     func deleteState() throws { state = nil }
@@ -14,13 +16,69 @@ final class ModelTestStorage: VaultStorage {
     func removeBlobs(keeping ids: Set<String>) throws { blobs = blobs.filter { ids.contains($0.key) } }
     func hasBlobs() throws -> Bool { !blobs.isEmpty }
     func saveBiometricKey(_ data: Data) throws { biometric = data }
-    func readBiometricKey() throws -> Data { guard let biometric else { throw VaultError.locked }; return biometric }
+    func readBiometricKey() throws -> Data {
+        biometricReads += 1
+        guard !cancelBiometric, let biometric else { throw VaultError.locked }
+        return biometric
+    }
     func hasBiometricKey() throws -> Bool { biometric != nil }
     func deleteBiometricKey() throws { biometric = nil }
 }
 
 @MainActor final class VaultModelTests: XCTestCase {
     private let password = "A lengthy test passphrase 1!"
+
+    func testForegroundAutomaticallyUnlocksWithBiometrics() async throws {
+        let storage = ModelTestStorage(), engine = VaultEngine(storage: storage)
+        _ = try engine.create(password: password)
+        try engine.enableBiometrics(password: password)
+        engine.lock()
+        let model = VaultModel(engine: engine)
+        model.didBecomeActive()
+        await waitForWork(model)
+        XCTAssertTrue(model.unlocked)
+        XCTAssertEqual(storage.biometricReads, 1)
+        model.didBecomeActive()
+        XCTAssertFalse(model.busy)
+        XCTAssertEqual(storage.biometricReads, 1)
+    }
+
+    func testCancelledBiometricsWaitForNextForegroundVisit() async throws {
+        let storage = ModelTestStorage(), engine = VaultEngine(storage: storage)
+        _ = try engine.create(password: password)
+        try engine.enableBiometrics(password: password)
+        engine.lock(); storage.cancelBiometric = true
+        let model = VaultModel(engine: engine)
+        model.didBecomeActive()
+        await waitForWork(model)
+        XCTAssertFalse(model.unlocked)
+        XCTAssertEqual(model.attempts, 10)
+        model.didBecomeActive() // Face ID's inactive/active transition must not reopen its prompt.
+        XCTAssertFalse(model.busy)
+        XCTAssertEqual(storage.biometricReads, 1)
+        model.didEnterBackground()
+        storage.cancelBiometric = false
+        model.didBecomeActive()
+        await waitForWork(model)
+        XCTAssertTrue(model.unlocked)
+        XCTAssertEqual(storage.biometricReads, 2)
+    }
+
+    func testForegroundDoesNotAuthenticateWithoutEnabledBiometrics() throws {
+        let storage = ModelTestStorage(), engine = VaultEngine(storage: storage)
+        _ = try engine.create(password: password)
+        engine.lock()
+        let model = VaultModel(engine: engine)
+        model.didBecomeActive()
+        XCTAssertFalse(model.busy)
+        XCTAssertEqual(storage.biometricReads, 0)
+    }
+
+    private func waitForWork(_ model: VaultModel) async {
+        let deadline = Date().addingTimeInterval(60)
+        while model.busy && Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(model.busy, "Vault operation timed out")
+    }
 
     func testDeviceLockOverridesEveryBackgroundDelayAndDiscardsTransfer() throws {
         let original = AppSettings.shared.autoLock

@@ -23,6 +23,17 @@ final class LocalizationTests: XCTestCase {
             app.buttons["Create vault"].tap()
         }
         openSettings(app)
+        let biometrics = app.switches["settings.biometrics"].firstMatch
+        if !biometrics.isHittable { app.swipeUp() }
+        XCTAssertTrue(biometrics.waitForExistence(timeout: 10))
+        biometrics.tap()
+        let currentPassword = app.secureTextFields["Current app password"]
+        XCTAssertTrue(currentPassword.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "The biometric password prompt should open its keyboard without a swipe")
+        XCTAssertTrue(currentPassword.isHittable)
+        currentPassword.typeText("test")
+        XCTAssertTrue(app.buttons["Enable Face ID / Touch ID"].isEnabled)
+        app.buttons["settings.panel.done"].tap()
         selectLanguage("zh-Hans", in: app)
         openSettings(app)
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 10))

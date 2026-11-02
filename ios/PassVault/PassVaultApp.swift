@@ -31,6 +31,7 @@ import AVFoundation
     private(set) var engine: VaultEngine? = nil
     private var generation = 0
     private var pendingLock: Task<Bool, Never>?
+    private var biometricAutoPrompted = false
     init(engine suppliedEngine: VaultEngine? = nil, defaults: UserDefaults = .standard) {
         backupPreferences = defaults
         var initialized: VaultEngine?
@@ -101,6 +102,7 @@ import AVFoundation
     }
     /// The app left the screen: lock now, or note the time so a later return can lock once the chosen delay has passed.
     func didEnterBackground() {
+        biometricAutoPrompted = false
         guard unlocked else { return }
         switch AppSettings.shared.autoLock.delay {
         case 0?: lock()
@@ -109,9 +111,16 @@ import AVFoundation
         }
     }
     func didBecomeActive() {
-        defer { backgroundedAt = nil }
-        guard unlocked, let since = backgroundedAt, let delay = AppSettings.shared.autoLock.delay, Date().timeIntervalSince(since) >= delay else { return }
-        lock()
+        if unlocked, let since = backgroundedAt, let delay = AppSettings.shared.autoLock.delay, Date().timeIntervalSince(since) >= delay { lock() }
+        backgroundedAt = nil
+        autoUnlockWithBiometrics()
+    }
+    func autoUnlockWithBiometrics() {
+        // Face ID can make the scene inactive and active again. Attempt only once per foreground visit,
+        // so cancelling (or falling back to the app password) never immediately opens another prompt.
+        guard exists, !erased, !unlocked, !busy, biometricEnabled, !biometricAutoPrompted else { return }
+        biometricAutoPrompted = true
+        run { try $0.unlockBiometric() }
     }
     /// A device lock always overrides the background delay, as screen-off does on Android.
     func deviceDidLock() { sending = nil; lock() }
@@ -157,6 +166,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         WindowGroup {
             LocalizedVaultRoot().environmentObject(model)
                 .tint(Color.aPrimary)
+                .onAppear { if phase == .active { model.didBecomeActive() } }
+                .onChange(of: model.biometricEnabled) { _, _ in if phase == .active { model.autoUnlockWithBiometrics() } }
+                .onChange(of: model.busy) { _, busy in if phase == .active && !busy { model.autoUnlockWithBiometrics() } }
                 .overlay { if phase != .active { Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) } } }
                 .onChange(of: phase) { _, phase in
                     if phase == .active { PrivacyCover.hide() } else { PrivacyCover.show() }
@@ -374,6 +386,7 @@ struct TransferView: View {
     @State private var confirmNew = ""
     @State private var panel: VaultSettingsPanel?
     @State private var health = false
+    @FocusState private var passwordFocused: Bool
     var body: some View {
         NavigationStack {
             Form {
@@ -471,6 +484,7 @@ struct TransferView: View {
         return (pendingImport?.contains(where: \.isFileKey) == true ? localized(fileKeyUnsupportedMessage) + "\n\n" : "") + explanation
     }
     private func clearPasswords() {
+        passwordFocused = false
         password = ""; newPassword = ""; confirmNew = ""; decoyPassword = ""; confirmDecoy = ""; csvConsent = false
     }
 
@@ -505,7 +519,7 @@ struct TransferView: View {
         NavigationStack {
             Form {
                 if panel.requiresPassword {
-                    Section("App password") { SecureField("Current app password", text: $password).font(.system(size: 15)).textContentType(.password) }
+                    Section("App password") { SecureField("Current app password", text: $password).font(.system(size: 15)).textContentType(.password).focused($passwordFocused) }
                 }
                 switch panel {
                 case .language:
@@ -599,7 +613,7 @@ struct TransferView: View {
             .disabled(model.busy)
             .overlay { if model.busy { ProgressView("Securing your vault…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
             .navigationTitle(LocalizedStringKey(panel.title)).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { self.panel = nil }.disabled(model.busy) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { self.panel = nil }.disabled(model.busy).accessibilityIdentifier("settings.panel.done") } }
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
                     Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
                 }
@@ -612,8 +626,9 @@ struct TransferView: View {
                 }
         }
         .interactiveDismissDisabled(model.busy)
-        .presentationDetents([.medium, .large])
+        .presentationDetents(panel.requiresPassword ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
+        .task { passwordFocused = panel.requiresPassword }
     }
 
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -688,7 +703,7 @@ struct DecryptImportView: View {
             Form {
                 Section {
                     // The transfer code is read off another screen, so it is typed in the clear.
-                    if transfer { TextField("Transfer code", text: Binding(get: { Transfer.typingShown(password) }, set: { password = Transfer.typingEdited($0, from: password) })).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.body.monospaced()) }
+                    if transfer { TransferCodeField(code: $password) }
                     else { SecureField(keepass ? "Database password" : "File password", text: $password).font(.system(size: 15)) }
                     if keepass {
                         if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }
