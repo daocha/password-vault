@@ -38,4 +38,4 @@ jobs:
         run: >-
           xcodebuild -project PassVault.xcodeproj -scheme PassVault
           -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
-          -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+          -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test

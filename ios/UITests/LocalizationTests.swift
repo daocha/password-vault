@@ -1,10 +1,13 @@
 import XCTest
 
 final class LocalizationTests: XCTestCase {
+    override func setUpWithError() throws { continueAfterFailure = false }
+
     func testLanguageSwitchUpdatesPresentedSettingsAndSurvivesRelaunch() {
         let app = XCUIApplication()
         app.launch()
-        if app.buttons["Create vault"].waitForExistence(timeout: 10) {
+        XCTAssertTrue(app.buttons["Create vault"].waitForExistence(timeout: 15), app.debugDescription)
+        do {
             let password = "Simulator test password 1!"
             app.secureTextFields["Master passphrase"].tap()
             app.secureTextFields["Master passphrase"].typeText(password)
@@ -12,8 +15,6 @@ final class LocalizationTests: XCTestCase {
             app.secureTextFields["Repeat passphrase"].typeText(password)
             app.switches.firstMatch.tap()
             app.buttons["Create vault"].tap()
-        } else {
-            unlock(app)
         }
         openSettings(app)
         selectLanguage("zh-Hans", in: app)
@@ -46,7 +47,7 @@ final class LocalizationTests: XCTestCase {
 
     private func openSettings(_ app: XCUIApplication) {
         let button = app.buttons["vault.settings"]
-        XCTAssertTrue(button.waitForExistence(timeout: 30))
+        XCTAssertTrue(button.waitForExistence(timeout: 30), app.debugDescription)
         button.tap()
         XCTAssertTrue(app.buttons["settings.language"].waitForExistence(timeout: 10))
     }
