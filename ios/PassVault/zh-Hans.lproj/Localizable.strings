@@ -4,8 +4,8 @@
 "%lld characters" = "%lld 个字符";
 "%lld codes" = "%lld 个验证码";
 "%lld of %lld codes" = "%lld / %lld 个验证码";
-"%lld of %lld entries" = "共 %lld 个条目，显示 %lld 个";
-"%lld of %lld seed phrases" = "共 %lld 条助记词，显示 %lld 条";
+"%lld of %lld entries" = "共 %2$lld 个条目，显示 %1$lld 个";
+"%lld of %lld seed phrases" = "共 %2$lld 条助记词，显示 %1$lld 条";
 "%lld password attempts remaining" = "剩余 %lld 次密码尝试机会";
 "%lld passwords checked" = "已检查 %lld 个密码";
 "%lld records" = "%lld 个条目";
@@ -426,3 +426,7 @@
 "Very weak" = "非常弱";
 "Weak" = "弱";
 "Unchanged since %@" = "自 %@ 起未更改";
+"Apply" = "应用";
+"File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files." = "iOS 不支持文件加密。此密钥会保留在加密备份及传输到 Android 的数据中。请使用 Android 版 PassVault 加密或解密文件。";
+"This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it." = "其中包含文件加密密钥。除非你仍有包含此密钥的备份，否则使用它加密的文件将永远无法再次打开。";
+"This includes %lld 2FA codes. Without another copy of their setup keys or the sites' recovery codes, you may lose access to those accounts." = "其中包含 %lld 个两步验证码。如果没有其他设置密钥副本或网站的恢复码，你可能无法再登录这些账户。";

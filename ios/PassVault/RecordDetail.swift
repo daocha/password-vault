@@ -1,6 +1,9 @@
 import SwiftUI
 import VaultCore
 
+let fileKeyUnsupportedMessage = "File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files."
+let fileKeyDeletionMessage = "This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it."
+
 /// Stored labels the app and importers create; shown translated, never rewritten in the data. A label the user typed is shown as is.
 private let builtInFieldLabels: Set<String> = [
     "Username", "Password", "Notes", "Security question", cardHolderLabel, cardNumberLabel, cardExpiryLabel, cardCodeLabel, cardPinLabel,
@@ -22,9 +25,10 @@ struct IconBadge: View {
     let symbol: String
     var size: CGFloat = 40
     var tint: Color = .accentColor
+    var container: Color? = nil
     var body: some View {
-        Image(systemName: symbol).font(.system(size: size * 0.45)).foregroundStyle(tint)
-            .frame(width: size, height: size).background(tint.opacity(0.18), in: Circle())
+        Image(systemName: symbol).font(.system(size: size * 0.5)).foregroundStyle(tint)
+            .frame(width: size, height: size).background(container ?? tint.opacity(0.18), in: Circle())
     }
 }
 
@@ -39,15 +43,17 @@ struct RecordAvatar: View {
         return Int(((Int(hash) % 3) + 3) % 3)
     }
     var body: some View {
-        if record.isCard { IconBadge(symbol: "creditcard", size: size) }
-        else if record.isNote { IconBadge(symbol: "note.text", size: size, tint: .purple) }
+        if record.isCard { IconBadge(symbol: "creditcard", size: size, tint: .aOnPrimaryContainer, container: .aPrimaryContainer) }
+        else if record.isFileKey { IconBadge(symbol: "key", size: size, tint: .noticeText, container: .noticeBackground) }
+        else if record.isNote { IconBadge(symbol: "note.text", size: size, tint: .noticeText, container: .noticeBackground) }
         else if !record.isSeed, let brand = findBrand(website: record.website, name: record.name) {
             Image(brand.assetName).resizable().scaledToFit().frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.23)).accessibilityLabel(brand.title)
         } else {
-            let tint = [Color.accentColor, Color.teal, Color.purple][paletteIndex]
+            let palette: [(Color, Color)] = [(.aPrimaryContainer, .aOnPrimaryContainer), (.aSecondaryContainer, .aOnSecondaryContainer), (.noticeBackground, .noticeText)]
+            let (container, tint) = palette[paletteIndex]
             let letter = record.name.trimmingCharacters(in: .whitespacesAndNewlines).first { $0.isLetter || $0.isNumber }.map { String($0).uppercased() } ?? "•"
-            Text(letter).font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(tint)
-                .frame(width: size, height: size).background(tint.opacity(0.18), in: Circle())
+            Text(letter).font(.system(size: size >= 56 ? 24 : 16, weight: .semibold)).foregroundStyle(tint)
+                .frame(width: size, height: size).background(container, in: Circle())
         }
     }
 }
@@ -70,6 +76,10 @@ struct RecordDetail: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         header(record)
+                        if record.isFileKey {
+                            Label(localized(fileKeyUnsupportedMessage), systemImage: "exclamationmark.triangle")
+                                .font(.subheadline).foregroundStyle(Color.aOnSurfaceVariant)
+                        }
                         fieldsCard(record)
                         if let updated = formatUpdated(record.updatedAt) {
                             Text(localizedFormat("Updated %@", updated)).font(.caption).foregroundStyle(Color.aOnSurfaceVariant).frame(maxWidth: .infinity)
@@ -85,7 +95,7 @@ struct RecordDetail: View {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button { toggleFavorite(record) } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                             .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
-                        Button { revealed = []; editing = record } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
+                        if !record.isFileKey { Button { revealed = []; editing = record } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit") }
                         Menu {
                             Button(role: .destructive) { deleting = true } label: { Label("Delete entry", systemImage: "trash") }
                         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More")
@@ -99,7 +109,7 @@ struct RecordDetail: View {
                         model.run({ try $0.save(updated); return updated }, done: { dismiss() })
                     }
                     Button("Cancel", role: .cancel) {}
-                } message: { Text(localizedFormat("“%@” will be permanently removed from this vault.", record.name)) }
+                } message: { Text(record.isFileKey ? localized(fileKeyDeletionMessage) : localizedFormat("“%@” will be permanently removed from this vault.", record.name)) }
             }
         }
     }

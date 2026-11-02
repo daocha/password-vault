@@ -95,6 +95,16 @@ final class KeychainStorage: VaultStorage {
         guard let data = try get("biometric", biometric: true) else { throw VaultError.invalid("Unlock with your password and enable biometrics first.") }
         return data
     }
+    func hasBiometricKey() throws -> Bool {
+        var request = query("biometric")
+        request[kSecReturnAttributes as String] = true
+        request[kSecMatchLimit as String] = kSecMatchLimitOne
+        request[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        let status = SecItemCopyMatching(request as CFDictionary, nil)
+        if status == errSecItemNotFound { return false }
+        guard status == errSecSuccess || status == errSecInteractionNotAllowed else { throw VaultError.invalid("Biometric protection is unavailable.") }
+        return true
+    }
     func deleteBiometricKey() throws {
         let status = SecItemDelete(query("biometric") as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError.invalid("Could not remove biometric key (\(status)).") }

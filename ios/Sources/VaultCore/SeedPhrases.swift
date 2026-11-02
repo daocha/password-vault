@@ -99,7 +99,7 @@ extension VaultRecord {
         var result = self
         result.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.name.isEmpty else { throw VaultError.invalid("Wallet name") }
-        result.favorite = favorite; result.type = "seed"; result.updatedAt = ISO8601DateFormatter().string(from: Date())
+        result.favorite = favorite; result.type = "seed"; result.updatedAt = VaultTimestamp.format()
         result.fields = [.init(kind: .password, label: privateKey == nil ? seedPhraseLabel : privateKeyLabel,
                                value: privateKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? words.joined(separator: " "))]
         if privateKey == nil && !passphrase.isEmpty { result.fields.append(.init(kind: .password, label: seedPassphraseLabel, value: passphrase)) }

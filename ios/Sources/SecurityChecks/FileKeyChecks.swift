@@ -14,6 +14,7 @@ func fileKeyChecks() throws {
         r.updatedAt = "2026-01-01T00:00:00Z"; return r
     }
     let keys = [key(classic), key(hybrid)]
+    try check(keys.allSatisfy(\.isFileKey), "iOS recognizes classic and post-quantum keys for unsupported-feature warnings")
     try engine.save(keys)
     var imported = VaultRecord(); imported.name = "Old backup login"
     let restored = try engine.replaceAll([imported])

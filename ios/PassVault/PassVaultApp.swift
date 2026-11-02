@@ -16,7 +16,10 @@ import AVFoundation
     @Published var lastBackup: Date?
     @Published var backupIntervalDays = 30
     @Published var backupSnoozedUntil: Date?
-    private var backupPrefix = ""
+    @Published var backupSnapshotAt: Date?
+    let backupPreferences: UserDefaults
+    private var backups: BackupStatus { BackupStatus(defaults: backupPreferences, decoy: decoy) }
+    @Published var biometricEnabled = false
     /// The decoy vault is open: settings that would reveal or touch the real vault are not shown.
     @Published var decoy = false
     @Published var hasDecoy = false
@@ -27,53 +30,65 @@ import AVFoundation
     private var backgroundedAt: Date?
     private(set) var engine: VaultEngine? = nil
     private var generation = 0
-    init() {
+    private var pendingLock: Task<Bool, Never>?
+    init(engine suppliedEngine: VaultEngine? = nil, defaults: UserDefaults = .standard) {
+        backupPreferences = defaults
         var initialized: VaultEngine?
         do {
-            let engine = VaultEngine(storage: try KeychainStorage()); initialized = engine
+            let engine = try suppliedEngine ?? VaultEngine(storage: KeychainStorage()); initialized = engine
             exists = try engine.exists(); attempts = try engine.remainingAttempts()
+            biometricEnabled = (try? engine.biometricsEnabled()) ?? false
         } catch { message = error.localizedDescription }
         engine = initialized
         erased = (try? initialized?.isErased()) ?? false
         loadBackupStatus()
     }
     func loadBackupStatus() {
-        let defaults = UserDefaults.standard
-        lastBackup = defaults.object(forKey: backupPrefix + "lastBackupAt") as? Date
-        backupIntervalDays = defaults.object(forKey: backupPrefix + "backupReminderDays") as? Int ?? 30
-        backupSnoozedUntil = defaults.object(forKey: backupPrefix + "backupSnoozeUntil") as? Date
+        lastBackup = backups.lastBackup; backupSnapshotAt = backups.snapshotAt
+        backupIntervalDays = backups.intervalDays; backupSnoozedUntil = backups.snoozedUntil
     }
     /// Only a saved encrypted backup counts: CSV leaves out 2FA keys, cards and notes.
-    func recordBackup() {
-        UserDefaults.standard.set(Date(), forKey: backupPrefix + "lastBackupAt"); UserDefaults.standard.removeObject(forKey: backupPrefix + "backupSnoozeUntil"); loadBackupStatus()
+    func recordBackup(_ exported: VaultExport) {
+        exported.recordBackup(defaults: backupPreferences); loadBackupStatus()
     }
     /// The removed decoy's backup history and reminder choice.
-    func forgetDecoyBackups() { for key in ["lastBackupAt", "backupReminderDays", "backupSnoozeUntil"] { UserDefaults.standard.removeObject(forKey: "decoy." + key) } }
-    func snoozeBackup() { UserDefaults.standard.set(Date().addingTimeInterval(Double(BackupReminder.snoozeDays) * 86400), forKey: backupPrefix + "backupSnoozeUntil"); loadBackupStatus() }
-    func setBackupInterval(_ days: Int) { UserDefaults.standard.set(days, forKey: backupPrefix + "backupReminderDays"); loadBackupStatus() }
-    var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil) }
+    func forgetDecoyBackups() { BackupStatus(defaults: backupPreferences, decoy: true).clear() }
+    func snoozeBackup() { backups.snoozedUntil = Date().addingTimeInterval(Double(BackupReminder.snoozeDays) * 86400); loadBackupStatus() }
+    func setBackupInterval(_ days: Int) { backups.intervalDays = days; loadBackupStatus() }
+    var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil, snapshotAt: backupSnapshotAt) }
     func lock() {
         SecretClipboard.clearOnLock(); backgroundedAt = nil
         generation += 1; unlocked = false; records = []; decoy = false; hasDecoy = false; canResetDecoy = false
         if let sending, Date() >= sending.expiresAt { self.sending = nil }
-        if !backupPrefix.isEmpty { backupPrefix = ""; loadBackupStatus() }
+        loadBackupStatus()
         let engine = engine
-        Task.detached { engine?.lock() }
+        let current = generation, previousLock = pendingLock
+        let locking = Task.detached {
+            _ = await previousLock?.value
+            engine?.lock()
+            return (try? engine?.biometricsEnabled()) ?? false
+        }
+        pendingLock = locking
+        Task {
+            let enabled = await locking.value
+            if generation == current && !unlocked { biometricEnabled = enabled }
+        }
     }
     func run(_ work: @escaping @Sendable (VaultEngine) throws -> [VaultRecord]?, done: (() -> Void)? = nil) {
         guard !busy, let engine else { return }
-        busy = true; message = ""; let current = generation
+        busy = true; message = ""; let current = generation, locking = pendingLock
         Task {
             do {
-                let result = try await Task.detached { try work(engine) }.value
+                let result = try await Task.detached { _ = await locking?.value; return try work(engine) }.value
                 guard generation == current else { engine.lock(); busy = false; return }
                 if let result {
                     records = result; unlocked = true; exists = true
                     // Each vault keeps its own backup history, so the decoy shows only its own.
-                    decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; canResetDecoy = (try? engine.canResetDecoy()) ?? false; backupPrefix = decoy ? "decoy." : ""; loadBackupStatus()
+                    decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; canResetDecoy = (try? engine.canResetDecoy()) ?? false; loadBackupStatus()
                     // Only the vault that made a pending transfer may see it again.
                     if let sending, sending.decoy != decoy || Date() >= sending.expiresAt { self.sending = nil }
                 }
+                biometricEnabled = (try? engine.biometricsEnabled()) ?? false
                 attempts = try engine.remainingAttempts(); done?()
             } catch {
                 message = error.localizedDescription
@@ -98,11 +113,15 @@ import AVFoundation
         guard unlocked, let since = backgroundedAt, let delay = AppSettings.shared.autoLock.delay, Date().timeIntervalSince(since) >= delay else { return }
         lock()
     }
-    /// The phone locked: end a pending transfer, and lock the vault when that is the chosen auto-lock.
-    func deviceDidLock() { sending = nil; if AppSettings.shared.autoLock == .deviceLock { lock() } }
+    /// A device lock always overrides the background delay, as screen-off does on Android.
+    func deviceDidLock() { sending = nil; lock() }
     func resetErased() {
         guard let engine else { return }
-        do { try engine.resetErasedVault(); erased = false; exists = false; attempts = 10; message = "Create a new vault, then import your backup." }
+        do {
+            try engine.resetErasedVault()
+            BackupStatus(defaults: backupPreferences).clear(); forgetDecoyBackups(); loadBackupStatus()
+            biometricEnabled = false; erased = false; exists = false; attempts = 10; message = "Create a new vault, then import your backup."
+        }
         catch { message = error.localizedDescription }
     }
 }
@@ -213,7 +232,7 @@ struct UnlockView: View {
                         model.run { engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }
                     }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
-                        Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { model.run { try $0.unlockBiometric() } }
+                        if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { model.run { try $0.unlockBiometric() } } }
                         Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
                     }
                 }
@@ -276,21 +295,6 @@ struct WordMark: View {
     }
 }
 
-/// The brand's icon when the record is a well-known site or app; otherwise the key (or star for favorites).
-struct RecordIcon: View {
-    let record: VaultRecord
-    var body: some View {
-        if record.isLogin || record.isTotp, let brand = findBrand(website: record.website, name: record.name) {
-            Image(brand.assetName).resizable().scaledToFit().accessibilityLabel(brand.title).frame(width: 34, height: 34).clipShape(RoundedRectangle(cornerRadius: 8))
-                .frame(width: 38)
-        } else {
-            Image(systemName: record.isSeed ? "wallet.bifold" : record.isCard ? "creditcard.fill" : record.isNote ? "note.text" : "key.fill")
-                .font(.title3).foregroundStyle(.tint).frame(width: 34, height: 34)
-                .frame(width: 38)
-        }
-    }
-}
-
 /// Earlier values of a password, newest change first. Imported from Password Keeper; unrelated to fields the user names "Previous password".
 struct PasswordHistoryView: View {
     @ObservedObject private var settings = AppSettings.shared
@@ -317,8 +321,9 @@ struct PasswordHistoryView: View {
 struct ExportDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.data, .commaSeparatedText] }
     var data: Data
-    init(data: Data) { self.data = data }
-    init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
+    var exported: VaultExport?
+    init(data: Data, exported: VaultExport? = nil) { self.data = data; self.exported = exported }
+    init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data(); exported = nil }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
 /// One focused settings dialog at a time; passwords are cleared whenever it closes.
@@ -386,7 +391,18 @@ struct TransferView: View {
                     settingsRow("Vault health", icon: "checkmark.shield") { health = true }
                     settingsRow("Auto-lock", icon: "timer", summary: settings.autoLock.label) { open(.autoLock) }
                     if !model.decoy {
-                        settingsRow("Biometric unlock", icon: "faceid") { open(.biometrics) }
+                        Toggle(isOn: Binding(get: { model.biometricEnabled }, set: { enabled in
+                            if enabled { open(.biometrics) }
+                            else { model.run { try $0.disableBiometrics(); return nil } }
+                        })) {
+                            HStack(spacing: 14) {
+                                IconBadge(symbol: "faceid", size: 36, tint: .aOnSecondaryContainer, container: .aSecondaryContainer)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Biometric unlock").font(.callout)
+                                    Text(LocalizedStringKey(model.biometricEnabled ? "On" : "Off")).font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
+                                }
+                            }
+                        }.disabled(model.busy).accessibilityIdentifier("settings.biometrics")
                     }
                     settingsRow("Change app password", icon: "key") { open(.changePassword) }
                     if !model.decoy {
@@ -445,10 +461,14 @@ struct TransferView: View {
                     Button("Full replacement", role: .destructive) { if let records = pendingImport { model.run { try $0.replaceAll(records) } }; pendingImport = nil }
                     Button("Cancel", role: .cancel) { pendingImport = nil }
                 } message: {
-                    Text("Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.")
+                    Text(importMessage)
                 }
 
         }
+    }
+    private var importMessage: String {
+        let explanation = localized("Import: adds new entries and replaces existing entries with the same ID. Entries missing from the file are kept.\n\nFull replacement: the file is the golden source. Entries it does not contain are deleted.")
+        return (pendingImport?.contains(where: \.isFileKey) == true ? localized(fileKeyUnsupportedMessage) + "\n\n" : "") + explanation
     }
     private func clearPasswords() {
         password = ""; newPassword = ""; confirmNew = ""; decoyPassword = ""; confirmDecoy = ""; csvConsent = false
@@ -517,7 +537,7 @@ struct TransferView: View {
                     Section { GeneratorOptionsEditor(options: $settings.generator) } footer: { Text("Defaults for newly generated passwords.") }
                 case .biometrics:
                     Section("Biometric unlock") {
-                        Button("Enable Face ID / Touch ID") { let value = password; password = ""; model.run { try $0.enableBiometrics(password: value); return nil } }.disabled(password.isEmpty)
+                        Button("Enable Face ID / Touch ID") { let value = password; password = ""; model.run({ try $0.enableBiometrics(password: value); return nil }, done: { self.panel = nil }) }.disabled(password.isEmpty)
                     }
                 case .decoy:
                     Section {
@@ -584,10 +604,11 @@ struct TransferView: View {
                     Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
                 }
                 .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { result in
+                    let exported = document?.exported
                     document = nil
                     switch result {
                     case .failure(let error): model.message = error.localizedDescription
-                    case .success: if !csv { model.recordBackup() }
+                    case .success: if let exported { model.recordBackup(exported) }
                     }
                 }
         }
@@ -627,12 +648,12 @@ struct TransferView: View {
     }
     private func export() {
         guard !model.busy, let engine = model.engine else { return }
-        let pass = password, isCSV = csv
+        let pass = password, isCSV = csv, defaults = model.backupPreferences
         password = ""; model.busy = true
         Task {
             do {
-                let data = try await Task.detached { try engine.export(password: pass, csv: isCSV) }.value
-                if model.unlocked { document = ExportDocument(data: data); exporting = true }
+                let exported = try await Task.detached { try engine.prepareExport(password: pass, csv: isCSV, instance: { BackupStatus(defaults: defaults, decoy: $0).instance }) }.value
+                if model.unlocked { document = ExportDocument(data: exported.data, exported: exported); exporting = true }
             } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
         }

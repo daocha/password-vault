@@ -29,6 +29,11 @@ public struct TotpAccount: Equatable, Sendable {
     public func code(at date: Date = Date()) -> String { Totp.code(self, at: Int64(date.timeIntervalSince1970.rounded(.down))) }
     /// Seconds until the current code changes.
     public func remaining(at date: Date = Date()) -> Int { let t = Int64(date.timeIntervalSince1970.rounded(.down)), p = Int64(period); return Int(p - ((t % p) + p) % p) }
+    /// The progress ring follows fractional seconds; the displayed count and code still use whole seconds.
+    public func remainingFraction(at date: Date = Date()) -> Double {
+        let p = Double(period), offset = date.timeIntervalSince1970.truncatingRemainder(dividingBy: p)
+        return max(0, min(1, 1 - (offset < 0 ? offset + p : offset) / p))
+    }
     /// The record stored for this account; the name defaults to the issuer, then the account.
     public func record(name: String? = nil) -> VaultRecord {
         var record = VaultRecord()

@@ -50,8 +50,10 @@ final class AppearancePreferencesTests: XCTestCase {
         }
         let placeholders = try NSRegularExpression(pattern: "%([0-9]+\\$)?(lld|ld|d|@|s)")
         func arguments(_ text: String) -> [String] {
-            placeholders.matches(in: text, range: NSRange(text.startIndex..., in: text)).map {
-                String(text[Range($0.range, in: text)!])
+            placeholders.matches(in: text, range: NSRange(text.startIndex..., in: text)).enumerated().map { index, match in
+                let type = String(text[Range(match.range(at: 2), in: text)!])
+                let position = Range(match.range(at: 1), in: text).map { String(text[$0].dropLast()) } ?? String(index + 1)
+                return "\(position):\(type)"
             }.sorted()
         }
         for language in ["zh-Hans", "zh-Hant"] {

@@ -1,6 +1,6 @@
 import Foundation
 
-/// File keys travel through iOS as ordinary secure notes. Imports must keep their secrets even though iOS cannot encrypt files.
+/// Imported keys are retained for Android backups/transfers; iOS cannot encrypt or decrypt files.
 enum FileKeys {
     static let created = "fileKeyCreated"
     static func identity(_ record: VaultRecord) -> String? {
@@ -44,4 +44,8 @@ enum FileKeys {
         }
         return result
     }
+}
+
+extension VaultRecord {
+    public var isFileKey: Bool { FileKeys.identity(self) != nil }
 }

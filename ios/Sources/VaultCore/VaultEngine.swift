@@ -12,6 +12,8 @@ public protocol VaultStorage: AnyObject {
     func hasBlobs() throws -> Bool
     func saveBiometricKey(_ data: Data) throws
     func readBiometricKey() throws -> Data
+    /// Checks only presence, without releasing a key or prompting for authentication.
+    func hasBiometricKey() throws -> Bool
     func deleteBiometricKey() throws
 }
 /// The second, decoy vault: its own wrapped data key and file, opened by its own password (see `VaultEngine.createDecoy`).
@@ -182,6 +184,14 @@ public final class VaultEngine: @unchecked Sendable {
         var candidate = try authenticate(password).key; defer { candidate.resetBytes(in: 0..<candidate.count) }
         try storage.saveBiometricKey(candidate)
     } }
+    public func biometricsEnabled() throws -> Bool { try serialized {
+        guard !activeDecoy else { return false }
+        return try storage.hasBiometricKey()
+    } }
+    public func disableBiometrics() throws { try serialized {
+        guard key != nil, !activeDecoy else { throw VaultError.locked }
+        try storage.deleteBiometricKey()
+    } }
     /// Whether the open vault is the decoy one.
     public func isDecoy() -> Bool { serialized { activeDecoy } }
     /// Whether a decoy vault exists. Only the main vault can tell; from the decoy vault this is always false.
@@ -302,11 +312,13 @@ public final class VaultEngine: @unchecked Sendable {
         try storage.removeBlobs(keeping: [value.blob])
     } }
     /// Verifies the open vault's password (a counted attempt) and encrypts the backup with that same password.
-    public func export(password: String, csv: Bool) throws -> Data { try serialized {
+    public func export(password: String, csv: Bool) throws -> Data { try prepareExport(password: password, csv: csv).data }
+    public func prepareExport(password: String, csv: Bool, instance: (Bool) -> Int = { _ in 0 }) throws -> VaultExport { try serialized {
         guard key != nil else { throw VaultError.locked }
         var candidate = try authenticate(password).key; defer { candidate.resetBytes(in: 0..<candidate.count) }
-        if csv { return Data(try VaultCSV.exportRecords(records).utf8) }
-        return try VaultCrypto.exportBackup(records, password: password)
+        let snapshotAt = Date(), sourceInstance = instance(activeDecoy)
+        let data = csv ? Data(try VaultCSV.exportRecords(records).utf8) : try VaultCrypto.exportBackup(records, password: password)
+        return VaultExport(data: data, csv: csv, decoy: activeDecoy, instance: sourceInstance, snapshotAt: snapshotAt)
     } }
     /// Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code.
     public func exportTransfer(password: String) throws -> (code: String, data: Data) { try serialized {

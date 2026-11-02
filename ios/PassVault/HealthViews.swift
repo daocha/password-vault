@@ -15,6 +15,8 @@ extension Color {
     static let aOutlineVariant = android(light: 0xC4C6D0, dark: 0x44474E)
     static let aPrimary = android(light: 0x244E87, dark: 0xA9C7FF)
     static let aOnPrimary = android(light: 0xFFFFFF, dark: 0x0A305F)
+    static let aPrimaryContainer = android(light: 0xD6E3FF, dark: 0x284777)
+    static let aOnPrimaryContainer = android(light: 0x001B3D, dark: 0xD6E3FF)
     static let aError = android(light: 0xBA1A1A, dark: 0xFFB4AB)
     static let aSecondaryContainer = android(light: 0xD9E3F8, dark: 0x3E4759)
     static let aOnSecondaryContainer = android(light: 0x121C2B, dark: 0xD9E3F8)

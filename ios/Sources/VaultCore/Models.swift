@@ -41,7 +41,7 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
     public var website = ""
     public var group = ""
     public var favorite = false
-    public var updatedAt = ISO8601DateFormatter().string(from: Date())
+    public var updatedAt = VaultTimestamp.format()
     public var fields: [VaultField] = [
         .init(kind: .username, label: "Username"),
         .init(kind: .password, label: "Password"),
