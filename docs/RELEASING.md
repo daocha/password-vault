@@ -67,6 +67,8 @@ scripts/release-github.sh --version 2026.11.2 --play
 `--dry-run` builds and verifies without any Git or GitHub writes. Other options: `--prerelease`, `--notes-file`,
 `--skip-tests`. Outputs go to `dist/`.
 
+Before editing version metadata or building, `release-github.sh` checks that the output paths for the requested version and build number are unused. This also applies to dry runs. It checks the APK and checksums, the bundle and mapping with `--play`, and the archive and export directory with `--app-store`; publishing also checks the generated notes path unless `--notes-file` is supplied. Move conflicting outputs aside before retrying. Other versions and outputs for unselected platforms may remain in `dist/`. To retry only an Apple upload, use `build-ios-app-store.sh --upload-archive PATH` with the existing archive.
+
 ## Google Play
 
 ```bash
