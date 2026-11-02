@@ -417,8 +417,9 @@
 "Edit secure note" = "编辑安全笔记";
 "None" = "无";
 "Remove reminder" = "移除提醒";
-"OK" = "好";
+"OK" = "确定";
 "Remove %@" = "移除%@";
 "The Base32 key shown with the QR code" = "二维码旁显示的 Base32 密钥";
 "From image" = "从图片读取";
 "%@ · %lld digits · %lld s" = "%@ · %lld 位 · %lld 秒";
+"Delete private key" = "删除私钥";

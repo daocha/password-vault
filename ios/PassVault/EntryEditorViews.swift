@@ -14,6 +14,7 @@ struct OutlinedField<Trailing: View>: View {
     var supporting: String?
     var supportingIsError = false
     var error = false
+    var focusChanged: ((Bool) -> Void)? = nil
     @ViewBuilder var trailing: Trailing
     @FocusState private var focused: Bool
 
@@ -31,6 +32,7 @@ struct OutlinedField<Trailing: View>: View {
             .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 56)
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(error ? Color.red : focused ? Color.accentColor : Color.secondary.opacity(0.5), lineWidth: focused || error ? 2 : 1))
             .contentShape(Rectangle()).onTapGesture { focused = true }
+            .onChange(of: focused) { _, now in focusChanged?(now) }
             if let supporting { Text(supporting).font(.caption).foregroundStyle(supportingIsError ? Color.red : Color.secondary).padding(.horizontal, 12) }
         }
     }
@@ -43,9 +45,9 @@ struct OutlinedField<Trailing: View>: View {
 
 extension OutlinedField where Trailing == EmptyView {
     init(label: String, icon: String? = nil, text: Binding<String>, secure: Bool = false, monospaced: Bool = false, multiline: Bool = false, keyboard: UIKeyboardType = .default,
-         capitalization: TextInputAutocapitalization = .never, supporting: String? = nil, supportingIsError: Bool = false, error: Bool = false) {
+         capitalization: TextInputAutocapitalization = .never, supporting: String? = nil, supportingIsError: Bool = false, error: Bool = false, focusChanged: ((Bool) -> Void)? = nil) {
         self.init(label: label, icon: icon, text: text, secure: secure, monospaced: monospaced, multiline: multiline, keyboard: keyboard, capitalization: capitalization,
-                  supporting: supporting, supportingIsError: supportingIsError, error: error) { EmptyView() }
+                  supporting: supporting, supportingIsError: supportingIsError, error: error, focusChanged: focusChanged) { EmptyView() }
     }
 }
 
@@ -150,6 +152,7 @@ struct RecordEditor: View {
     @State var record: VaultRecord
     @State private var revealed = Set<String>()
     @State private var generatingFor: String?
+    @State private var groupFocused = false
 
     private var isNew: Bool { !model.records.contains { $0.id == record.id } }
     private var title: String {
@@ -210,16 +213,29 @@ struct RecordEditor: View {
         }
     }
 
+    /// Typing narrows the suggestions below the field to matching groups; the arrow always lists every group, and picking one replaces the current group.
     private var groupField: some View {
         let typed = record.group.trimmingCharacters(in: .whitespacesAndNewlines)
-        let options = typed.isEmpty ? groups : groups.filter { $0.localizedCaseInsensitiveContains(typed) && $0.caseInsensitiveCompare(typed) != .orderedSame }
+        let matches = typed.isEmpty ? [] : groups.filter { $0.localizedCaseInsensitiveContains(typed) && $0.caseInsensitiveCompare(typed) != .orderedSame }
         let isNew = !groups.isEmpty && !typed.isEmpty && !groups.contains { $0.caseInsensitiveCompare(typed) == .orderedSame }
-        return OutlinedField(label: localized("Group"), icon: "folder", text: $record.group, supporting: isNew ? localized("New group") : nil) {
-            if !groups.isEmpty {
-                Menu {
-                    ForEach(options, id: \.self) { name in Button { record.group = name } label: { Label(name, systemImage: "folder") } }
-                } label: { Image(systemName: "chevron.down").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
-                    .disabled(options.isEmpty).accessibilityLabel("Group")
+        return VStack(spacing: 4) {
+            OutlinedField(label: localized("Group"), icon: "folder", text: $record.group, supporting: isNew ? localized("New group") : nil, focusChanged: { groupFocused = $0 }) {
+                if !groups.isEmpty {
+                    Menu {
+                        ForEach(groups, id: \.self) { name in Button { record.group = name } label: { Label(name, systemImage: "folder") } }
+                    } label: { Image(systemName: "chevron.down").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+                        .accessibilityLabel("Group")
+                }
+            }
+            if groupFocused && !matches.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(matches, id: \.self) { name in
+                        Button { record.group = name } label: {
+                            Label(name, systemImage: "folder").foregroundStyle(.primary).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.horizontal, 12).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
             }
         }
     }

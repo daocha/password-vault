@@ -1225,9 +1225,11 @@ class MainActivity : FragmentActivity() {
         val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
         var expanded by remember { mutableStateOf(false) }
         val typed = value.trim()
-        val options = if (typed.isEmpty()) groups else groups.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true) }
-        ExposedDropdownMenuBox(expanded && options.isNotEmpty(), { expanded = it }) {
-            OutlinedTextField(value, { change(it); expanded = true }, Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable), label = { Text(stringResource(R.string.main_group)) }, leadingIcon = { Icon(Icons.Outlined.Folder, null) },
+        // Typing narrows the list to matching groups; opening it with the arrow always lists every group, and picking one replaces the current group.
+        var showAll by remember { mutableStateOf(false) }
+        val options = if (showAll || typed.isEmpty()) groups else groups.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true) }
+        ExposedDropdownMenuBox(expanded && options.isNotEmpty(), { expanded = it; if (it) showAll = true }) {
+            OutlinedTextField(value, { change(it); showAll = false; expanded = true }, Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable), label = { Text(stringResource(R.string.main_group)) }, leadingIcon = { Icon(Icons.Outlined.Folder, null) },
                 trailingIcon = { if (groups.isNotEmpty()) ExposedDropdownMenuDefaults.TrailingIcon(expanded && options.isNotEmpty(), Modifier.menuAnchor(ExposedDropdownMenuAnchorType.SecondaryEditable)) },
                 supportingText = if (groups.isNotEmpty() && typed.isNotEmpty() && groups.none { it.equals(typed, ignoreCase = true) }) { { Text(stringResource(R.string.main_new_group)) } } else null,
                 singleLine = true, shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="main_ok">好</string>
+    <string name="main_ok">確定</string>
     <string name="main_cancel">取消</string>
     <string name="main_delete">刪除</string>
     <string name="main_close">關閉</string>

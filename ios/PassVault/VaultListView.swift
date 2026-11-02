@@ -19,8 +19,8 @@ struct RecordList: View {
     @State private var seedDeletion: Set<String>?
     @State private var reordering = false
     @State private var transfer = false
-    @State private var health = false
-    @State private var healthFocus: String?
+    /// What the Vault health sheet shows; the group to open travels with it so the sheet never reads stale state.
+    @State private var healthTarget: HealthTarget?
     /// Ids picked by tapping an entry's icon; any selection turns the header into the selection bar.
     @State private var selected = Set<String>()
     @State private var confirmDelete = false
@@ -98,14 +98,14 @@ struct RecordList: View {
                 Button("Delete", role: .destructive) { let ids = selected; selected = []; saveDeletion(ids) }
             } message: { Text(deleteMessage) }
             .sheet(item: $editingTotp) { TotpEditor(record: $0) }
-            .sheet(item: $viewingSeed) { SeedDetail(recordID: $0.id) }
+            .fullScreenCover(item: $viewingSeed) { SeedDetail(recordID: $0.id) }
             .sheet(item: $editingSeed) { SeedEditor(initial: $0, isNew: true) }
             .sheet(isPresented: $reordering) { TotpReorderView(codes: model.records.filter(\.isTotp).sorted(by: TotpOrder.less)) }
             .confirmationDialog("Delete this seed phrase?", isPresented: Binding(get: { seedDeletion != nil }, set: { if !$0 { seedDeletion = nil } }), titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { let ids = seedDeletion ?? []; seedDeletion = nil; saveDeletion(ids) }
             } message: { Text("Without another backup, this wallet cannot be recovered.") }
             .sheet(isPresented: $transfer) { TransferView() }
-            .sheet(isPresented: $health) { HealthView(focus: healthFocus) }
+            .sheet(item: $healthTarget) { HealthView(focus: $0.focus) }
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
     }
@@ -216,7 +216,7 @@ struct RecordList: View {
         }
         let expiring = model.records.filter { $0.needsNotice() }.count
         if expiring > 0 {
-            Button { healthFocus = "expiring"; health = true } label: {
+            Button { healthTarget = HealthTarget(focus: "expiring") } label: {
                 HStack { Label("Expired or due within 14 days: \(expiring)", systemImage: "calendar.badge.exclamationmark").lineLimit(1); Spacer(); Text("Review") }.font(.footnote)
             }.padding(.vertical, 6)
         }
@@ -251,7 +251,7 @@ struct RecordList: View {
                         .foregroundStyle(query.isEmpty ? Color.primary : Color.accentColor)
                         .frame(width: 44, height: 44).contentShape(Rectangle())
                 }
-                Button { healthFocus = nil; health = true } label: {
+                Button { healthTarget = HealthTarget(focus: nil) } label: {
                     Label("Vault health", systemImage: "checkmark.shield").frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 Button { model.lock() } label: {
@@ -435,4 +435,9 @@ struct GroupAssignSheet: View {
         }
         model.run({ try $0.save(updated); return updated }, done: { done(); dismiss() })
     }
+}
+
+struct HealthTarget: Identifiable {
+    let id = UUID()
+    let focus: String?
 }

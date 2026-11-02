@@ -56,16 +56,33 @@ struct SeedWordGrid: View {
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
             ForEach(words.indices, id: \.self) { index in
-                HStack(spacing: 6) {
-                    Text("\(index + 1)").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 0) {
+                    Text("\(index + 1)").font(.caption2).foregroundStyle(.secondary).frame(width: 22, alignment: .leading)
                     Text(verbatim: words[index]).font(.system(.callout, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                    .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
             }
         }.textSelection(.disabled)
     }
 }
 
+/// The red "High risk" card shown above the seed editor.
+struct SeedWarning: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("High risk").font(.subheadline.weight(.bold))
+                Text("Anyone with these words controls the wallet and all of its funds. A phone is not a hardware wallet. Don't store seed phrases here for wallets holding significant funds; keep those offline.").font(.subheadline)
+            }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.red, lineWidth: 1))
+    }
+}
+
+/// Read-only view of a seed phrase or private key, like Android: wallet badge, name and a status chip, one card that reveals the words or key, the passphrase and notes, then the never-copied reminder.
 struct SeedDetail: View {
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) private var dismiss
@@ -78,49 +95,86 @@ struct SeedDetail: View {
     var body: some View {
         NavigationStack {
             if let record {
-                Form {
-                    Section {
-                        Label(record.name, systemImage: "wallet.bifold").font(.title2)
-                        Text(record.privateKey.map { localized(WalletPrivateKey.format($0)) } ?? (Bip39.problem(record.seedWords).map(localized) ?? localizedFormat("BIP-39 · %lld words", record.seedWords.count))).font(.caption)
-                    }
-                    Section(LocalizedStringKey(record.privateKey == nil ? seedPhraseLabel : privateKeyLabel)) {
-                        Button(LocalizedStringKey(shown ? "Hide" : record.privateKey == nil ? "Show words" : "Show key")) { shown.toggle() }
-                        if shown {
-                            if let key = record.privateKey { Text(verbatim: key).font(.body.monospaced()).textSelection(.disabled) }
-                            else { SeedWordGrid(words: record.seedWords) }
-                        } else {
-                            Text(LocalizedStringKey(record.privateKey == nil ? "Hidden. Make sure no one can see your screen before showing the words." : "Hidden. Make sure no one can see your screen before showing the key."))
+                let problem = Bip39.problem(record.seedWords)
+                let chip = record.privateKey.map { localizedFormat("Private key · %@", localized(WalletPrivateKey.format($0))) }
+                    ?? (problem == nil ? localizedFormat("BIP-39 · %lld words", record.seedWords.count) : localized("Not a valid BIP-39 phrase"))
+                ScrollView {
+                    VStack(spacing: 16) {
+                        VStack(spacing: 0) {
+                            IconBadge(symbol: "wallet.bifold", size: 72, tint: .purple)
+                            Text(record.name).font(.title2).multilineTextAlignment(.center).padding(.top, 12)
+                            Label(chip, systemImage: record.privateKey != nil || problem == nil ? "checkmark.shield" : "exclamationmark.triangle")
+                                .font(.footnote).padding(.horizontal, 12).padding(.vertical, 6)
+                                .overlay(Capsule().stroke(Color.secondary.opacity(0.5), lineWidth: 1)).padding(.top, 8)
+                        }.frame(maxWidth: .infinity).padding(.top, 8)
+                        SurfaceCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Text(LocalizedStringKey(record.privateKey == nil ? seedPhraseLabel : privateKeyLabel)).font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Button { shown.toggle() } label: {
+                                        Label(LocalizedStringKey(shown ? "Hide" : record.privateKey == nil ? "Show words" : "Show key"), systemImage: shown ? "eye.slash" : "eye").font(.subheadline)
+                                    }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                                }
+                                if shown {
+                                    if let key = record.privateKey { Text(verbatim: key).font(.body.monospaced()).textSelection(.disabled) }
+                                    else { SeedWordGrid(words: record.seedWords) }
+                                } else {
+                                    Text(LocalizedStringKey(record.privateKey == nil ? "Hidden. Make sure no one can see your screen before showing the words." : "Hidden. Make sure no one can see your screen before showing the key."))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                         }
-                    }
-                    if let passphrase = record.fields.first(where: { $0.label == seedPassphraseLabel })?.value, !passphrase.isEmpty {
-                        Section("BIP-39 passphrase") {
-                            Text(verbatim: passphraseShown ? passphrase : "••••••••••").font(.body.monospaced()).textSelection(.disabled)
-                            Button(LocalizedStringKey(passphraseShown ? "Hide" : "Reveal")) { passphraseShown.toggle() }
+                        if let passphrase = record.fields.first(where: { $0.label == seedPassphraseLabel })?.value, !passphrase.isEmpty {
+                            SurfaceCard(padding: 0) {
+                                HStack(spacing: 0) {
+                                    IconBadge(symbol: "key.horizontal")
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("BIP-39 passphrase").font(.caption).foregroundStyle(.secondary)
+                                        Text(verbatim: passphraseShown ? passphrase : "••••••••••").font(passphraseShown ? .body.monospaced() : .body).textSelection(.disabled)
+                                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
+                                    Button { passphraseShown.toggle() } label: { Image(systemName: passphraseShown ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                                        .buttonStyle(.plain).accessibilityLabel(passphraseShown ? "Hide" : "Reveal")
+                                }.padding(.leading, 16).padding(.trailing, 4).padding(.vertical, 12)
+                            }
                         }
-                    }
-                    if let notes = record.fields.first(where: { $0.kind == .note })?.value, !notes.isEmpty { Section("Notes") { Text(verbatim: notes) } }
-                    Section { Text("Seed phrases and private keys are never copied to the clipboard and are left out of CSV exports; only encrypted backups include them.").font(.footnote).foregroundStyle(.secondary) }
+                        if let notes = record.fields.first(where: { $0.kind == .note })?.value, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            SurfaceCard {
+                                HStack(alignment: .top, spacing: 16) {
+                                    IconBadge(symbol: "note.text")
+                                    VStack(alignment: .leading, spacing: 2) { Text("Notes").font(.caption).foregroundStyle(.secondary); Text(verbatim: notes) }
+                                }
+                            }
+                        }
+                        Text("Seed phrases and private keys are never copied to the clipboard and are left out of CSV exports; only encrypted backups include them.")
+                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                    }.padding(.horizontal, 16).padding(.bottom, 32)
                 }
-                .navigationTitle(record.name).navigationBarTitleDisplayMode(.inline)
+                .background(Color(uiColor: .systemGroupedBackground))
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                    ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") }
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button {
                             var updated = model.records
                             if let index = updated.firstIndex(where: { $0.id == recordID }) { updated[index].favorite.toggle() }
                             let snapshot = updated
                             model.run { try $0.save(snapshot); return snapshot }
-                        } label: { Label("Favorites", systemImage: record.favorite ? "star.fill" : "star") }
-                        Button("Edit", systemImage: "pencil") { shown = false; passphraseShown = false; editing = true }
-                        Button("Delete", systemImage: "trash", role: .destructive) { deleting = true }
+                        } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.accentColor : Color.primary) }
+                            .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
+                        Button { shown = false; passphraseShown = false; editing = true } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
+                        Menu {
+                            Button(role: .destructive) { deleting = true } label: { Label(LocalizedStringKey(record.privateKey == nil ? "Delete seed phrase" : "Delete private key"), systemImage: "trash") }
+                        } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More")
                     }
                 }
                 .sheet(isPresented: $editing) { SeedEditor(initial: record, isNew: false) }
-                .confirmationDialog(LocalizedStringKey(record.privateKey == nil ? "Delete this seed phrase?" : "Delete this private key?"), isPresented: $deleting, titleVisibility: .visible) {
+                .alert(LocalizedStringKey(record.privateKey == nil ? "Delete this seed phrase?" : "Delete this private key?"), isPresented: $deleting) {
                     Button("Delete", role: .destructive) {
                         let updated = model.records.filter { $0.id != recordID }
                         model.run({ try $0.save(updated); return updated }, done: { dismiss() })
                     }
+                    Button("Cancel", role: .cancel) {}
                 } message: { Text("Without another backup, this wallet cannot be recovered.") }
             }
         }
@@ -169,67 +223,106 @@ struct SeedEditor: View {
         if !unknown.isEmpty { return localizedFormat("Not BIP-39 words: %@", unknown.joined(separator: ", ")) }
         return Bip39.problem(words).map(localized)
     }
+    /// The word being typed: the text after the last space, while the cursor is at the end.
+    private var partial: String {
+        guard mode == "enter", cursorAtEnd, let last = typed.last, !last.isWhitespace else { return "" }
+        return Bip39.split(typed).last ?? ""
+    }
+    private func outlined<Content: View>(_ label: String, icon: String? = nil, filled: Bool, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 12) {
+            if let icon { Image(systemName: icon).foregroundStyle(.secondary) }
+            VStack(alignment: .leading, spacing: 0) {
+                if filled { Text(label).font(.caption).foregroundStyle(.secondary) }
+                content()
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 56)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+    }
+    private func eye(_ on: Bool, toggle: @escaping () -> Void) -> some View {
+        Button(action: toggle) { Image(systemName: on ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+            .buttonStyle(.plain).accessibilityLabel(on ? "Hide" : "Reveal")
+    }
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Label("High risk", systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-                    Text("Anyone with these words controls the wallet and all of its funds. A phone is not a hardware wallet. Don't store seed phrases here for wallets holding significant funds; keep those offline.").font(.footnote)
-                }
-                Section("Wallet name") { SeedInput(title: "Wallet name", text: $name).frame(minHeight: 44) }
-                Section {
+            ScrollView {
+                VStack(spacing: 12) {
+                    SeedWarning()
+                    outlined(localized("Wallet name"), icon: "wallet.bifold", filled: !name.isEmpty) { SeedInput(title: "Wallet name", text: $name) }
                     Picker("Mode", selection: $mode) {
                         Text("Generate").tag("generate"); Text("Enter words").tag("enter"); Text("Private key").tag("key")
                     }.pickerStyle(.segmented)
-                }
-                if mode == "key" {
-                    Section("Private key") {
-                        SeedInput(title: "Private key", text: $key, secure: !keyShown).frame(minHeight: 44)
-                        Button(LocalizedStringKey(keyShown ? "Hide" : "Reveal")) { keyShown.toggle() }
-                        Text(LocalizedStringKey(key.isEmpty ? "Hex, WIF or another single-string key" : problem ?? WalletPrivateKey.format(key))).font(.footnote)
-                    }
-                } else if mode == "generate" {
-                    Section {
-                        Picker("Word count", selection: $count) { ForEach(Bip39.wordCounts, id: \.self) { Text("\($0) words").tag($0) } }.pickerStyle(.segmented)
-                        Button("Generate another phrase", systemImage: "arrow.clockwise") { generate() }
-                        SeedWordGrid(words: generated)
-                        Toggle("I wrote these words down offline, in order.", isOn: $acknowledged)
-                        if !generationError.isEmpty { Text(LocalizedStringKey(generationError)).foregroundStyle(.red) }
-                    }
-                } else {
-                    Section("Seed words, separated by spaces") {
-                        SeedInput(title: "Seed words, separated by spaces", text: $typed, cursorChanged: { cursorAtEnd = $0 }).frame(minHeight: 100)
-                        if let problem { Text(LocalizedStringKey(problem)).font(.footnote).foregroundStyle(.red) }
-                        if !suggestions.isEmpty, let prefix = Bip39.split(typed).last {
-                            ScrollView(.horizontal) {
+                    if mode == "key" {
+                        VStack(alignment: .leading, spacing: 4) {
+                            outlined(localized("Private key"), filled: !key.isEmpty) {
+                                HStack { SeedInput(title: "Private key", text: $key, secure: !keyShown); eye(keyShown) { keyShown.toggle() } }
+                            }
+                            Text(LocalizedStringKey(key.isEmpty ? "Hex, WIF or another single-string key" : problem ?? WalletPrivateKey.format(key))).font(.caption)
+                                .foregroundStyle(!key.isEmpty && problem != nil ? Color.red : Color.secondary).padding(.horizontal, 12)
+                        }
+                    } else if mode == "generate" {
+                        SurfaceCard {
+                            VStack(spacing: 12) {
                                 HStack {
-                                    ForEach(suggestions, id: \.self) { word in
-                                        Button(word) {
-                                            let preceding = typed.dropLast(prefix.count)
-                                            typed = String(preceding) + word + " "
-                                        }.buttonStyle(.bordered)
+                                    Picker("Word count", selection: $count) { ForEach(Bip39.wordCounts, id: \.self) { Text("\($0) words").tag($0) } }.pickerStyle(.segmented)
+                                    Button { generate() } label: { Image(systemName: "arrow.clockwise").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                                        .buttonStyle(.plain).accessibilityLabel("Generate another phrase")
+                                }
+                                SeedWordGrid(words: generated)
+                                Button { acknowledged.toggle() } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: acknowledged ? "checkmark.square.fill" : "square").foregroundStyle(acknowledged ? Color.accentColor : Color.secondary)
+                                        Text("I wrote these words down offline, in order.").font(.subheadline).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                                        Spacer(minLength: 0)
+                                    }.contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                if !generationError.isEmpty { Text(LocalizedStringKey(generationError)).font(.footnote).foregroundStyle(.red) }
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            outlined(localized("Seed words, separated by spaces"), filled: !typed.isEmpty) {
+                                SeedInput(title: "Seed words, separated by spaces", text: $typed, cursorChanged: { cursorAtEnd = $0 }).frame(minHeight: 72)
+                            }
+                            Text(words.isEmpty ? localized("12 or 24 words") : problem ?? localizedFormat("Valid BIP-39 phrase · %lld words", words.count)).font(.caption)
+                                .foregroundStyle(words.isEmpty ? Color.secondary : problem == nil ? Color.green : words.count == 12 || words.count == 24 ? Color.red : Color.secondary).padding(.horizontal, 12)
+                            if !suggestions.isEmpty, let prefix = Bip39.split(typed).last {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack {
+                                        ForEach(suggestions, id: \.self) { word in
+                                            Button { typed = String(typed.dropLast(prefix.count)) + word + " " } label: {
+                                                Text(verbatim: word).font(.callout.monospaced()).padding(.horizontal, 12).frame(minHeight: 32)
+                                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+                                            }.buttonStyle(.plain)
+                                        }
                                     }
                                 }
+                            } else if !partial.isEmpty && !Bip39.unknownWords([partial]).isEmpty {
+                                Text(localizedFormat("No BIP-39 word starts with “%@”.", partial)).font(.caption).foregroundStyle(.red)
                             }
                         }
                     }
-                }
-                if mode != "key" {
-                    Section("BIP-39 passphrase (optional)") {
-                        SeedInput(title: "BIP-39 passphrase (optional)", text: $passphrase, secure: !passphraseShown).frame(minHeight: 44)
-                        Button(LocalizedStringKey(passphraseShown ? "Hide" : "Reveal")) { passphraseShown.toggle() }
-                        Text("The optional “25th word”. Leave empty if your wallet doesn't use one.").font(.footnote)
+                    if mode != "key" {
+                        VStack(alignment: .leading, spacing: 4) {
+                            outlined(localized("BIP-39 passphrase (optional)"), filled: !passphrase.isEmpty) {
+                                HStack { SeedInput(title: "BIP-39 passphrase (optional)", text: $passphrase, secure: !passphraseShown); eye(passphraseShown) { passphraseShown.toggle() } }
+                            }
+                            Text("The optional “25th word”. Leave empty if your wallet doesn't use one.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12)
+                        }
                     }
-                }
-                Section("Notes (optional)") { SeedInput(title: "Notes (optional)", text: $notes).frame(minHeight: 60) }
-                Toggle("Favorite", isOn: $favorite)
+                    outlined(localized("Notes (optional)"), filled: !notes.isEmpty) { SeedInput(title: "Notes (optional)", text: $notes).frame(minHeight: 44) }
+                }.padding(.horizontal, 16).padding(.bottom, 32)
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(LocalizedStringKey(mode == "key" ? (isNew ? "New private key" : "Edit private key") : isNew ? "New seed phrase" : "Edit seed phrase"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || problem != nil || !acknowledged || model.busy)
+                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.accentColor : Color.primary) }
+                        .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
+                    Button("Save") { save() }.buttonStyle(.borderedProminent)
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || problem != nil || !acknowledged || model.busy)
                 }
             }
             .onAppear { if mode == "generate" && generated.isEmpty { generate() } }

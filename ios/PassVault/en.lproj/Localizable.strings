@@ -422,3 +422,4 @@
 "The Base32 key shown with the QR code" = "The Base32 key shown with the QR code";
 "From image" = "From image";
 "%@ · %lld digits · %lld s" = "%@ · %lld digits · %lld s";
+"Delete private key" = "Delete private key";
