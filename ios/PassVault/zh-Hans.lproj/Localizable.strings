@@ -381,3 +381,29 @@
 "age secret key" = "age 私钥";
 "简体中文" = "简体中文";
 "繁體中文" = "繁體中文";
+
+/* Entry list selection and entry detail */
+"%lld selected" = "已选择 %lld 项";
+"Select all" = "全选";
+"Cancel selection" = "取消选择";
+"Change group of selected" = "更改所选条目的分组";
+"Delete selected" = "删除所选条目";
+"Select" = "选择";
+"Selected" = "已选择";
+"Not selected" = "未选择";
+"Delete %lld entry?" = "删除 %lld 个条目？";
+"Delete %lld entries?" = "删除 %lld 个条目？";
+"They will be permanently removed from this vault." = "它们将从此保险库中永久删除。";
+"They will be permanently removed from this vault. This includes %lld seed phrase: without another backup, those wallets cannot be recovered." = "它们将从此保险库中永久删除。其中包含 %lld 条助记词：如果没有其他备份，这些钱包将无法恢复。";
+"They will be permanently removed from this vault. This includes %lld seed phrases: without another backup, those wallets cannot be recovered." = "它们将从此保险库中永久删除。其中包含 %lld 条助记词：如果没有其他备份，这些钱包将无法恢复。";
+"Group %lld entry" = "为 %lld 个条目分组";
+"Group %lld entries" = "为 %lld 个条目分组";
+"New group" = "新建分组";
+"Delete entry" = "删除条目";
+"Delete this entry?" = "删除此条目？";
+"“%@” will be permanently removed from this vault." = "“%@”将从此保险库中永久删除。";
+"No fields. Tap edit to add a username or password." = "没有字段。点按“编辑”可添加用户名或密码。";
+"Copy %@" = "复制%@";
+"Updated %@" = "更新于 %@";
+"Expired %@" = "已于 %@ 到期";
+"Expires %@" = "%@ 到期";

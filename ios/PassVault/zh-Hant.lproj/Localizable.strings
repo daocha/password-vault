@@ -381,3 +381,29 @@
 "age secret key" = "age 私鑰";
 "简体中文" = "简体中文";
 "繁體中文" = "繁體中文";
+
+/* Entry list selection and entry detail */
+"%lld selected" = "已選取 %lld 項";
+"Select all" = "全選";
+"Cancel selection" = "取消選取";
+"Change group of selected" = "變更所選項目的群組";
+"Delete selected" = "刪除所選項目";
+"Select" = "選取";
+"Selected" = "已選取";
+"Not selected" = "未選取";
+"Delete %lld entry?" = "刪除 %lld 個項目？";
+"Delete %lld entries?" = "刪除 %lld 個項目？";
+"They will be permanently removed from this vault." = "它們將從此保險庫中永久刪除。";
+"They will be permanently removed from this vault. This includes %lld seed phrase: without another backup, those wallets cannot be recovered." = "它們將從此保險庫中永久刪除。其中包含 %lld 組助記詞：如果沒有其他備份，這些錢包將無法還原。";
+"They will be permanently removed from this vault. This includes %lld seed phrases: without another backup, those wallets cannot be recovered." = "它們將從此保險庫中永久刪除。其中包含 %lld 組助記詞：如果沒有其他備份，這些錢包將無法還原。";
+"Group %lld entry" = "為 %lld 個項目分組";
+"Group %lld entries" = "為 %lld 個項目分組";
+"New group" = "新增群組";
+"Delete entry" = "刪除項目";
+"Delete this entry?" = "刪除此項目？";
+"“%@” will be permanently removed from this vault." = "「%@」將從此保險庫中永久刪除。";
+"No fields. Tap edit to add a username or password." = "沒有欄位。點選「編輯」可新增使用者名稱或密碼。";
+"Copy %@" = "複製%@";
+"Updated %@" = "更新於 %@";
+"Expired %@" = "已於 %@ 到期";
+"Expires %@" = "%@ 到期";

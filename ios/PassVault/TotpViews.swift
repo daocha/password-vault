@@ -29,6 +29,7 @@ struct TotpCountdown: View {
 struct TotpRow: View {
     @ObservedObject private var settings = AppSettings.shared
     let record: VaultRecord
+    var selection: RowSelection?
     @ScaledMetric(relativeTo: .body) private var titleSize = 16.0
     @ScaledMetric(relativeTo: .subheadline) private var subtitleSize = 14.0
     @ScaledMetric(relativeTo: .body) private var titleHeight = 24.0
@@ -37,17 +38,18 @@ struct TotpRow: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             HStack(spacing: 16) {
-                RecordIcon(record: record).frame(width: 44, height: 44)
+                RowLeading(record: record, selection: selection)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.system(size: titleSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1).frame(minHeight: titleHeight, alignment: .leading)
                     if let account = record.totp?.account, !account.isEmpty { Text(account).font(.system(size: subtitleSize)).foregroundStyle(.secondary).lineLimit(1).frame(minHeight: subtitleHeight, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                if let totp = record.totp {
+                if selection?.selecting == true { EmptyView() }
+                else if let totp = record.totp {
                     let code = totp.code(at: context.date)
                     HStack(spacing: 0) {
                     Button { copyLocally(code) } label: {
-                        Text(formatTotpCode(code)).font(.system(size: codeSize, weight: .semibold, design: .monospaced)).foregroundStyle(totp.remaining(at: context.date) <= 5 ? Color.red : Color.accentColor).padding(.horizontal, 8).padding(.vertical, 4)
-                    }.buttonStyle(.borderless).disabled(!settings.allowCopy).accessibilityLabel("Copy code")
+                        Text(formatTotpCode(code)).font(.system(size: codeSize, weight: .semibold, design: .monospaced)).foregroundStyle(totp.remaining(at: context.date) <= 5 ? Color.red : Color.accentColor).lineLimit(1).fixedSize(horizontal: true, vertical: false).padding(.horizontal, 8).padding(.vertical, 4)
+                    }.buttonStyle(.borderless).layoutPriority(1).disabled(!settings.allowCopy).accessibilityLabel("Copy code")
                     TotpCountdown(account: totp, date: context.date)
                     }
                 } else {
@@ -70,7 +72,7 @@ struct TotpReorderView: View {
             List {
                 Text("Drag a code by its handle to move it.").font(.callout).foregroundStyle(.secondary)
                 ForEach(codes) { record in
-                    VaultEntryRow(record: record, showsStatus: false)
+                    VaultEntryRow(record: record)
                     .accessibilityAction(named: Text("Move up")) { move(record.id, by: -1) }
                     .accessibilityAction(named: Text("Move down")) { move(record.id, by: 1) }
                 }.onMove { codes.move(fromOffsets: $0, toOffset: $1) }
@@ -169,10 +171,10 @@ struct TotpEditor: View {
                     Section("Current code") {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             HStack {
-                                Text(formatTotpCode(candidate.code(at: context.date))).font(.title2.monospaced().weight(.semibold)).foregroundStyle(.tint)
+                                Text(formatTotpCode(candidate.code(at: context.date))).font(.title2.monospaced().weight(.semibold)).foregroundStyle(.tint).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                                 Spacer()
                                 TotpCountdown(account: candidate, date: context.date)
-                                if settings.allowCopy { Button("Copy", systemImage: "doc.on.doc") { copyLocally(candidate.code()) }.labelStyle(.iconOnly).buttonStyle(.borderless) }
+                                if settings.allowCopy { Button { copyLocally(candidate.code()) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("Copy") }
                             }
                         }
                     }

@@ -4,12 +4,16 @@ import VaultCore
 /// The vault health report. Everything is computed from the unlocked records in memory; nothing is sent anywhere.
 /// Every group starts collapsed, as a header with its count; `focus` opens one group and scrolls to it (the expiry banner opens "expiring").
 struct HealthView: View {
-    var focus: String? = nil
+    let focus: String?
+    init(focus: String? = nil) {
+        self.focus = focus
+        _open = State(initialValue: focus.map { [$0] } ?? [])
+    }
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
     @State private var editing: VaultRecord?
     /// Open groups, and open "shared by" sets of reused passwords ("reused:<field id>").
-    @State private var open: Set<String> = []
+    @State private var open: Set<String>
     var body: some View {
         let report = VaultHealth.check(model.records)
         NavigationStack { ScrollViewReader { proxy in
@@ -75,8 +79,8 @@ struct HealthView: View {
             .sheet(item: $editing) { RecordEditor(record: $0) }
             .onAppear {
                 guard let focus else { return }
-                open = [focus]
-                DispatchQueue.main.async { withAnimation { proxy.scrollTo(focus, anchor: .top) } }
+                open.insert(focus)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { withAnimation { proxy.scrollTo(focus, anchor: .top) } }
             }
         } }
     }

@@ -238,10 +238,11 @@ struct PasswordMismatch: View {
 struct ExpiryBadge: View {
     let record: VaultRecord
     var body: some View {
-        switch record.expiryState() {
-        case .expired: Label("Expired", systemImage: "calendar.badge.exclamationmark").font(.caption2).foregroundStyle(.red)
-        case .soon: Label("Expires soon", systemImage: "calendar.badge.clock").font(.caption2).foregroundStyle(.orange)
-        default: EmptyView()
+        let state = record.expiryState()
+        if state == .expired || state == .soon {
+            Label(LocalizedStringKey(state == .expired ? "Expired" : "Expires soon"), systemImage: "calendar").font(.caption2.weight(.medium)).foregroundStyle(.red)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
         }
     }
 }
@@ -251,13 +252,15 @@ func groupColor(_ name: String) -> Color { let c = groupColorRGB(name); return C
 /// A group's name in its own color: colored border, a light tint behind the text, and the normal text color so contrast holds in light and dark mode.
 struct GroupTag: View {
     let name: String
+    var large = false
     @ScaledMetric(relativeTo: .caption2) private var fontSize = 11.0
+    @ScaledMetric(relativeTo: .footnote) private var largeFontSize = 14.0
     var body: some View {
-        let tint = groupColor(name)
-        Text(name.trimmingCharacters(in: .whitespacesAndNewlines)).font(.system(size: fontSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
-            .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(tint, lineWidth: 1))
+        let tint = groupColor(name), radius: CGFloat = large ? 8 : 6
+        Text(name.trimmingCharacters(in: .whitespacesAndNewlines)).font(.system(size: large ? largeFontSize : fontSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
+            .padding(.horizontal, large ? 10 : 6).padding(.vertical, large ? 4 : 1)
+            .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(tint, lineWidth: 1))
     }
 }
 
@@ -332,7 +335,7 @@ struct RecordEditor: View {
                                 Spacer()
                                 if !field.historyNewestFirst.isEmpty { Button("History", systemImage: "clock.arrow.circlepath") { historyField = field }.font(.caption).buttonStyle(.borderless) }
                                 if settings.allowCopy {
-                                    Button("Copy", systemImage: "doc.on.doc") { SecretClipboard.copy(field.label == cardExpiryLabel ? Cards.formattedExpiry(field.value) : field.value) }.font(.caption).buttonStyle(.borderless)
+                                    Button { SecretClipboard.copy(field.label == cardExpiryLabel ? Cards.formattedExpiry(field.value) : field.value) } label: { Image(systemName: "doc.on.doc") }.font(.caption).buttonStyle(.borderless).accessibilityLabel(localizedFormat("Copy %@", localized(field.label)))
                                 }
                             }
                         }.padding(.vertical, 4)

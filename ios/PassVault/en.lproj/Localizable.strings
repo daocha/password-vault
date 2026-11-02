@@ -381,3 +381,29 @@
 "age secret key" = "age secret key";
 "简体中文" = "简体中文";
 "繁體中文" = "繁體中文";
+
+/* Entry list selection and entry detail */
+"%lld selected" = "%lld selected";
+"Select all" = "Select all";
+"Cancel selection" = "Cancel selection";
+"Change group of selected" = "Change group of selected";
+"Delete selected" = "Delete selected";
+"Select" = "Select";
+"Selected" = "Selected";
+"Not selected" = "Not selected";
+"Delete %lld entry?" = "Delete %lld entry?";
+"Delete %lld entries?" = "Delete %lld entries?";
+"They will be permanently removed from this vault." = "They will be permanently removed from this vault.";
+"They will be permanently removed from this vault. This includes %lld seed phrase: without another backup, those wallets cannot be recovered." = "They will be permanently removed from this vault. This includes %lld seed phrase: without another backup, those wallets cannot be recovered.";
+"They will be permanently removed from this vault. This includes %lld seed phrases: without another backup, those wallets cannot be recovered." = "They will be permanently removed from this vault. This includes %lld seed phrases: without another backup, those wallets cannot be recovered.";
+"Group %lld entry" = "Group %lld entry";
+"Group %lld entries" = "Group %lld entries";
+"New group" = "New group";
+"Delete entry" = "Delete entry";
+"Delete this entry?" = "Delete this entry?";
+"“%@” will be permanently removed from this vault." = "“%@” will be permanently removed from this vault.";
+"No fields. Tap edit to add a username or password." = "No fields. Tap edit to add a username or password.";
+"Copy %@" = "Copy %@";
+"Updated %@" = "Updated %@";
+"Expired %@" = "Expired %@";
+"Expires %@" = "Expires %@";

@@ -11,6 +11,7 @@ struct RecordList: View {
     @State private var kind: String?
     @State private var tab: VaultTab = .passwords
     @State private var editing: VaultRecord?
+    @State private var viewing: VaultRecord?
     @State private var editingTotp: VaultRecord?
     @State private var viewingSeed: VaultRecord?
     @State private var editingSeed: VaultRecord?
@@ -19,6 +20,11 @@ struct RecordList: View {
     @State private var transfer = false
     @State private var health = false
     @State private var healthFocus: String?
+    /// Ids picked by tapping an entry's icon; any selection turns the header into the selection bar.
+    @State private var selected = Set<String>()
+    @State private var confirmDelete = false
+    @State private var grouping = false
+    private var selecting: Bool { !selected.isEmpty }
     private var showTotp: Bool { tab == .totp }
     private var folders: [String] { VaultListFilter.folders(in: model.records) }
     private var tabRecords: [VaultRecord] { model.records.filter { tab.contains($0) } }
@@ -29,29 +35,34 @@ struct RecordList: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                vaultToolbar
+                if selecting { selectionBar } else { vaultToolbar }
                 listControls
                 VStack(alignment: .leading, spacing: 8) {
-                    notices
+                    if !selecting { notices }
                     recordSummary
                 }.padding(.horizontal, 16).padding(.bottom, 8)
                 List {
                     if tabRecords.isEmpty { emptyState.listRowBackground(Color.clear) }
                     ForEach(filtered) { record in
-                        Button {
-                            if record.isTotp { editingTotp = record }
-                            else if record.isSeed { viewingSeed = record }
-                            else { editing = record }
-                        } label: {
-                            Group {
-                                if record.isTotp { TotpRow(record: record) }
-                                else { VaultEntryRow(record: record) }
-                            }
-                            .padding(.horizontal, 16).padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                            .contentShape(RoundedRectangle(cornerRadius: 16))
+                        let isSelected = selected.contains(record.id)
+                        let selection = RowSelection(selecting: selecting, isSelected: isSelected) { toggle(record) }
+                        Group {
+                            if record.isTotp { TotpRow(record: record, selection: selection) }
+                            else { VaultEntryRow(record: record, selection: selection) }
                         }
+                        .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, record.showsExpiryBadge ? 32 : 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(isSelected ? Color.accentColor.opacity(0.18) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(alignment: .bottomTrailing) { ExpiryBadge(record: record).padding(.trailing, 12).padding(.bottom, 8) }
+                        .contentShape(RoundedRectangle(cornerRadius: 16))
+                        .onTapGesture {
+                            if selecting { toggle(record) }
+                            else if record.isTotp { editingTotp = record }
+                            else if record.isSeed { viewingSeed = record }
+                            else { viewing = record }
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityAddTraits(.isButton)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
@@ -67,15 +78,23 @@ struct RecordList: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .overlay(alignment: .bottomTrailing) {
-                addEntryButton.buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: 16)).controlSize(.large).padding(16)
+                if !selecting {
+                    addEntryButton.buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.roundedRectangle(radius: 16)).controlSize(.large).padding(16)
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
-            .onChange(of: tab) { _, _ in query = ""; folder = nil; kind = nil }
+            .onChange(of: tab) { _, _ in query = ""; folder = nil; kind = nil; selected = [] }
+            .sensoryFeedback(.selection, trigger: selected)
             .onChange(of: folders) { _, names in if let folder, !names.contains(folder) { self.folder = nil } }
             .onChange(of: kinds) { _, names in if let kind, !names.contains(kind) { self.kind = nil } }
             .sheet(item: $editing) { RecordEditor(record: $0) }
+            .fullScreenCover(item: $viewing) { RecordDetail(recordID: $0.id) }
+            .sheet(isPresented: $grouping) { GroupAssignSheet(ids: selected) { selected = [] } }
+            .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { let ids = selected; selected = []; saveDeletion(ids) }
+            } message: { Text(deleteMessage) }
             .sheet(item: $editingTotp) { TotpEditor(record: $0) }
             .sheet(item: $viewingSeed) { SeedDetail(recordID: $0.id) }
             .sheet(item: $editingSeed) { SeedEditor(initial: $0, isNew: true) }
@@ -90,9 +109,7 @@ struct RecordList: View {
     }
     private var listControls: some View {
         VStack(spacing: 8) {
-            Picker("Show", selection: $tab) {
-                ForEach(VaultTab.allCases) { Text(LocalizedStringKey($0.label)).tag($0) }
-            }.pickerStyle(.segmented)
+            tabBar
             if searchOpen {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -115,13 +132,69 @@ struct RecordList: View {
             }.fixedSize(horizontal: false, vertical: true)
         }.padding(.horizontal, 16).padding(.bottom, 4)
     }
+    private func tabIcon(_ tab: VaultTab) -> String {
+        switch tab { case .passwords: "key"; case .seed: "wallet.bifold"; case .totp: "number" }
+    }
+    /// Three joined buttons, each with its icon before the label, like Android's segmented row.
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(VaultTab.allCases.enumerated()), id: \.element) { index, item in
+                if index > 0 { Divider() }
+                Button { if tab != item { tab = item } } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: tabIcon(item)).font(.system(size: 14))
+                        Text(LocalizedStringKey(item.label)).lineLimit(1).minimumScaleFactor(0.75)
+                    }
+                    .font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(tab == item ? Color.accentColor.opacity(0.2) : Color.clear)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("tab.\(item.rawValue)")
+                .accessibilityAddTraits(tab == item ? .isSelected : [])
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+    }
+    private func toggle(_ record: VaultRecord) {
+        if !selected.insert(record.id).inserted { selected.remove(record.id) }
+    }
+    private var deleteTitle: String {
+        localizedFormat(selected.count == 1 ? "Delete %lld entry?" : "Delete %lld entries?", selected.count)
+    }
+    private var deleteMessage: String {
+        let doomed = model.records.filter { selected.contains($0.id) }
+        let seeds = doomed.filter(\.isSeed).count
+        if seeds == 0 { return localized("They will be permanently removed from this vault.") }
+        return localizedFormat(seeds == 1 ? "They will be permanently removed from this vault. This includes %lld seed phrase: without another backup, those wallets cannot be recovered." : "They will be permanently removed from this vault. This includes %lld seed phrases: without another backup, those wallets cannot be recovered.", seeds)
+    }
+    /// Replaces the header while entries are selected: cancel, count, select all, group (passwords only) and delete.
+    private var selectionBar: some View {
+        HStack(spacing: 0) {
+            Button { selected = [] } label: { Label("Cancel selection", systemImage: "xmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
+            Text(localizedFormat("%lld selected", selected.count)).font(.title3).lineLimit(1).padding(.leading, 4)
+            Spacer(minLength: 0)
+            Button {
+                let ids = Set(filtered.map(\.id)); selected = selected.isSuperset(of: ids) ? [] : ids
+            } label: { Label("Select all", systemImage: "checklist").frame(width: 44, height: 44).contentShape(Rectangle()) }
+            if tab == .passwords {
+                Button { grouping = true } label: { Label("Change group of selected", systemImage: "folder").frame(width: 44, height: 44).contentShape(Rectangle()) }
+            }
+            Button { confirmDelete = true } label: { Label("Delete selected", systemImage: "trash").frame(width: 44, height: 44).contentShape(Rectangle()) }
+        }
+        .labelStyle(.iconOnly).font(.title3).buttonStyle(.plain).foregroundStyle(.primary)
+        .padding(.horizontal, 16).frame(minHeight: 56)
+        .background(Color.accentColor.opacity(0.18))
+    }
     @ViewBuilder private var recordSummary: some View {
         if !tabRecords.isEmpty {
             HStack {
                 Text(localizedFormat(showTotp ? "%lld of %lld codes" : tab == .seed ? "%lld of %lld seed phrases" : "%lld of %lld entries", filtered.count, tabRecords.count))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                if showTotp && tabRecords.count > 1 {
+                if showTotp && tabRecords.count > 1 && !selecting {
                     Button {
                         searchOpen = false; searchFocused = false; reordering = true
                     } label: { Label("Reorder", systemImage: "arrow.up.arrow.down") }
@@ -240,10 +313,44 @@ private struct VaultFilterChip: View {
     }
 }
 
+extension VaultRecord {
+    /// Expired or due soon: the list shows a badge at the row's bottom right.
+    var showsExpiryBadge: Bool { [.expired, .soon].contains(expiryState()) }
+}
+
+/// What a list row needs to take part in multi-select: tapping its icon toggles it, and while anything is selected the icon is a check circle.
+struct RowSelection {
+    let selecting: Bool
+    let isSelected: Bool
+    let toggle: () -> Void
+}
+
+/// The row's leading 44pt control: the entry's icon (tap to select), or the selection circle while selecting.
+struct RowLeading: View {
+    let record: VaultRecord
+    var selection: RowSelection?
+    var body: some View {
+        if let selection {
+            Button(action: selection.toggle) {
+                Group {
+                    if selection.selecting {
+                        Image(systemName: selection.isSelected ? "checkmark.circle.fill" : "circle").font(.system(size: 28))
+                            .foregroundStyle(selection.isSelected ? Color.accentColor : Color.secondary)
+                    } else { RecordIcon(record: record) }
+                }.frame(width: 44, height: 44).contentShape(Circle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(selection.selecting ? (selection.isSelected ? localized("Selected") : localized("Not selected")) : localized("Select"))
+        } else {
+            RecordIcon(record: record).frame(width: 44, height: 44)
+        }
+    }
+}
+
 /// Material's titleMedium/bodyMedium sizes, weights and line heights, scaled for Accessibility.
 struct VaultEntryRow: View {
     let record: VaultRecord
-    var showsStatus = true
+    var selection: RowSelection?
     @Environment(\.dynamicTypeSize) private var textSize
     @ScaledMetric(relativeTo: .body) private var titleSize = 16.0
     @ScaledMetric(relativeTo: .subheadline) private var subtitleSize = 14.0
@@ -258,19 +365,70 @@ struct VaultEntryRow: View {
     }
     var body: some View {
         HStack(spacing: 16) {
-            RecordIcon(record: record).frame(width: 44, height: 44)
+            RowLeading(record: record, selection: selection)
             VStack(alignment: .leading, spacing: 0) {
                 Text(record.name.isEmpty ? localized("Untitled record") : record.name)
                     .font(.system(size: titleSize, weight: .medium)).foregroundStyle(.primary)
                     .lineLimit(textSize.isAccessibilitySize ? 2 : 1).frame(minHeight: titleHeight, alignment: .leading)
                 if !subtitle.isEmpty { Text(verbatim: subtitle).font(.system(size: subtitleSize)).foregroundStyle(.secondary).lineLimit(textSize.isAccessibilitySize ? 2 : 1).frame(minHeight: subtitleHeight, alignment: .leading) }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            if showsStatus { VStack(alignment: .trailing, spacing: 4) {
                 if VaultTab.passwords.contains(record) && !VaultListFilter.folderName(record).isEmpty {
-                    GroupTag(name: VaultListFilter.folderName(record)).frame(maxWidth: 120, alignment: .trailing).fixedSize(horizontal: true, vertical: false)
+                    GroupTag(name: VaultListFilter.folderName(record)).padding(.top, 4)
                 }
-                ExpiryBadge(record: record)
-            } }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            if let selection, !selection.selecting, !record.isTotp {
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
         }
+    }
+}
+
+/// Assigns the selected password entries to one group, or clears it. A group every selected entry is in shows a check, one only some are in a dash; tapping assigns it to all of them, or clears it when all already have it.
+struct GroupAssignSheet: View {
+    @EnvironmentObject var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    let ids: Set<String>
+    let done: () -> Void
+    @State private var newGroup = ""
+    private var targets: [VaultRecord] { model.records.filter { ids.contains($0.id) && VaultTab.passwords.contains($0) } }
+    private var groups: [String] { VaultListFilter.folders(in: model.records) }
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack {
+                        TextField("New group", text: $newGroup).submitLabel(.done).onSubmit(addNew)
+                        Button("Add", action: addNew).disabled(newGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                Section {
+                    ForEach(groups, id: \.self) { name in
+                        let inGroup = targets.filter { VaultListFilter.folderName($0) == name }.count
+                        Button { assign(inGroup == targets.count ? "" : name) } label: {
+                            HStack {
+                                GroupTag(name: name)
+                                Spacer()
+                                if inGroup == targets.count { Image(systemName: "checkmark") }
+                                else if inGroup > 0 { Image(systemName: "minus") }
+                            }.contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle(localizedFormat(targets.count == 1 ? "Group %lld entry" : "Group %lld entries", targets.count)).navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+    }
+    private func addNew() {
+        let name = newGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { assign(name) }
+    }
+    private func assign(_ group: String) {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let targetIDs = Set(targets.map(\.id))
+        let updated = model.records.map { record -> VaultRecord in
+            guard targetIDs.contains(record.id), record.group != group else { return record }
+            var changed = record; changed.group = group; changed.updatedAt = now; return changed
+        }
+        model.run({ try $0.save(updated); return updated }, done: { done(); dismiss() })
     }
 }
