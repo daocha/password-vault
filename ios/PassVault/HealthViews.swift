@@ -95,14 +95,22 @@ struct HealthView: View {
     }
     private func toggle(_ key: String) { if !flipped.insert(key).inserted { flipped.remove(key) } }
     /// A group's header: tap it to open or close the group.
+    /// The icon Android shows for each group; the "consider two-factor" group is advice, the rest are problems and get the red badge.
+    private static let groupIcons: [String: String] = [
+        "reused": "doc.on.doc", "weak": "exclamationmark.shield", "old": "clock.arrow.circlepath", "expiring": "calendar", "twoFactor": "number",
+    ]
     private func header(_ key: String, _ title: String, _ count: Int, _ body: String) -> some View {
         Button { withAnimation { toggle(key) } } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) { Text("\(localized(title)) (\(count))"); Text(LocalizedStringKey(body)).font(.caption).textCase(nil) }
+            HStack(spacing: 12) {
+                IconBadge(symbol: Self.groupIcons[key] ?? "exclamationmark.triangle", tint: key == "twoFactor" ? .accentColor : .red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(localized(title)) (\(count))").font(.headline).foregroundStyle(.primary)
+                    Text(LocalizedStringKey(body)).font(.caption).foregroundStyle(.secondary).textCase(nil)
+                }
                 Spacer()
-                Image(systemName: isOpen(key) ? "chevron.up" : "chevron.down")
-            }
-        }.foregroundStyle(.secondary).accessibilityHint(isOpen(key) ? "Hide" : "Show").id(key)
+                Image(systemName: isOpen(key) ? "chevron.up" : "chevron.down").foregroundStyle(.secondary)
+            }.padding(.vertical, 4)
+        }.buttonStyle(.plain).accessibilityHint(isOpen(key) ? "Hide" : "Show").id(key)
     }
     private func row(_ record: VaultRecord, _ detail: String) -> some View {
         Button { viewing = record } label: {
