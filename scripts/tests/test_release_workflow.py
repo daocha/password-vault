@@ -1,6 +1,6 @@
 """Exercise release orchestration in isolated repos; network/signing are stubbed.
 The real signing path is validated separately with release-github.sh --dry-run.
-The same file runs in PassVault and AquaRestore; the app name comes from scripts/release-settings.sh.
+The app name comes from scripts/release-settings.sh.
 Run: python3 -m unittest discover -s scripts/tests -v
 """
 import json
@@ -39,6 +39,11 @@ class ReleaseWorkflowTest(unittest.TestCase):
         (self.repo / "android/app").mkdir(parents=True)
         for name in ("release-github.sh", "_signing-common.sh", "release-settings.sh"):
             shutil.copy(PROJECT / "scripts" / name, self.repo / "scripts" / name)
+        # Configure a mock iOS target even for repositories that currently ship Android only.
+        settings = self.repo / "scripts/release-settings.sh"
+        if not re.search(r"^ios_scheme=", settings.read_text(), re.M):
+            with settings.open('a') as f:
+                f.write(f"\nios_scheme={APP}\nbuild_dirs+=(ios)\n")
         (self.repo / ".gitignore").write_text("dist/\n")
         (self.repo / "android/app/build.gradle.kts").write_text('        versionCode = 1\n        versionName = "1.0.0"\n')
         self.log = self.base / "calls.jsonl"
@@ -69,11 +74,15 @@ import json, os, pathlib, re, sys
 with open(os.environ['TEST_RELEASE_LOG'], 'a') as f: f.write(json.dumps(['ios'] + sys.argv[1:]) + '\\n')
 if os.environ.get('TEST_IOS_FAIL'): sys.exit(1)
 if '--check' in sys.argv: sys.exit(0)
+if '--upload-archive' in sys.argv:
+    assert pathlib.Path(sys.argv[-1]).is_dir()
+    sys.exit(1 if os.environ.get('TEST_STORE_UPLOAD_FAIL') else 0)
 if os.environ.get('TEST_IOS_BUILD_FAIL'): sys.exit(1)
 root = pathlib.Path(__file__).resolve().parents[1]
 s = (root / 'android/app/build.gradle.kts').read_text()
 v = re.search(r'versionName = "([^"]+)"', s).group(1)
 c = re.search(r'versionCode = (\\d+)', s).group(1)
+(root / 'dist' / f'APP-{v}-{c}.xcarchive').mkdir(parents=True, exist_ok=True)
 out = root / 'dist' / f'APP-{v}-{c}-app-store'
 out.mkdir(parents=True, exist_ok=True)
 (out / 'APP.ipa').write_bytes(b'fixture')
@@ -128,15 +137,36 @@ out.mkdir(parents=True, exist_ok=True)
         self.assertFalse(any(x.endswith('.aab') or x.endswith('mapping.txt') for x in create))
 
     def test_app_store_build_matches_version_and_stays_off_github(self):
-        result = self.run_release('--version', '1.1.0', '--app-store', '--skip-tests')
+        result = self.run_release('--version', '1.1.0', '--play', '--app-store', '--skip-tests')
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertTrue((self.repo / f'dist/{APP}-1.1.0-2-app-store/{APP}.ipa').exists())
         calls = self.calls()
         self.assertIn(['ios', '--check'], calls)
         self.assertIn(['ios', '--skip-tests'], calls)
-        self.assertFalse(any('--upload-archive' in c for c in calls))
+        upload = ['ios', '--upload-archive', str((self.repo / f'dist/{APP}-1.1.0-2.xcarchive').resolve())]
+        self.assertIn(upload, calls)
+        publish = next(i for i, c in enumerate(calls) if c[:3] == ['gh', 'release', 'edit'])
+        self.assertLess(publish, calls.index(upload))
         create = next(c for c in calls if c[:3] == ['gh', 'release', 'create'])
         self.assertFalse(any(x.endswith('.ipa') for x in create))
+
+    def test_apple_upload_failure_reports_archive_retry_after_github_success(self):
+        self.env['TEST_STORE_UPLOAD_FAIL'] = '1'
+        result = self.run_release('--app-store')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('GitHub release succeeded', result.stderr)
+        self.assertIn('--upload-archive', result.stderr)
+        self.assertTrue(any(c[:3] == ['gh', 'release', 'edit'] for c in self.calls()))
+
+    def test_github_failure_prevents_apple_upload(self):
+        for failure in ('TEST_PUSH_FAIL', 'TEST_UPLOAD_FAIL'):
+            with self.subTest(failure=failure):
+                # Use a fresh fixture for each failure.
+                self.env[failure] = '1'
+                result = self.run_release('--app-store')
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(any('--upload-archive' in c for c in self.calls()))
+                self.env.pop(failure)
 
     def test_app_store_dry_run_does_not_publish_or_upload(self):
         result = self.run_release('--app-store', '--dry-run')
@@ -144,6 +174,18 @@ out.mkdir(parents=True, exist_ok=True)
         self.assertEqual('', self.git('tag'))
         self.assertTrue(all(c[0] == 'ios' for c in self.calls()))
         self.assertFalse(any('--upload-archive' in c for c in self.calls()))
+
+    def test_app_store_without_ios_configuration_stops_before_build(self):
+        settings = self.repo / 'scripts/release-settings.sh'
+        settings.write_text(re.sub(r'^ios_scheme=.*$', '', settings.read_text(), flags=re.M))
+        self.git('add', 'scripts/release-settings.sh')
+        self.git('commit', '-qm', 'Remove mock iOS target')
+        result = self.run_release('--version', '1.1.0', '--app-store')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('require an iOS target', result.stderr)
+        self.assertEqual('', self.git('diff'))
+        self.assertFalse((self.repo / 'dist').exists())
+        self.assertFalse(any(c[0] == 'ios' for c in self.calls()))
 
     def test_app_store_preflight_failure_stops_before_version_edit(self):
         self.env['TEST_IOS_FAIL'] = '1'

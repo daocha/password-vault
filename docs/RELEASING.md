@@ -151,9 +151,10 @@ Outputs are `dist/PassVault-VERSION-CODE.xcarchive` and
 The build refuses to overwrite either output. Move failed/local artifacts aside before rebuilding.
 The default checks run Swift package tests; run simulator and real-device app checks before submission.
 
-Neither `--app-store` nor `--dry-run --app-store` uploads to Apple or adds the IPA to GitHub.
+`--app-store` builds the archive and IPA, then uploads the archive to App Store Connect after the GitHub release succeeds. It does not submit for review or add the IPA to GitHub.
+`--dry-run --app-store` builds locally without uploading.
 Export and signing may contact Apple to obtain provisioning assets even during a dry run.
-Upload the **existing** archive explicitly, without rebuilding:
+For iOS-only builds or to retry a failed upload, upload the **existing** archive without rebuilding:
 
 ```bash
 ./scripts/build-ios-app-store.sh --upload-archive dist/PassVault-2026.11.2-CODE.xcarchive
