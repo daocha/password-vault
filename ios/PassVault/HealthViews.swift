@@ -16,28 +16,35 @@ struct HealthView: View {
         let report = VaultHealth.check(model.records)
         NavigationStack { ScrollViewReader { proxy in
             List {
-                Section {
-                    Label {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Checked on this phone only").font(.headline)
-                            Text("Your passwords are never uploaded or sent anywhere. PassVault checks them here, on this device, and nothing leaves it. Because it works offline, it cannot look passwords up in online lists of leaked passwords.").font(.footnote)
-                        }
-                    } icon: { Image(systemName: "lock.iphone") }
+                // Top cards, laid out like Android's: a tinted privacy note, then the score card, then the all-clear line.
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "lock.iphone")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Checked on this phone only").font(.subheadline.weight(.bold))
+                        Text("Your passwords are never uploaded or sent anywhere. PassVault checks them here, on this device, and nothing leaves it. Because it works offline, it cannot look passwords up in online lists of leaked passwords.").font(.footnote).font(.subheadline)
+                    }
                 }
-                Section {
-                    HStack(spacing: 20) {
-                        ZStack {
-                            Circle().stroke(.quaternary, lineWidth: 6)
-                            Circle().trim(from: 0, to: Double(report.score ?? 0) / 100).stroke((report.score ?? 100) >= 70 ? Color.accentColor : .red, style: StrokeStyle(lineWidth: 6, lineCap: .round)).rotationEffect(.degrees(-90))
-                            Text(report.score.map(String.init) ?? "—").font(.title2.bold())
-                        }.frame(width: 72, height: 72)
-                        VStack(alignment: .leading) {
-                            Text("Health score").font(.caption).foregroundStyle(.secondary)
-                            Text(LocalizedStringKey(report.score.map(Self.label) ?? "No passwords to check yet")).font(.headline)
-                            if report.checked > 0 { Text("\(report.checked) passwords checked").font(.caption).foregroundStyle(.secondary) }
-                        }
-                    }.padding(.vertical, 6)
-                    if report.checked > 0 && report.problemCount == 0 && report.noTwoFactor.isEmpty { Label("No problems found.", systemImage: "checkmark.circle") }
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+                .topCardRow()
+                HStack(spacing: 20) {
+                    ZStack {
+                        Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 6)
+                        Circle().trim(from: 0, to: Double(report.score ?? 0) / 100).stroke((report.score ?? 100) >= 70 ? Color.accentColor : .red, style: StrokeStyle(lineWidth: 6, lineCap: .round)).rotationEffect(.degrees(-90))
+                        Text(report.score.map(String.init) ?? "—").font(.title2.bold())
+                    }.frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Health score").font(.caption).foregroundStyle(.secondary)
+                        Text(LocalizedStringKey(report.score.map(Self.label) ?? "No passwords to check yet")).font(.headline)
+                        if report.checked > 0 { Text("\(report.checked) passwords checked").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                .topCardRow()
+                if report.checked > 0 && report.problemCount == 0 && report.noTwoFactor.isEmpty {
+                    Label("No problems found.", systemImage: "checkmark.circle").padding(16).topCardRow()
                 }
                 if !report.reused.isEmpty {
                     Section { if isOpen("reused") { ForEach(Array(report.reused.enumerated()), id: \.offset) { _, group in
@@ -109,4 +116,11 @@ struct HealthView: View {
     }
     static func label(_ score: Int) -> String { score >= 90 ? "Excellent" : score >= 70 ? "Good" : score >= 50 ? "Fair" : "Needs attention" }
     static func format(_ date: DateComponents) -> String { Expiry.localDate(date)?.formatted(date: .abbreviated, time: .omitted) ?? "" }
+}
+
+private extension View {
+    /// A plain block on the grouped background instead of a grouped-list row.
+    func topCardRow() -> some View {
+        listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)).listRowSeparator(.hidden).listRowBackground(Color.clear)
+    }
 }
