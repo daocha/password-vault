@@ -5,7 +5,7 @@ import VaultCore
 private let builtInFieldLabels: Set<String> = [
     "Username", "Password", "Notes", "Security question", cardHolderLabel, cardNumberLabel, cardExpiryLabel, cardCodeLabel, cardPinLabel,
 ]
-func displayFieldLabel(_ label: String) -> String { builtInFieldLabels.contains(label) ? localized(label) : label }
+@MainActor func displayFieldLabel(_ label: String) -> String { builtInFieldLabels.contains(label) ? localized(label) : label }
 
 private func fieldSymbol(_ field: VaultField) -> String {
     switch field.label {
