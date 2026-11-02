@@ -1,8 +1,11 @@
 name: Android
 
-# CI for every push and pull request: debug build, unit tests, lint and instrumented tests on an emulator. Unsigned debug APK only;
-# release builds are made locally with scripts/release-github.sh and scripts/build-android-play.sh.
-on: [push, pull_request]
+# CI for pull requests and pushes to main: debug build, unit tests, lint and instrumented tests on an emulator.
+# Unsigned debug APK only; release builds are made locally with scripts/release-github.sh and scripts/build-android-play.sh.
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
