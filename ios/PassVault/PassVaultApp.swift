@@ -300,7 +300,12 @@ struct RecordList: View {
     @State private var health = false
     /// The health group to open and scroll to (the expiry banner opens "expiring"); nil opens the report with every group collapsed.
     @State private var healthFocus: String?
-    var filtered: [VaultRecord] { model.records.filter { tab.contains($0) && $0.matches(query) && (!favorites || $0.favorite) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+    var filtered: [VaultRecord] {
+        model.records.filter { tab.contains($0) && $0.matches(query) && (!favorites || $0.favorite) }.sorted {
+            if !showTotp && $0.favorite != $1.favorite { return $0.favorite }
+            return $0.name.lowercased() < $1.name.lowercased()
+        }
+    }
     var body: some View {
         NavigationStack {
             List {
