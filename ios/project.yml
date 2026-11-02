@@ -42,7 +42,6 @@ targets:
     sources: [AppTests]
     dependencies:
       - target: PassVault
-      - package: VaultCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.passvault.mobile.apptests
