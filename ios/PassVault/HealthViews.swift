@@ -26,7 +26,7 @@ struct HealthView: View {
                 }
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
-                .topCardRow()
+                .topCardRow(top: 0)
                 HStack(spacing: 20) {
                     ZStack {
                         Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 6)
@@ -80,6 +80,7 @@ struct HealthView: View {
                         header: { header("twoFactor", "Consider two-factor codes", report.noTwoFactor.count, "Well-known services with no 2FA code saved in PassVault. If you already use another authenticator or text messages for them, ignore this.") }
                 }
             }
+            .contentMargins(.top, 0, for: .scrollContent)
             .navigationTitle("Vault health").navigationBarTitleDisplayMode(.inline).toolbar { Button("Done") { dismiss() } }
             .fullScreenCover(item: $viewing) { record in
                 if record.isTotp { TotpDetail(recordID: record.id) }
@@ -120,7 +121,7 @@ struct HealthView: View {
 
 private extension View {
     /// A plain block on the grouped background instead of a grouped-list row.
-    func topCardRow() -> some View {
-        listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)).listRowSeparator(.hidden).listRowBackground(Color.clear)
+    func topCardRow(top: CGFloat = 6) -> some View {
+        listRowInsets(EdgeInsets(top: top, leading: 16, bottom: 6, trailing: 16)).listRowSeparator(.hidden).listRowBackground(Color.clear)
     }
 }
