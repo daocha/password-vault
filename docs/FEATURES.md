@@ -6,6 +6,7 @@ This repository is a native implementation under development, not an audited or 
 | --- | --- |
 | Offline iOS / Android | SwiftUI and Jetpack Compose; no server or runtime network client |
 | Appearance and language | Both apps remember System / Light / Dark appearance and System default / English / Simplified Chinese / Traditional Chinese language choices. iOS applies the chosen appearance and locale across the app and includes translated interface resources |
+| Wallet seed phrases and private keys | Both apps generate or enter 12/24-word English BIP-39 phrases, validate the checksum against a hash-checked wordlist, and store optional BIP-39 passphrases or a private key. Words and keys stay hidden until revealed, cannot be copied, and are excluded from CSV. Encrypted backups and transfers preserve them; unknown fields are retained when editing |
 | Master-password unlock | Argon2id + authenticated key wrapping + OS-protected device secret |
 | Face ID / Touch ID / Android strong biometrics | Key release protected by the platform, requires real-device verification |
 | CRUD, search, favorites, groups | Implemented in both native UIs |
