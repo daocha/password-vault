@@ -137,6 +137,35 @@ else:
             self.assertEqual('KEY123', call[call.index('-authenticationKeyID') + 1])
             self.assertEqual('test-issuer', call[call.index('-authenticationKeyIssuerID') + 1])
 
+    def test_missing_env_file_reports_how_to_configure_team(self):
+        self.env.pop('DEVELOPMENT_TEAM')
+        result = self.run_script('--check')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('.env or scripts/.env', result.stderr)
+        self.assertIn('.env.example', result.stderr)
+        self.assertEqual([], self.calls())
+
+    def test_scripts_env_supplies_team_and_key_from_scripts_directory(self):
+        self.env.pop('DEVELOPMENT_TEAM')
+        self.env['HOME'] = str(self.root)
+        (self.root / 'key with spaces.p8').write_text('fixture only')
+        (self.root / 'scripts/.env').write_text('DEVELOPMENT_TEAM=TEAM123456\nASC_KEY_PATH="$HOME/key with spaces.p8"\nASC_KEY_ID=KEY123\nASC_ISSUER_ID=test-issuer\n')
+        result = subprocess.run(['bash', './build-ios-app-store.sh', '--skip-tests'],
+                                cwd=self.root / 'scripts', env=self.env, capture_output=True,
+                                text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        for call in self.calls():
+            self.assertEqual(str(self.root / 'key with spaces.p8'), call[call.index('-authenticationKeyPath') + 1])
+            self.assertEqual('KEY123', call[call.index('-authenticationKeyID') + 1])
+
+    def test_incomplete_api_key_file_settings_have_actionable_error(self):
+        (self.root / '.env').write_text('ASC_KEY_ID=private-test-key\n')
+        result = self.run_script('--check')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('ASC_KEY_PATH, ASC_KEY_ID and ASC_ISSUER_ID together', result.stderr)
+        self.assertIn('.env.example', result.stderr)
+        self.assertNotIn('private-test-key', result.stdout + result.stderr)
+
     def test_preflight_does_not_archive_or_export(self):
         result = self.run_script('--check')
         self.assertEqual(0, result.returncode, result.stderr)

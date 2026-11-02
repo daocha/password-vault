@@ -75,7 +75,10 @@ final class ModelTestStorage: VaultStorage {
         XCTAssertTrue(model.biometricEnabled)
         let done = expectation(description: "disable biometrics")
         model.run({ try $0.disableBiometrics(); return nil }, done: { done.fulfill() })
-        await fulfillment(of: [done], timeout: 15)
+        // Shared CI simulators can stall while finishing earlier UI work; keep the completion bounded.
+        await fulfillment(of: [done], timeout: 60)
+        XCTAssertFalse(model.busy)
+        XCTAssertEqual(model.message, "")
         XCTAssertFalse(model.biometricEnabled)
         XCTAssertNil(storage.biometric)
         XCTAssertTrue(model.unlocked)

@@ -18,6 +18,46 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 . "$root/scripts/release-settings.sh"
 
+# Apple release settings only. Exported variables win, then scripts/.env, then root .env.
+# Read assignments as data: a local configuration file must not execute shell commands.
+load_app_store_env() {
+  local env_file env_line env_key env_value env_number expand_home
+  local assignment='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$'
+  local double_quoted='^"([^"]*)"[[:space:]]*(#.*)?$'
+  local single_quoted="^'([^']*)'[[:space:]]*(#.*)?$"
+  for env_file in "$root/scripts/.env" "$root/.env"; do
+    [ -e "$env_file" ] || continue
+    [ -f "$env_file" ] && [ -r "$env_file" ] || die "Cannot read Apple release settings: $env_file"
+    env_number=0
+    while IFS= read -r env_line || [ -n "$env_line" ]; do
+      env_number=$((env_number + 1))
+      env_line="${env_line%$'\r'}"
+      [[ "$env_line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+      [[ "$env_line" =~ $assignment ]] || die "Invalid .env assignment in $env_file at line $env_number (values are not shown)."
+      env_key="${BASH_REMATCH[2]}"; env_value="${BASH_REMATCH[3]}"
+      case "$env_key" in DEVELOPMENT_TEAM|ASC_KEY_PATH|ASC_KEY_ID|ASC_ISSUER_ID) ;; *) continue ;; esac
+      # An explicitly empty exported value is also an override; validation reports it below.
+      [ "${!env_key+x}" != x ] || continue
+      env_value="${env_value#"${env_value%%[![:space:]]*}"}"
+      expand_home=1
+      if [[ "$env_value" =~ $double_quoted ]]; then env_value="${BASH_REMATCH[1]}"
+      elif [[ "$env_value" =~ $single_quoted ]]; then env_value="${BASH_REMATCH[1]}"; expand_home=0
+      else
+        case "$env_value" in \"*|\'*) die "Unclosed or unsupported quote in $env_file at line $env_number (values are not shown)." ;; esac
+        env_value="${env_value%%[[:space:]]#*}"
+        env_value="${env_value%"${env_value##*[![:space:]]}"}"
+      fi
+      if [ "$expand_home" = 1 ]; then
+        case "$env_value" in
+          '~/'*|'$HOME/'*|'${HOME}/'*) env_value="$HOME/${env_value#*/}" ;;
+          '~'|'$HOME'|'${HOME}') env_value="$HOME" ;;
+        esac
+      fi
+      export "$env_key=$env_value"
+    done < "$env_file"
+  done
+}
+
 # The value of the environment variable <env_prefix>_$1, or $2 when it is unset or empty.
 setting() { local name="${env_prefix}_$1"; printf '%s' "${!name:-${2:-}}"; }
 keystore="$(setting KEYSTORE "$default_keystore")"

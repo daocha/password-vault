@@ -20,16 +20,17 @@ while [ "$#" -gt 0 ]; do
     *) die "Unknown option: $1" ;;
   esac
 done
+load_app_store_env
 [ "$(uname)" = Darwin ] || die 'App Store builds need macOS.'
 xcodebuild -version >/dev/null 2>&1 || die 'Install full Xcode and select it with xcode-select.'
 sdk="$(xcrun --sdk iphoneos --show-sdk-version)"
 [ "${sdk%%.*}" -ge 26 ] || die 'App Store uploads require the iOS 26 SDK or later.'
 command -v python3 >/dev/null 2>&1 || die 'Python 3 is required.'
-[[ "${DEVELOPMENT_TEAM:-}" =~ ^[A-Z0-9]{10}$ ]] || die 'Set DEVELOPMENT_TEAM to your 10-character Apple Developer team ID.'
+[[ "${DEVELOPMENT_TEAM:-}" =~ ^[A-Z0-9]{10}$ ]] || die 'Set DEVELOPMENT_TEAM to your 10-character Apple Developer team ID in .env or scripts/.env, or export it in your shell. See .env.example.'
 auth=(-allowProvisioningUpdates)
 if [ -n "${ASC_KEY_PATH:-}${ASC_KEY_ID:-}${ASC_ISSUER_ID:-}" ]; then
   [ -f "${ASC_KEY_PATH:-}" ] && [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] \
-    || die 'Set ASC_KEY_PATH, ASC_KEY_ID and ASC_ISSUER_ID together (App Store Connect team API key).'
+    || die 'Set ASC_KEY_PATH, ASC_KEY_ID and ASC_ISSUER_ID together in .env or scripts/.env, or export all three. ASC_KEY_PATH must point to an existing .p8 file on this machine. See .env.example.'
   auth+=(-authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
 fi
 if [ -z "$upload_archive" ]; then

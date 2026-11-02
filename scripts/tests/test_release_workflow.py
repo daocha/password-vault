@@ -44,7 +44,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
         if not re.search(r"^ios_scheme=", settings.read_text(), re.M):
             with settings.open('a') as f:
                 f.write(f"\nios_scheme={APP}\nbuild_dirs+=(ios)\n")
-        (self.repo / ".gitignore").write_text("dist/\n")
+        (self.repo / ".gitignore").write_text("dist/\n.env\n")
         (self.repo / "android/app/build.gradle.kts").write_text('        versionCode = 1\n        versionName = "1.0.0"\n')
         self.log = self.base / "calls.jsonl"
         self.bin = self.base / "bin"
@@ -72,6 +72,9 @@ os.execv(os.environ['TEST_REAL_GIT'], [os.environ['TEST_REAL_GIT']] + sys.argv[1
         self.executable(self.repo / "scripts/build-ios-app-store.sh", '''#!/usr/bin/env python3
 import json, os, pathlib, re, sys
 with open(os.environ['TEST_RELEASE_LOG'], 'a') as f: f.write(json.dumps(['ios'] + sys.argv[1:]) + '\\n')
+if os.environ.get('TEST_EXPECT_STORE_ENV'):
+    assert os.environ.get('DEVELOPMENT_TEAM') == 'TEAM123456'
+    assert os.environ.get('ASC_KEY_ID') == 'fixture-key'
 if os.environ.get('TEST_IOS_FAIL'): sys.exit(1)
 if '--check' in sys.argv: sys.exit(0)
 if '--upload-archive' in sys.argv:
@@ -167,6 +170,22 @@ out.mkdir(parents=True, exist_ok=True)
                 self.assertNotEqual(0, result.returncode)
                 self.assertFalse(any('--upload-archive' in c for c in self.calls()))
                 self.env.pop(failure)
+
+    def test_combined_release_exports_dotenv_settings_to_ios_child(self):
+        for key in ('DEVELOPMENT_TEAM', 'ASC_KEY_ID', 'ASC_KEY_PATH', 'ASC_ISSUER_ID'):
+            self.env.pop(key, None)
+        (self.repo / '.env').write_text('DEVELOPMENT_TEAM=TEAM123456\nASC_KEY_ID=fixture-key\n')
+        self.env['TEST_EXPECT_STORE_ENV'] = '1'
+        result = self.run_release('--app-store', '--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(['ios', '--check'], self.calls())
+        self.assertFalse(any('--upload-archive' in c for c in self.calls()))
+
+    def test_android_only_release_does_not_load_apple_env(self):
+        (self.repo / '.env').write_text('not-an-assignment\n')
+        result = self.run_release('--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual([], self.calls())
 
     def test_app_store_dry_run_does_not_publish_or_upload(self):
         result = self.run_release('--app-store', '--dry-run')
