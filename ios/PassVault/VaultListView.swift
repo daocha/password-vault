@@ -126,7 +126,7 @@ struct RecordList: View {
                         if kinds.contains("card") { VaultFilterChip(title: localized("Cards"), icon: "creditcard", selected: kind == "card") { kind = kind == "card" ? nil : "card" } }
                         if kinds.contains("note") { VaultFilterChip(title: localized("Notes"), icon: "note.text", selected: kind == "note") { kind = kind == "note" ? nil : "note" } }
                         ForEach(folders, id: \.self) { name in
-                            VaultFilterChip(title: name, icon: "folder", selected: folder == name, tint: groupColor(name)) { folder = folder == name ? nil : name }
+                            VaultFilterChip(title: name, icon: "folder", selected: folder == name, tint: groupColor(name), alwaysOutlined: true) { folder = folder == name ? nil : name }
                                 .accessibilityIdentifier("folder.\(name)")
                         }
                     }
@@ -302,13 +302,15 @@ private struct VaultFilterChip: View {
     let icon: String
     let selected: Bool
     var tint: Color = .accentColor
+    /// Folder chips keep their group color on the border even when not selected, as on Android and in each entry's tag.
+    var alwaysOutlined = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon).font(.system(size: fontSize, weight: .medium))
                 .foregroundStyle(.primary).padding(.horizontal, 10).frame(minHeight: 32)
                 .background(selected ? tint.opacity(0.2) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? tint : Color.secondary.opacity(0.5), lineWidth: selected ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected || alwaysOutlined ? tint : Color.secondary.opacity(0.5), lineWidth: selected ? 2 : 1))
                 .padding(.vertical, 6).contentShape(Rectangle())
         }.buttonStyle(.plain)
             .accessibilityAddTraits(selected ? .isSelected : [])
