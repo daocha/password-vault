@@ -603,8 +603,7 @@ struct TransferView: View {
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
                     Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
                 }
-                .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { result in
-                    let exported = document?.exported
+                .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { [exported = document?.exported] result in
                     document = nil
                     switch result {
                     case .failure(let error): model.message = error.localizedDescription

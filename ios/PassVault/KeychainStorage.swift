@@ -100,7 +100,8 @@ final class KeychainStorage: VaultStorage {
         request[kSecReturnAttributes as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
         request[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
-        let status = SecItemCopyMatching(request as CFDictionary, nil)
+        var attributes: CFTypeRef?
+        let status = SecItemCopyMatching(request as CFDictionary, &attributes)
         if status == errSecItemNotFound { return false }
         guard status == errSecSuccess || status == errSecInteractionNotAllowed else { throw VaultError.invalid("Biometric protection is unavailable.") }
         return true
