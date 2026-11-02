@@ -36,7 +36,7 @@ private struct SeedInput: UIViewRepresentable {
         view.accessibilityLabel = localized(title)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: SeedTextView, context: Context) -> CGSize? {
-        guard let width = proposal.width else { return nil }
+        let width = proposal.width ?? 240
         return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -228,15 +228,19 @@ struct SeedEditor: View {
         guard mode == "enter", cursorAtEnd, let last = typed.last, !last.isWhitespace else { return "" }
         return Bip39.split(typed).last ?? ""
     }
+    /// An outlined box as wide as the screen. The label sits above the text once there is some, and inside the box as a placeholder until then (the UIKit text view has none).
     private func outlined<Content: View>(_ label: String, icon: String? = nil, filled: Bool, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 12) {
             if let icon { Image(systemName: icon).foregroundStyle(.secondary) }
             VStack(alignment: .leading, spacing: 0) {
                 if filled { Text(label).font(.caption).foregroundStyle(.secondary) }
-                content()
-            }
+                content().frame(maxWidth: .infinity, alignment: .leading)
+                    .background(alignment: .topLeading) {
+                        if !filled { Text(label).foregroundStyle(.secondary).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+                    }
+            }.frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 56)
+        .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
     }
     private func eye(_ on: Bool, toggle: @escaping () -> Void) -> some View {
@@ -255,7 +259,7 @@ struct SeedEditor: View {
                     if mode == "key" {
                         VStack(alignment: .leading, spacing: 4) {
                             outlined(localized("Private key"), filled: !key.isEmpty) {
-                                HStack { SeedInput(title: "Private key", text: $key, secure: !keyShown); eye(keyShown) { keyShown.toggle() } }
+                                HStack { SeedInput(title: "Private key", text: $key, secure: !keyShown).frame(maxWidth: .infinity); eye(keyShown) { keyShown.toggle() } }
                             }
                             Text(LocalizedStringKey(key.isEmpty ? "Hex, WIF or another single-string key" : problem ?? WalletPrivateKey.format(key))).font(.caption)
                                 .foregroundStyle(!key.isEmpty && problem != nil ? Color.red : Color.secondary).padding(.horizontal, 12)
@@ -305,7 +309,7 @@ struct SeedEditor: View {
                     if mode != "key" {
                         VStack(alignment: .leading, spacing: 4) {
                             outlined(localized("BIP-39 passphrase (optional)"), filled: !passphrase.isEmpty) {
-                                HStack { SeedInput(title: "BIP-39 passphrase (optional)", text: $passphrase, secure: !passphraseShown); eye(passphraseShown) { passphraseShown.toggle() } }
+                                HStack { SeedInput(title: "BIP-39 passphrase (optional)", text: $passphrase, secure: !passphraseShown).frame(maxWidth: .infinity); eye(passphraseShown) { passphraseShown.toggle() } }
                             }
                             Text("The optional “25th word”. Leave empty if your wallet doesn't use one.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12)
                         }
