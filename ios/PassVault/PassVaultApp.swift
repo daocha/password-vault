@@ -200,9 +200,9 @@ struct UnlockView: View {
                         Text("The local vault has been erased. You can create a new one and restore an exported backup.")
                         Button("Start a new vault") { resetConfirmation = true }
                     }
-                    SecureField("Master passphrase", text: $password).textContentType(.password)
+                    SecureField("Master passphrase", text: $password).font(.system(size: 15)).textContentType(.password)
                     if !model.exists {
-                        SecureField("Repeat passphrase", text: $confirmation)
+                        SecureField("Repeat passphrase", text: $confirmation).font(.system(size: 15))
                         PasswordMismatch(password: password, repeated: confirmation)
                         Text(localized(VaultCrypto.passwordProblem(password) ?? VaultCrypto.passwordRule) + " " + localized("There is no password reset or cloud recovery.")).font(.footnote)
                         Toggle("I understand: 10 failed password attempts erase the local vault", isOn: $acknowledge)
@@ -485,7 +485,7 @@ struct TransferView: View {
         NavigationStack {
             Form {
                 if panel.requiresPassword {
-                    Section("App password") { SecureField("Current app password", text: $password).textContentType(.password) }
+                    Section("App password") { SecureField("Current app password", text: $password).font(.system(size: 15)).textContentType(.password) }
                 }
                 switch panel {
                 case .language:
@@ -524,8 +524,8 @@ struct TransferView: View {
                         if model.hasDecoy {
                             // A new password for the decoy, for when it is forgotten; what is in the decoy is kept.
                             if model.canResetDecoy {
-                                SecureField("New decoy password", text: $decoyPassword)
-                                SecureField("Repeat decoy password", text: $confirmDecoy)
+                                SecureField("New decoy password", text: $decoyPassword).font(.system(size: 15))
+                                SecureField("Repeat decoy password", text: $confirmDecoy).font(.system(size: 15))
                                 PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
                                 if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
                                 Button("Change decoy password") {
@@ -537,8 +537,8 @@ struct TransferView: View {
                             }
                             Button("Remove decoy vault", role: .destructive) { removingDecoy = true }.disabled(password.isEmpty)
                         } else {
-                            SecureField("Decoy password", text: $decoyPassword)
-                            SecureField("Repeat decoy password", text: $confirmDecoy)
+                            SecureField("Decoy password", text: $decoyPassword).font(.system(size: 15))
+                            SecureField("Repeat decoy password", text: $confirmDecoy).font(.system(size: 15))
                             PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
                             if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
                             Button("Set up decoy vault") {
@@ -551,8 +551,8 @@ struct TransferView: View {
                     }
                 case .changePassword:
                     Section("Change app password") {
-                        SecureField("New app password", text: $newPassword)
-                        SecureField("Repeat new app password", text: $confirmNew)
+                        SecureField("New app password", text: $newPassword).font(.system(size: 15))
+                        SecureField("Repeat new app password", text: $confirmNew).font(.system(size: 15))
                         PasswordMismatch(password: newPassword, repeated: confirmNew)
                         Button("Change password") {
                             let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
@@ -669,7 +669,7 @@ struct DecryptImportView: View {
                 Section {
                     // The transfer code is read off another screen, so it is typed in the clear.
                     if transfer { TextField("Transfer code", text: Binding(get: { Transfer.typingShown(password) }, set: { password = Transfer.typingEdited($0, from: password) })).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.body.monospaced()) }
-                    else { SecureField(keepass ? "Database password" : "File password", text: $password) }
+                    else { SecureField(keepass ? "Database password" : "File password", text: $password).font(.system(size: 15)) }
                     if keepass {
                         if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }
                         else { HStack { Label("Key file chosen", systemImage: "key.fill"); Spacer(); Button("Remove") { keyFile = nil } } }

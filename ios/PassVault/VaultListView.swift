@@ -115,7 +115,7 @@ struct RecordList: View {
             if searchOpen {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(Color.aOnSurfaceVariant)
-                    TextField("Search names, usernames, notes", text: $query).focused($searchFocused).submitLabel(.search)
+                    TextField("Search names, usernames, notes", text: $query).font(.system(size: 15)).focused($searchFocused).submitLabel(.search)
                     if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Clear search") }
                 }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 20))
             }
@@ -413,7 +413,7 @@ struct GroupAssignSheet: View {
             List {
                 Section {
                     HStack {
-                        TextField("New group", text: $newGroup).submitLabel(.done).onSubmit(addNew)
+                        TextField("New group", text: $newGroup).font(.system(size: 15)).submitLabel(.done).onSubmit(addNew)
                         Button("Add", action: addNew).disabled(newGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }

@@ -20,7 +20,7 @@ private struct SeedInput: UIViewRepresentable {
     func makeUIView(context: Context) -> SeedTextView {
         let view = SeedTextView()
         view.delegate = context.coordinator
-        view.font = .monospacedSystemFont(ofSize: 16, weight: .regular)
+        view.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         view.backgroundColor = .clear
         view.autocorrectionType = .no; view.spellCheckingType = .no
         view.autocapitalizationType = .none; view.smartQuotesType = .no; view.smartDashesType = .no
@@ -53,13 +53,16 @@ private struct SeedInput: UIViewRepresentable {
 
 struct SeedWordGrid: View {
     let words: [String]
+    /// One size for every word. The longest BIP-39 word has 8 letters and fits a third of the screen at this size, so no word is ever scaled down on its own.
+    @ScaledMetric(relativeTo: .footnote) private var wordSize = 13.0
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
             ForEach(words.indices, id: \.self) { index in
                 HStack(spacing: 0) {
-                    Text("\(index + 1)").font(.caption2).foregroundStyle(Color.aOnSurfaceVariant).frame(width: 22, alignment: .leading)
-                    Text(verbatim: words[index]).font(.system(.callout, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                    Text("\(index + 1)").font(.system(size: 10)).foregroundStyle(Color.aOnSurfaceVariant).frame(width: 18, alignment: .leading)
+                    Text(verbatim: words[index]).font(.system(size: wordSize, design: .monospaced)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).padding(.vertical, 10)
                     .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
             }
         }.textSelection(.disabled)
@@ -236,7 +239,7 @@ struct SeedEditor: View {
                 if filled { Text(label).font(.caption).foregroundStyle(Color.aOnSurfaceVariant) }
                 content().frame(maxWidth: .infinity, alignment: .leading)
                     .background(alignment: .topLeading) {
-                        if !filled { Text(label).foregroundStyle(Color.aOnSurfaceVariant).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
+                        if !filled { Text(label).font(.system(size: 14)).foregroundStyle(Color.aOnSurfaceVariant).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
                     }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }

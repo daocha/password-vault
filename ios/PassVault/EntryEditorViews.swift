@@ -24,7 +24,7 @@ struct OutlinedField<Trailing: View>: View {
                 if let icon { Image(systemName: icon).foregroundStyle(Color.aOnSurfaceVariant) }
                 VStack(alignment: .leading, spacing: 0) {
                     if !text.isEmpty || focused { Text(label).font(.caption).foregroundStyle(error ? Color.red : focused ? Color.accentColor : Color.secondary) }
-                    field.focused($focused).font(monospaced ? .body.monospaced() : .body)
+                    field.focused($focused).font(monospaced ? .system(size: 14, design: .monospaced) : .system(size: 15))
                         .keyboardType(keyboard).textInputAutocapitalization(capitalization).autocorrectionDisabled()
                 }
                 trailing
