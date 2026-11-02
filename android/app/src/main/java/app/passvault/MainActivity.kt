@@ -909,7 +909,10 @@ class MainActivity : FragmentActivity() {
                         val isSelected = record.id in selected
                         fun toggle() { selected = if (isSelected) selected - record.id else selected + record.id }
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
-                            Row(Modifier.clickable { if (selecting) toggle() else { viewing = record; editing = false } }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            // An expired or due-soon entry gets a badge at the bottom right, so its row grows by a line.
+                            val badged = record.expiryState().let { it == ExpiryState.expired || it == ExpiryState.soon }
+                            Box(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().clickable { if (selecting) toggle() else { viewing = record; editing = false } }.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (badged) 32.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 // Tapping the icon selects; tapping anywhere else opens the entry (or toggles it while selecting).
                                 Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClickLabel = if (isSelected) stringResource(R.string.main_deselect) else stringResource(R.string.main_select)) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); toggle() }, contentAlignment = Alignment.Center) {
                                     when {
@@ -923,10 +926,11 @@ class MainActivity : FragmentActivity() {
                                     if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (record.type.tab == RecordType.login && record.group.isNotBlank()) GroupTag(record.group, Modifier.padding(top = 4.dp))
                                 }
-                                ExpiryBadge(record)
                                 if (record.favorite) Icon(Icons.Default.Star, stringResource(R.string.main_favorite), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 if (record.type == RecordType.totp) { if (!selecting) TotpRowCode(totp, now, if (allowCopy) ::copySecret else null) }
                                 else if (!selecting) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (badged) Box(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp)) { ExpiryBadge(record) }
                             }
                         }
                     }
