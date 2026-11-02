@@ -855,7 +855,7 @@ class MainActivity : FragmentActivity() {
                 ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
                 // Logins, cards and secure notes share this tab, so the button asks which one.
                 DropdownMenu(creating, { creating = false }) {
-                    listOf(Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_new_note), Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_new_card), Triple(RecordType.login, Icons.Outlined.Key, R.string.rec_new_login)).forEach { (t, icon, label) ->
+                    listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.rec_new_login), Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_new_card), Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_new_note)).forEach { (t, icon, label) ->
                         DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null) }, onClick = { creating = false; viewing = VaultRecord(type = t, fields = defaultFields(t)); editing = true })
                     }
                 }

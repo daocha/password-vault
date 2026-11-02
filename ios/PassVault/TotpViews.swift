@@ -306,7 +306,7 @@ struct TotpEditor: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
-                    Button("Save") { save() }.buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary).disabled(trimmedName.isEmpty || candidate == nil || model.busy)
+                    Button("Save") { save() }.fontWeight(.semibold).disabled(trimmedName.isEmpty || candidate == nil || model.busy)
                 }
             }
             .sheet(isPresented: $scanning) { QRScannerSheet { text in scanning = false; handle(text) } }

@@ -24,7 +24,7 @@ struct OutlinedField<Trailing: View>: View {
                 if let icon { Image(systemName: icon).foregroundStyle(Color.aOnSurfaceVariant) }
                 VStack(alignment: .leading, spacing: 0) {
                     if !text.isEmpty || focused { Text(label).font(.caption).foregroundStyle(error ? Color.red : focused ? Color.accentColor : Color.secondary) }
-                    field.focused($focused).font(monospaced ? .system(size: 14, design: .monospaced) : .system(size: 15))
+                    field.focused($focused).font(monospaced && !text.isEmpty ? .system(size: 14, design: .monospaced) : .system(size: 15))
                         .keyboardType(keyboard).textInputAutocapitalization(capitalization).autocorrectionDisabled()
                 }
                 trailing
@@ -187,7 +187,7 @@ struct RecordEditor: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { record.favorite.toggle() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
-                    Button("Save") { save() }.buttonStyle(.borderedProminent).foregroundStyle(Color.aOnPrimary).disabled(record.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
+                    Button("Save") { save() }.fontWeight(.semibold).disabled(record.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
                 }
             }
             .sheet(item: Binding(get: { generatingFor.map(GeneratingField.init) }, set: { generatingFor = $0?.id })) { target in
