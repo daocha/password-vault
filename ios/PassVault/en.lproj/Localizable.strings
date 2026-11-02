@@ -45,6 +45,7 @@
 "Appearance" = "Appearance";
 "At least 12 characters with uppercase and lowercase letters, a number and a symbol." = "At least 12 characters with uppercase and lowercase letters, a number and a symbol.";
 "Auto-lock" = "Auto-lock";
+"BIP-39 passphrase" = "BIP-39 passphrase";
 "BIP-39 passphrase (optional)" = "BIP-39 passphrase (optional)";
 "BIP-39 · %1$lld words" = "BIP-39 · %1$lld words";
 "BIP-39 · %lld words" = "BIP-39 · %lld words";
@@ -286,6 +287,7 @@
 "Security code" = "Security code";
 "Security question" = "Security question";
 "Security question & answer" = "Security question & answer";
+"Seed phrase" = "Seed phrase";
 "Seed phrases" = "Seed phrases";
 "Seed phrases and private keys are never copied to the clipboard and are left out of CSV exports; only encrypted backups include them." = "Seed phrases and private keys are never copied to the clipboard and are left out of CSV exports; only encrypted backups include them.";
 "Seed words, separated by spaces" = "Seed words, separated by spaces";

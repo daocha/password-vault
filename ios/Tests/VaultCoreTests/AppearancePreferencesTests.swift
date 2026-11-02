@@ -45,6 +45,9 @@ final class AppearancePreferencesTests: XCTestCase {
             return try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String])
         }
         let english = try table("en")
+        for key in ["Settings", "Theme", "Language", seedPhraseLabel, privateKeyLabel, seedPassphraseLabel] {
+            XCTAssertNotNil(english[key], "Missing interface key: \(key)")
+        }
         let placeholders = try NSRegularExpression(pattern: "%([0-9]+\\$)?(lld|ld|d|@|s)")
         func arguments(_ text: String) -> [String] {
             placeholders.matches(in: text, range: NSRange(text.startIndex..., in: text)).map {

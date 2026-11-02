@@ -45,6 +45,7 @@
 "Appearance" = "外观";
 "At least 12 characters with uppercase and lowercase letters, a number and a symbol." = "至少 12 个字符，包含大写字母、小写字母、数字和符号。";
 "Auto-lock" = "自动锁定";
+"BIP-39 passphrase" = "BIP-39 附加密码";
 "BIP-39 passphrase (optional)" = "BIP-39 密码短语（可选）";
 "BIP-39 · %1$lld words" = "BIP-39 · %1$lld 个单词";
 "BIP-39 · %lld words" = "BIP-39 · %lld 个单词";
@@ -286,6 +287,7 @@
 "Security code" = "安全码";
 "Security question" = "安全问题";
 "Security question & answer" = "安全问题和答案";
+"Seed phrase" = "助记词";
 "Seed phrases" = "助记词";
 "Seed phrases and private keys are never copied to the clipboard and are left out of CSV exports; only encrypted backups include them." = "助记词和私钥绝不会复制到剪贴板，也不会包含在 CSV 导出中；只有加密备份才会包含它们。";
 "Seed words, separated by spaces" = "助记词，以空格分隔";
