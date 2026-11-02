@@ -38,6 +38,25 @@ public struct VaultListFilter {
     }
 }
 
+/// One prepared list per render. Rows share its IDs/selection rather than filtering and sorting the vault again.
+public struct VaultListSnapshot: Sendable {
+    public let visible: [VaultRecord]
+    public let ids: Set<String>
+    public let total: Int
+    public let folders: [String]
+    public let kinds: [String]
+    public init(records: [VaultRecord], filter: VaultListFilter) {
+        let tabRecords = records.filter { filter.tab.contains($0) }
+        visible = filter.apply(to: tabRecords)
+        ids = Set(visible.map(\.id))
+        total = tabRecords.count
+        folders = VaultListFilter.folders(in: records)
+        kinds = ["card", "note"].filter { kind in tabRecords.contains { $0.type == kind } }
+    }
+    public func selection(from selected: Set<String>) -> Set<String> { selected.intersection(ids) }
+    public func togglingAll(_ selected: Set<String>) -> Set<String> { selected.isSuperset(of: ids) ? [] : ids }
+}
+
 /// Group edits are staged until Apply, exactly as in Android's group dialog.
 public struct VaultGroupAssignment {
     private let original: [String: String]

@@ -2,7 +2,7 @@ import XCTest
 import VaultCore
 @testable import PassVault
 
-private final class ModelTestStorage: VaultStorage {
+final class ModelTestStorage: VaultStorage {
     var state: Data?
     var blobs = [String: Data]()
     var biometric: Data?

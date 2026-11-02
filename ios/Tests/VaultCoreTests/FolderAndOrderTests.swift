@@ -2,6 +2,16 @@ import XCTest
 @testable import VaultCore
 
 final class FolderAndOrderTests: XCTestCase {
+    func testPreparedListMatchesFiltersAcrossTabs() throws {
+        let records = try imported()
+        for filter in [VaultListFilter(folder: "Work", kind: "card"), VaultListFilter(tab: .seed), VaultListFilter(tab: .totp, favorites: true)] {
+            let snapshot = VaultListSnapshot(records: records, filter: filter)
+            XCTAssertEqual(snapshot.visible, filter.apply(to: records))
+            XCTAssertEqual(snapshot.ids, Set(snapshot.visible.map(\.id)))
+            XCTAssertEqual(snapshot.total, records.filter { filter.tab.contains($0) }.count)
+            XCTAssertEqual(snapshot.folders, ["Personal", "Work"])
+        }
+    }
     private func imported() throws -> [VaultRecord] {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         return try Records.decode(Data(contentsOf: root.appendingPathComponent("fixtures/list-parity/records.json")))

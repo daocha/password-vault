@@ -23,29 +23,26 @@ struct RecordList: View {
     @State private var healthTarget: HealthTarget?
     /// Ids picked by tapping an entry's icon; any selection turns the header into the selection bar.
     @State private var selected = Set<String>()
+    init(initialSelection: Set<String> = []) { _selected = State(initialValue: initialSelection) }
     @State private var confirmDelete = false
     @State private var grouping = false
-    private var visibleSelected: Set<String> { VaultListFilter.visibleSelection(selected, in: filtered) }
-    private var selecting: Bool { !visibleSelected.isEmpty }
     private var showTotp: Bool { tab == .totp }
-    private var folders: [String] { VaultListFilter.folders(in: model.records) }
-    private var tabRecords: [VaultRecord] { model.records.filter { tab.contains($0) } }
-    private var filtered: [VaultRecord] {
-        VaultListFilter(tab: tab, query: query, favorites: favorites, folder: folder, kind: kind).apply(to: model.records)
-    }
-    private var kinds: [String] { ["card", "note"].filter { kind in tabRecords.contains { $0.type == kind } } }
+    private var filter: VaultListFilter { VaultListFilter(tab: tab, query: query, favorites: favorites, folder: folder, kind: kind) }
     var body: some View {
-        NavigationStack {
+        let snapshot = VaultListSnapshot(records: model.records, filter: filter)
+        let visibleSelected = snapshot.selection(from: selected)
+        let selecting = !visibleSelected.isEmpty
+        return NavigationStack {
             VStack(spacing: 0) {
-                if selecting { selectionBar } else { vaultToolbar }
-                listControls
+                if selecting { selectionBar(snapshot, selected: visibleSelected) } else { vaultToolbar }
+                listControls(snapshot)
                 VStack(alignment: .leading, spacing: 8) {
                     if !selecting { notices }
-                    recordSummary
+                    recordSummary(snapshot, selecting: selecting)
                 }.padding(.horizontal, 16).padding(.bottom, 8)
                 List {
-                    if tabRecords.isEmpty { emptyState.listRowBackground(Color.clear) }
-                    ForEach(filtered) { record in
+                    if snapshot.total == 0 { emptyState.listRowBackground(Color.clear) }
+                    ForEach(snapshot.visible) { record in
                         let isSelected = visibleSelected.contains(record.id)
                         let selection = RowSelection(selecting: selecting, isSelected: isSelected) { toggle(record) }
                         Group {
@@ -68,7 +65,7 @@ struct RecordList: View {
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
-                    }.onDelete(perform: delete)
+                    }.onDelete { offsets in pendingDeletion = Set(offsets.map { snapshot.visible[$0].id }) }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
@@ -88,17 +85,20 @@ struct RecordList: View {
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
             .onChange(of: tab) { _, _ in query = ""; folder = nil; kind = nil; selected = [] }
-            .onChange(of: filtered.map(\.id)) { _, _ in selected = visibleSelected }
+            .onChange(of: snapshot.ids) { _, _ in selected = snapshot.selection(from: selected) }
             .sensoryFeedback(.selection, trigger: selected)
-            .onChange(of: folders) { _, names in if let folder, !names.contains(folder) { self.folder = nil } }
-            .onChange(of: kinds) { _, names in if let kind, !names.contains(kind) { self.kind = nil } }
+            .onChange(of: snapshot.folders) { _, names in if let folder, !names.contains(folder) { self.folder = nil } }
+            .onChange(of: snapshot.kinds) { _, names in if let kind, !names.contains(kind) { self.kind = nil } }
             .sheet(item: $editing) { RecordEditor(record: $0) }
             .fullScreenCover(item: $viewing) { RecordDetail(recordID: $0.id) }
             .fullScreenCover(item: $viewingTotp) { TotpDetail(recordID: $0.id) }
             .sheet(isPresented: $grouping) { GroupAssignSheet(records: model.records, ids: visibleSelected) { selected = [] } }
-            .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) { let ids = visibleSelected; selected = []; saveDeletion(ids) }
-            } message: { Text(deleteMessage) }
+            .confirmationDialog(deleteTitle(visibleSelected), isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    let ids = VaultListSnapshot(records: model.records, filter: filter).selection(from: selected)
+                    selected = []; saveDeletion(ids)
+                }
+            } message: { Text(deletionMessage(visibleSelected)) }
             .sheet(item: $editingTotp) { TotpEditor(record: $0) }
             .fullScreenCover(item: $viewingSeed) { SeedDetail(recordID: $0.id) }
             .sheet(item: $editingSeed) { SeedEditor(initial: $0, isNew: true) }
@@ -111,8 +111,8 @@ struct RecordList: View {
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
     }
-    private var listControls: some View {
-        VStack(spacing: 8) {
+    private func listControls(_ snapshot: VaultListSnapshot) -> some View {
+        return VStack(spacing: 8) {
             tabBar
             if searchOpen {
                 HStack {
@@ -125,9 +125,9 @@ struct RecordList: View {
                 HStack(spacing: 8) {
                     VaultFilterChip(title: localized("Favorites"), icon: favorites ? "star.fill" : "star", selected: favorites) { favorites.toggle() }
                     if tab == .passwords {
-                        if kinds.contains("card") { VaultFilterChip(title: localized("Cards"), icon: "creditcard", selected: kind == "card") { kind = kind == "card" ? nil : "card" } }
-                        if kinds.contains("note") { VaultFilterChip(title: localized("Notes"), icon: "note.text", selected: kind == "note") { kind = kind == "note" ? nil : "note" } }
-                        ForEach(folders, id: \.self) { name in
+                        if snapshot.kinds.contains("card") { VaultFilterChip(title: localized("Cards"), icon: "creditcard", selected: kind == "card") { kind = kind == "card" ? nil : "card" } }
+                        if snapshot.kinds.contains("note") { VaultFilterChip(title: localized("Notes"), icon: "note.text", selected: kind == "note") { kind = kind == "note" ? nil : "note" } }
+                        ForEach(snapshot.folders, id: \.self) { name in
                             VaultFilterChip(title: name, icon: "folder", selected: folder == name, tint: groupColor(name), alwaysOutlined: true) { folder = folder == name ? nil : name }
                                 .accessibilityIdentifier("folder.\(name)")
                         }
@@ -166,11 +166,8 @@ struct RecordList: View {
     private func toggle(_ record: VaultRecord) {
         if !selected.insert(record.id).inserted { selected.remove(record.id) }
     }
-    private var deleteTitle: String {
-        localizedFormat(visibleSelected.count == 1 ? "Delete %lld entry?" : "Delete %lld entries?", visibleSelected.count)
-    }
-    private var deleteMessage: String {
-        deletionMessage(visibleSelected)
+    private func deleteTitle(_ ids: Set<String>) -> String {
+        localizedFormat(ids.count == 1 ? "Delete %lld entry?" : "Delete %lld entries?", ids.count)
     }
     private func deletionMessage(_ ids: Set<String>) -> String {
         let doomed = model.records.filter { ids.contains($0.id) }
@@ -182,13 +179,13 @@ struct RecordList: View {
         return localizedFormat(seeds == 1 ? "They will be permanently removed from this vault. This includes %lld seed phrase: without another backup, those wallets cannot be recovered." : "They will be permanently removed from this vault. This includes %lld seed phrases: without another backup, those wallets cannot be recovered.", seeds)
     }
     /// Replaces the header while entries are selected: cancel, count, select all, group (passwords only) and delete.
-    private var selectionBar: some View {
-        HStack(spacing: 0) {
+    private func selectionBar(_ snapshot: VaultListSnapshot, selected visibleSelected: Set<String>) -> some View {
+        return HStack(spacing: 0) {
             Button { selected = [] } label: { Label("Cancel selection", systemImage: "xmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
             Text(localizedFormat("%lld selected", visibleSelected.count)).font(.title3).lineLimit(1).padding(.leading, 4)
             Spacer(minLength: 0)
             Button {
-                let ids = Set(filtered.map(\.id)); selected = selected.isSuperset(of: ids) ? [] : ids
+                selected = snapshot.togglingAll(selected)
             } label: { Label("Select all", systemImage: "checklist").frame(width: 44, height: 44).contentShape(Rectangle()) }
             if tab == .passwords {
                 Button { grouping = true } label: { Label("Change group of selected", systemImage: "folder").frame(width: 44, height: 44).contentShape(Rectangle()) }
@@ -199,13 +196,13 @@ struct RecordList: View {
         .padding(.horizontal, 16).frame(minHeight: 56)
         .background(Color.accentColor.opacity(0.18))
     }
-    @ViewBuilder private var recordSummary: some View {
-        if !tabRecords.isEmpty {
+    @ViewBuilder private func recordSummary(_ snapshot: VaultListSnapshot, selecting: Bool) -> some View {
+        if snapshot.total > 0 {
             HStack {
-                Text(localizedFormat(showTotp ? "%lld of %lld codes" : tab == .seed ? "%lld of %lld seed phrases" : "%lld of %lld entries", filtered.count, tabRecords.count))
+                Text(localizedFormat(showTotp ? "%lld of %lld codes" : tab == .seed ? "%lld of %lld seed phrases" : "%lld of %lld entries", snapshot.visible.count, snapshot.total))
                     .font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                 Spacer()
-                if showTotp && tabRecords.count > 1 && !selecting {
+                if showTotp && snapshot.total > 1 && !selecting {
                     Button {
                         searchOpen = false; searchFocused = false; reordering = true
                     } label: { Label("Reorder", systemImage: "arrow.up.arrow.down") }
@@ -247,9 +244,6 @@ struct RecordList: View {
         } else {
             ContentUnavailableView("A little peace of mind", systemImage: "key", description: Text("Add your first password or import your Password Keeper CSV."))
         }
-    }
-    private func delete(_ offsets: IndexSet) {
-        pendingDeletion = Set(offsets.map { filtered[$0].id })
     }
     private func saveDeletion(_ ids: Set<String>) {
         let updated = model.records.filter { !ids.contains($0.id) }
