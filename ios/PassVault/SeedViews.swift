@@ -151,6 +151,7 @@ struct SeedEditor: View {
         _name = State(initialValue: initial.name); _favorite = State(initialValue: initial.favorite)
         _mode = State(initialValue: initial.privateKey != nil ? "key" : isNew ? "generate" : "enter")
         _typed = State(initialValue: initial.seedWords.joined(separator: " ")); _key = State(initialValue: initial.privateKey ?? "")
+        _count = State(initialValue: Bip39.wordCounts.contains(initial.seedWords.count) ? initial.seedWords.count : 12)
         _passphrase = State(initialValue: initial.fields.first { $0.label == seedPassphraseLabel }?.value ?? "")
         _notes = State(initialValue: initial.fields.first { $0.kind == .note }?.value ?? "")
         _acknowledged = State(initialValue: !isNew)

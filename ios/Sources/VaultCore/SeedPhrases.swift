@@ -22,7 +22,12 @@ public enum Bip39 {
         guard words.count == 2048 else { throw VaultError.invalid("BIP-39 wordlist is corrupted.") }
         return words
     }
-    public static func split(_ text: String) -> [String] { text.lowercased().split(whereSeparator: \.isWhitespace).map(String.init) }
+    public static func split(_ text: String) -> [String] {
+        // Java's default \s separates ASCII whitespace; keep nonbreaking spaces inside a word,
+        // so pasted invalid phrases receive the same validation result on both platforms.
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            .components(separatedBy: CharacterSet(charactersIn: " \t\n\r\u{000B}\u{000C}")).filter { !$0.isEmpty }
+    }
     public static func suggestions(_ prefix: String, limit: Int = 8) -> [String] {
         guard !prefix.isEmpty, limit > 0, let words = try? wordlist.get() else { return [] }
         return Array(words.filter { $0.hasPrefix(prefix) }.prefix(limit))

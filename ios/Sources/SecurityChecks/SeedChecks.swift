@@ -21,6 +21,7 @@ func seedChecks() throws {
     try check(Bip39.problem(Array(repeating: "unknownword", count: 12)) != nil, "unknown BIP-39 word")
     try check(Bip39.problem(Array(repeating: "abandon", count: 15)) != nil, "UI supports only 12 and 24 words, as Android")
     try check(Bip39.suggestions("ab") == ["abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract"], "BIP-39 suggestions match Android")
+    try check(Bip39.split(" ABANDON\r\nabout ") == ["abandon", "about"] && Bip39.split("abandon\u{00A0}about").count == 1, "seed whitespace parsing matches Android")
     for count in Bip39.wordCounts {
         var generated = Set<[String]>()
         for _ in 0..<20 {
