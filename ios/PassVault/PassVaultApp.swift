@@ -241,9 +241,12 @@ struct ExpiryBadge: View {
     var body: some View {
         let state = record.expiryState()
         if state == .expired || state == .soon {
-            Label(LocalizedStringKey(state == .expired ? "Expired" : "Expires soon"), systemImage: "calendar").font(.caption2.weight(.medium)).foregroundStyle(.red)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+            HStack(spacing: 3) {
+                Image(systemName: "calendar").font(.system(size: 11))
+                Text(LocalizedStringKey(state == .expired ? "Expired" : "Expires soon")).font(.caption2.weight(.medium))
+            }
+            .foregroundStyle(.red).padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
         }
     }
 }

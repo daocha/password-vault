@@ -31,10 +31,10 @@ struct TotpRow: View {
     @ObservedObject private var settings = AppSettings.shared
     let record: VaultRecord
     var selection: RowSelection?
-    @ScaledMetric(relativeTo: .body) private var titleSize = 16.0
-    @ScaledMetric(relativeTo: .subheadline) private var subtitleSize = 14.0
-    @ScaledMetric(relativeTo: .body) private var titleHeight = 24.0
-    @ScaledMetric(relativeTo: .subheadline) private var subtitleHeight = 20.0
+    @ScaledMetric(relativeTo: .body) private var titleSize = 15.0
+    @ScaledMetric(relativeTo: .subheadline) private var subtitleSize = 13.0
+    @ScaledMetric(relativeTo: .body) private var titleHeight = 22.0
+    @ScaledMetric(relativeTo: .subheadline) private var subtitleHeight = 18.0
     @ScaledMetric(relativeTo: .title3) private var codeSize = 22.0
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in

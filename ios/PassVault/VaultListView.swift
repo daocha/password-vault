@@ -144,10 +144,10 @@ struct RecordList: View {
                 if index > 0 { Rectangle().fill(Color.secondary.opacity(0.5)).frame(width: 1) }
                 Button { if tab != item { tab = item } } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: tabIcon(item)).font(.system(size: 14))
+                        Image(systemName: tabIcon(item)).font(.system(size: 13))
                         Text(LocalizedStringKey(item.label)).lineLimit(1).minimumScaleFactor(0.75)
                     }
-                    .font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
+                    .font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(tab == item ? Color.accentColor.opacity(0.2) : Color.clear)
                     .contentShape(Rectangle())
@@ -206,19 +206,28 @@ struct RecordList: View {
             }.frame(minHeight: 24)
         }
     }
+    /// Backup and expiry notices on a tinted background, like Android's AttentionBanner and SlimNotice.
     @ViewBuilder private var notices: some View {
         if model.backupDue {
             VStack(alignment: .leading, spacing: 4) {
                 Label(model.lastBackup.map { localizedFormat("Last backup %@ · %lld entries changed since", $0.formatted(.relative(presentation: .named)), BackupReminder.changedSince(model.records, lastBackup: $0)) }
-                      ?? localized("No backup yet. If this phone is lost or reset, these entries are gone."), systemImage: "externaldrive.badge.exclamationmark").font(.caption)
-                HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless)
-            }.padding(.vertical, 4)
+                      ?? localized("No backup yet. If this phone is lost or reset, these entries are gone."), systemImage: "externaldrive.badge.exclamationmark").font(.footnote)
+                HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless).font(.footnote)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
         }
         let expiring = model.records.filter { $0.needsNotice() }.count
         if expiring > 0 {
             Button { healthTarget = HealthTarget(focus: "expiring") } label: {
-                HStack { Label("Expired or due within 14 days: \(expiring)", systemImage: "calendar.badge.exclamationmark").lineLimit(1); Spacer(); Text("Review") }.font(.footnote)
-            }.padding(.vertical, 6)
+                HStack(spacing: 8) {
+                    Image(systemName: "calendar.badge.exclamationmark").font(.system(size: 15))
+                    Text("Expired or due within 14 days: \(expiring)").font(.caption).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Review").font(.footnote.weight(.medium)).foregroundStyle(Color.accentColor)
+                }
+                .foregroundStyle(.primary).padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12)).contentShape(RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(.plain)
         }
     }
     @ViewBuilder private var emptyState: some View {
@@ -297,7 +306,7 @@ struct RecordList: View {
 }
 
 private struct VaultFilterChip: View {
-    @ScaledMetric(relativeTo: .subheadline) private var fontSize = 14.0
+    @ScaledMetric(relativeTo: .subheadline) private var fontSize = 13.0
     let title: String
     let icon: String
     let selected: Bool
@@ -357,10 +366,10 @@ struct VaultEntryRow: View {
     let record: VaultRecord
     var selection: RowSelection?
     @Environment(\.dynamicTypeSize) private var textSize
-    @ScaledMetric(relativeTo: .body) private var titleSize = 16.0
-    @ScaledMetric(relativeTo: .subheadline) private var subtitleSize = 14.0
-    @ScaledMetric(relativeTo: .body) private var titleHeight = 24.0
-    @ScaledMetric(relativeTo: .subheadline) private var subtitleHeight = 20.0
+    @ScaledMetric(relativeTo: .body) private var titleSize = 15.0
+    @ScaledMetric(relativeTo: .subheadline) private var subtitleSize = 13.0
+    @ScaledMetric(relativeTo: .body) private var titleHeight = 22.0
+    @ScaledMetric(relativeTo: .subheadline) private var subtitleHeight = 18.0
     private var subtitle: String {
         if record.isTotp { return record.totp?.account ?? "" }
         if record.isSeed { return record.privateKey == nil ? localizedFormat("%lld words", record.seedWords.count) : localized("Private key") }
