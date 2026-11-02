@@ -660,7 +660,10 @@ struct TransferView: View {
         .interactiveDismissDisabled(model.busy)
         .presentationDetents(panel.requiresPassword ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
-        .task { passwordFocused = panel.requiresPassword }
+        .background {
+            SheetAppearanceObserver { passwordFocused = panel.requiresPassword }
+                .allowsHitTesting(false).accessibilityHidden(true)
+        }
     }
 
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
