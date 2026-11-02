@@ -75,6 +75,7 @@ elif [ "$version" != "$current_version" ]; then code=$((current_code + 1)); fi
 [ "$code" -ge "$current_code" ] || die 'versionCode cannot decrease.'
 if [ "$version" != "$current_version" ] && [ "$code" -le "$current_code" ]; then die 'A new version needs a higher versionCode.'; fi
 if [ "$app_store" = 1 ]; then
+  load_app_store_env
   [ -n "${ios_scheme:-}" ] && [ -f "$here/build-ios-app-store.sh" ] \
     || die 'App Store releases require an iOS target and release configuration in this repository.'
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'App Store versions must have three numeric components.'

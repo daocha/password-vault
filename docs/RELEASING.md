@@ -131,8 +131,22 @@ and select the team. Set `DEVELOPMENT_TEAM` to the ten-character team ID. Altern
 of `ASC_KEY_PATH` (private `.p8` file outside the repository), `ASC_KEY_ID`, and `ASC_ISSUER_ID` for a
 team App Store Connect API key with provisioning permissions.
 
+For automatic setup, put `DEVELOPMENT_TEAM` and, when using an API key, all three `ASC_*`
+settings in the repository-root `.env` (see `.env.example`). Existing `scripts/.env` files are
+also supported. Both `release-github.sh --app-store` and `build-ios-app-store.sh` load these
+four Apple settings and export them to child processes. Other `.env` keys are ignored by
+this loader. Exported variables take priority over `scripts/.env`, which takes priority over
+root `.env`. No `.env` file is required when the variables are already exported; Android-only
+releases do not load Apple settings. Missing or invalid signing settings explain how to fix them.
+
+Use one `KEY=value` assignment per line; optional `export`, single/double quotes, blank lines,
+comments and Windows line endings are supported. Values are literal: no command substitution
+or general variable expansion is performed. A leading `~`, `$HOME` or `${HOME}` in unquoted
+or double-quoted values is expanded to the user's home directory. Keep `.env` and private
+keys out of Git. The `.p8` key path must exist on the machine running the release.
+
 ```bash
-export DEVELOPMENT_TEAM=YOURTEAMID
+# With Apple signing settings in .env or scripts/.env:
 ./scripts/build-ios-app-store.sh --check
 ./scripts/build-ios-app-store.sh
 # Or build alongside the Android GitHub release (also add --play for the Play bundle):
@@ -181,3 +195,6 @@ References: [Apple SDK requirements](https://developer.apple.com/news/upcoming-r
 The shared files also include `build-ios-app-store.sh` and `tests/test_ios_app_store.py`;
 keep these and `release-github.sh` / `tests/test_release_workflow.py` identical in both repositories.
 The iOS scheme and test command belong in each project's `release-settings.sh`.
+
+The Apple `.env` loader in `_signing-common.sh` and `tests/test_release_env.py` are shared too.
+Keep that test identical alongside the existing shared release scripts and tests.
