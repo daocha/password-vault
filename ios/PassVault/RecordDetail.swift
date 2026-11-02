@@ -7,7 +7,7 @@ private let builtInFieldLabels: Set<String> = [
 ]
 @MainActor func displayFieldLabel(_ label: String) -> String { builtInFieldLabels.contains(label) ? localized(label) : label }
 
-private func fieldSymbol(_ field: VaultField) -> String {
+func fieldSymbol(_ field: VaultField) -> String {
     switch field.label {
     case cardNumberLabel: return "creditcard"
     case cardExpiryLabel: return "calendar"
@@ -18,7 +18,7 @@ private func fieldSymbol(_ field: VaultField) -> String {
 }
 
 /// Tinted circle behind a field's icon, like Android's IconBadge.
-private struct IconBadge: View {
+struct IconBadge: View {
     let symbol: String
     var size: CGFloat = 40
     var tint: Color = .accentColor

@@ -407,3 +407,18 @@
 "Updated %@" = "Updated %@";
 "Expired %@" = "Expired %@";
 "Expires %@" = "Expires %@";
+
+/* Entry editor and 2FA screens, matching Android */
+"Fields" = "Fields";
+"Drag ⋮⋮ to reorder" = "Drag  ⋮⋮  to reorder";
+"Question" = "Question";
+"Edit entry" = "Edit entry";
+"Edit card" = "Edit card";
+"Edit secure note" = "Edit secure note";
+"None" = "None";
+"Remove reminder" = "Remove reminder";
+"OK" = "OK";
+"Remove %@" = "Remove %@";
+"The Base32 key shown with the QR code" = "The Base32 key shown with the QR code";
+"From image" = "From image";
+"%@ · %lld digits · %lld s" = "%@ · %lld digits · %lld s";

@@ -15,13 +15,14 @@ func formatTotpCode(_ code: String) -> String { code.count < 6 ? code : String(c
 struct TotpCountdown: View {
     let account: TotpAccount
     let date: Date
+    var size: CGFloat = 32
     var body: some View {
         let remaining = account.remaining(at: date), urgent = remaining <= 5
         ZStack {
             Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 3)
             Circle().trim(from: 0, to: Double(remaining) / Double(account.period)).stroke(urgent ? Color.red : Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
-            Text("\(remaining)").font(.caption2.monospacedDigit()).foregroundStyle(urgent ? Color.red : Color.secondary)
-        }.frame(width: 32, height: 32).accessibilityLabel("\(remaining) seconds left")
+            Text("\(remaining)").font((size >= 48 ? Font.subheadline : Font.caption2).monospacedDigit()).foregroundStyle(urgent ? Color.red : Color.secondary)
+        }.frame(width: size, height: size).accessibilityLabel("\(remaining) seconds left")
     }
 }
 
@@ -57,6 +58,117 @@ struct TotpRow: View {
                 }
             }
         }
+    }
+}
+
+/// Read-only view of a 2FA entry, the screen it opens to: avatar and name, the live code with countdown and copy, the setup key (hidden until shown) with its settings, notes, then the backup reminder. The pencil edits.
+struct TotpDetail: View {
+    @ObservedObject private var settings = AppSettings.shared
+    @EnvironmentObject var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    let recordID: String
+    @State private var keyShown = false
+    @State private var editing: VaultRecord?
+    @State private var deleting = false
+    private var record: VaultRecord? { model.records.first { $0.id == recordID } }
+
+    var body: some View {
+        NavigationStack {
+            if let record {
+                let account = record.totp
+                ScrollView {
+                    VStack(spacing: 16) {
+                        VStack(spacing: 0) {
+                            RecordAvatar(record: record, size: 72)
+                            Text(record.name).font(.title2).multilineTextAlignment(.center).padding(.top, 12)
+                            if let account, !account.account.isEmpty { Text(verbatim: account.account).font(.subheadline).foregroundStyle(.secondary) }
+                        }.frame(maxWidth: .infinity).padding(.top, 8)
+                        codeCard(account)
+                        if let account { keyCard(account) }
+                        if let notes = record.fields.first(where: { $0.kind == .note })?.value, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            SurfaceCard {
+                                HStack(alignment: .top, spacing: 16) {
+                                    IconBadge(symbol: "note.text")
+                                    VStack(alignment: .leading, spacing: 2) { Text("Notes").font(.caption).foregroundStyle(.secondary); Text(verbatim: notes) }
+                                }
+                            }
+                        }
+                        Text("Setup keys are left out of CSV exports; only encrypted backups include them. Keep a backup: losing this phone without one means losing these codes.")
+                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                    }.padding(.horizontal, 16).padding(.bottom, 32)
+                }
+                .background(Color(uiColor: .systemGroupedBackground))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") }
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button { toggleFavorite() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.accentColor : Color.primary) }
+                            .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
+                        Button { keyShown = false; editing = record } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
+                        Menu {
+                            Button(role: .destructive) { deleting = true } label: { Label("Delete 2FA code", systemImage: "trash") }
+                        } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More")
+                    }
+                }
+                .sheet(item: $editing) { TotpEditor(record: $0) }
+                .alert("Delete this 2FA code?", isPresented: $deleting) {
+                    Button("Delete", role: .destructive) {
+                        let updated = model.records.filter { $0.id != recordID }
+                        model.run({ try $0.save(updated); return updated }, done: { dismiss() })
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { Text("If two-factor authentication is still on for “\(record.name)”, you will need another backup of this key or the site's recovery codes to sign in.") }
+            }
+        }
+    }
+
+    @ViewBuilder private func codeCard(_ account: TotpAccount?) -> some View {
+        SurfaceCard {
+            if let account {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let code = account.code(at: context.date)
+                    HStack(spacing: 8) {
+                        Text(formatTotpCode(code)).font(.system(size: 34, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(account.remaining(at: context.date) <= 5 ? Color.red : Color.accentColor)
+                            .lineLimit(1).minimumScaleFactor(0.6).frame(maxWidth: .infinity, alignment: .leading)
+                        TotpCountdown(account: account, date: context.date, size: 48)
+                        if settings.allowCopy {
+                            Button { copyLocally(code) } label: { Image(systemName: "doc.on.doc").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                                .buttonStyle(.plain).accessibilityLabel("Copy code")
+                        }
+                    }
+                }
+            } else {
+                Text("This 2FA entry is damaged and cannot make codes.").foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func keyCard(_ account: TotpAccount) -> some View {
+        let key = stride(from: 0, to: account.secretBase32.count, by: 4).map { start -> String in
+            let chars = Array(account.secretBase32)
+            return String(chars[start..<min(start + 4, chars.count)])
+        }.joined(separator: " ")
+        return SurfaceCard(padding: 0) {
+            HStack(spacing: 0) {
+                IconBadge(symbol: "key")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Setup key").font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: keyShown ? key : "••••••••••").font(keyShown ? .body.monospaced() : .body)
+                    Text(localizedFormat("%@ · %lld digits · %lld s", account.algorithm, account.digits, account.period)).font(.caption2).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
+                Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityLabel(Text(LocalizedStringKey(keyShown ? "Hide setup key" : "Show setup key")))
+            }.padding(.leading, 16).padding(.trailing, 4).padding(.vertical, 12)
+        }
+    }
+
+    private func toggleFavorite() {
+        var updated = model.records
+        guard let index = updated.firstIndex(where: { $0.id == recordID }) else { return }
+        updated[index].favorite.toggle()
+        let snapshot = updated
+        model.run { try $0.save(snapshot); return snapshot }
     }
 }
 
@@ -120,7 +232,7 @@ struct TotpEditor: View {
     @State private var noticeError = false
     @State private var pendingImport: [VaultRecord]?
     @State private var importNote = ""
-    @State private var confirmDelete = false
+    @State private var advanced: Bool
 
     init(record: VaultRecord) {
         original = record
@@ -130,6 +242,7 @@ struct TotpEditor: View {
         _digits = State(initialValue: start?.digits ?? 6); _period = State(initialValue: start?.period ?? 30)
         _notes = State(initialValue: record.fields.first { $0.kind == .note }?.value ?? ""); _favorite = State(initialValue: record.favorite)
         _keyShown = State(initialValue: start == nil)
+        _advanced = State(initialValue: start.map { $0.algorithm != "SHA1" || $0.digits != 6 || $0.period != 30 } ?? false)
     }
     private var isNew: Bool { !model.records.contains { $0.id == original.id } }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -145,48 +258,55 @@ struct TotpEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Button("Scan QR code", systemImage: "qrcode.viewfinder") { requestCamera() }
-                    PhotosPicker(selection: $photo, matching: .images) { Label("Read QR code from a screenshot", systemImage: "photo") }
-                    if let notice { Text(LocalizedStringKey(notice)).font(.footnote).foregroundStyle(noticeError ? Color.red : Color.green) }
-                    if let duplicate { Text("This 2FA code is already in your vault as “\(duplicate.name)”.").font(.footnote).foregroundStyle(.red) }
-                }
-                Section("Account") {
-                    TextField("Service", text: $name)
-                    TextField("Account (optional)", text: $account).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    HStack {
-                        if keyShown { TextField("Setup key", text: $key).font(.body.monospaced()) } else { SecureField("Setup key", text: $key) }
-                        Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye") }.buttonStyle(.borderless).accessibilityLabel(Text(LocalizedStringKey(keyShown ? "Hide setup key" : "Show setup key")))
-                    }.textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    if !key.isEmpty && secret == nil { Text("The key must be Base32: letters A–Z and digits 2–7.").font(.footnote).foregroundStyle(.red) }
-                    Toggle("Favorite", isOn: $favorite)
-                }
-                Section {
-                    Picker("Algorithm", selection: $algorithm) { ForEach(TotpAccount.algorithms, id: \.self) { Text($0).tag($0) } }
-                    Picker("Digits", selection: $digits) { ForEach([6, 7, 8], id: \.self) { Text("\($0)").tag($0) } }
-                    HStack { Text("Period (seconds)"); TextField("30", value: $period, format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                } header: { Text("Advanced") } footer: { Text("Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so.") }
-                if let candidate {
-                    Section("Current code") {
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            HStack {
-                                Text(formatTotpCode(candidate.code(at: context.date))).font(.title2.monospaced().weight(.semibold)).foregroundStyle(.tint).lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                                Spacer()
-                                TotpCountdown(account: candidate, date: context.date)
-                                if settings.allowCopy { Button { copyLocally(candidate.code()) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("Copy") }
+            ScrollView {
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Button { requestCamera() } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity, minHeight: 52) }
+                            .buttonStyle(.borderedProminent)
+                        PhotosPicker(selection: $photo, matching: .images) {
+                            Label("From image", systemImage: "photo").frame(maxWidth: .infinity, minHeight: 52)
+                                .overlay(RoundedRectangle(cornerRadius: 26).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+                        }
+                    }
+                    if let notice { Text(LocalizedStringKey(notice)).font(.subheadline).foregroundStyle(noticeError ? Color.red : Color.green).frame(maxWidth: .infinity, alignment: .leading) }
+                    if let duplicate { Text("This 2FA code is already in your vault as “\(duplicate.name)”.").font(.subheadline).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) }
+                    OutlinedField(label: localized("Service"), icon: "person.text.rectangle", text: $name)
+                    OutlinedField(label: localized("Account (optional)"), icon: "person", text: $account, keyboard: .emailAddress)
+                    OutlinedField(label: localized("Setup key"), icon: "key", text: $key, secure: !keyShown, monospaced: true, capitalization: .characters,
+                                  supporting: localized(!key.isEmpty && secret == nil ? "The key must be Base32: letters A–Z and digits 2–7." : "The Base32 key shown with the QR code"),
+                                  supportingIsError: !key.isEmpty && secret == nil, error: !key.isEmpty && secret == nil) {
+                        Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye").foregroundStyle(.secondary).frame(width: 36, height: 36).contentShape(Rectangle()) }
+                            .buttonStyle(.plain).accessibilityLabel(Text(LocalizedStringKey(keyShown ? "Hide setup key" : "Show setup key")))
+                    }
+                    advancedCard
+                    if let candidate {
+                        SurfaceCard(radius: 16) {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Current code").font(.caption).foregroundStyle(.secondary)
+                                        Text(formatTotpCode(candidate.code(at: context.date))).font(.title2.monospaced()).foregroundStyle(.tint).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                                    }
+                                    Spacer()
+                                    TotpCountdown(account: candidate, date: context.date)
+                                }
                             }
                         }
                     }
-                }
-                Section("Notes") { TextField("Notes (optional)", text: $notes, axis: .vertical) }
-                Section { Text("Setup keys are left out of CSV exports; only encrypted backups include them. Keep a backup: losing this phone without one means losing these codes.").font(.footnote).foregroundStyle(.secondary) }
-                if !isNew { Section { Button("Delete 2FA code", role: .destructive) { confirmDelete = true } } }
+                    OutlinedField(label: localized("Notes (optional)"), text: $notes, multiline: true, capitalization: .sentences)
+                    Text("Setup keys are left out of CSV exports; only encrypted backups include them. Keep a backup: losing this phone without one means losing these codes.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                }.padding(.horizontal, 16).padding(.bottom, 32)
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(LocalizedStringKey(isNew ? "New 2FA code" : "Edit 2FA code")).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(trimmedName.isEmpty || candidate == nil) }
+                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.accentColor : Color.primary) }
+                        .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
+                    Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(trimmedName.isEmpty || candidate == nil || model.busy)
+                }
             }
             .sheet(isPresented: $scanning) { QRScannerSheet { text in scanning = false; handle(text) } }
             .onChange(of: photo) { _, item in
@@ -200,12 +320,29 @@ struct TotpEditor: View {
                 }
                 Button("Cancel", role: .cancel) { pendingImport = nil }
             } message: { Text(importNote) }
-            .confirmationDialog("Delete this 2FA code?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    let updated = model.records.filter { $0.id != original.id }
-                    model.run({ try $0.save(updated); return updated }, done: { dismiss() })
+        }
+    }
+
+    /// Collapsed by default, like Android: algorithm, digits and period for the few sites that need them.
+    private var advancedCard: some View {
+        SurfaceCard(radius: 16, padding: 0) {
+            VStack(spacing: 0) {
+                Button { withAnimation { advanced.toggle() } } label: {
+                    HStack { Text("Advanced").font(.subheadline.weight(.semibold)); Spacer(); Image(systemName: advanced ? "chevron.up" : "chevron.down") }
+                        .padding(16).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                if advanced {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so.").font(.caption).foregroundStyle(.secondary)
+                        Text("Algorithm").font(.subheadline.weight(.medium))
+                        Picker("Algorithm", selection: $algorithm) { ForEach(TotpAccount.algorithms, id: \.self) { Text($0).tag($0) } }.pickerStyle(.segmented)
+                        Text("Digits").font(.subheadline.weight(.medium))
+                        Picker("Digits", selection: $digits) { ForEach([6, 7, 8], id: \.self) { Text("\($0)").tag($0) } }.pickerStyle(.segmented)
+                        OutlinedField(label: localized("Period (seconds)"), text: Binding(get: { String(period) }, set: { period = Int($0.filter(\.isNumber).prefix(3)) ?? 0 }), keyboard: .numberPad,
+                                      error: !(1...300).contains(period))
+                    }.padding(.horizontal, 16).padding(.bottom, 16)
                 }
-            } message: { Text("If two-factor authentication is still on for “\(original.name)”, you will need another backup of this key or the site's recovery codes to sign in.") }
+            }
         }
     }
 

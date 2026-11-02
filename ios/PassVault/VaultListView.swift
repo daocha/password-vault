@@ -12,6 +12,7 @@ struct RecordList: View {
     @State private var tab: VaultTab = .passwords
     @State private var editing: VaultRecord?
     @State private var viewing: VaultRecord?
+    @State private var viewingTotp: VaultRecord?
     @State private var editingTotp: VaultRecord?
     @State private var viewingSeed: VaultRecord?
     @State private var editingSeed: VaultRecord?
@@ -57,7 +58,7 @@ struct RecordList: View {
                         .contentShape(RoundedRectangle(cornerRadius: 16))
                         .onTapGesture {
                             if selecting { toggle(record) }
-                            else if record.isTotp { editingTotp = record }
+                            else if record.isTotp { viewingTotp = record }
                             else if record.isSeed { viewingSeed = record }
                             else { viewing = record }
                         }
@@ -91,6 +92,7 @@ struct RecordList: View {
             .onChange(of: kinds) { _, names in if let kind, !names.contains(kind) { self.kind = nil } }
             .sheet(item: $editing) { RecordEditor(record: $0) }
             .fullScreenCover(item: $viewing) { RecordDetail(recordID: $0.id) }
+            .fullScreenCover(item: $viewingTotp) { TotpDetail(recordID: $0.id) }
             .sheet(isPresented: $grouping) { GroupAssignSheet(ids: selected) { selected = [] } }
             .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { let ids = selected; selected = []; saveDeletion(ids) }
@@ -139,14 +141,14 @@ struct RecordList: View {
     private var tabBar: some View {
         HStack(spacing: 0) {
             ForEach(Array(VaultTab.allCases.enumerated()), id: \.element) { index, item in
-                if index > 0 { Divider() }
+                if index > 0 { Rectangle().fill(Color.secondary.opacity(0.5)).frame(width: 1) }
                 Button { if tab != item { tab = item } } label: {
                     HStack(spacing: 4) {
                         Image(systemName: tabIcon(item)).font(.system(size: 14))
                         Text(LocalizedStringKey(item.label)).lineLimit(1).minimumScaleFactor(0.75)
                     }
                     .font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(tab == item ? Color.accentColor.opacity(0.2) : Color.clear)
                     .contentShape(Rectangle())
                 }
@@ -155,6 +157,7 @@ struct RecordList: View {
                 .accessibilityAddTraits(tab == item ? .isSelected : [])
             }
         }
+        .frame(height: 40)
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.secondary.opacity(0.5), lineWidth: 1))
     }

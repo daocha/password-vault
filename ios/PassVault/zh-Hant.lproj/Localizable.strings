@@ -407,3 +407,18 @@
 "Updated %@" = "更新於 %@";
 "Expired %@" = "已於 %@ 到期";
 "Expires %@" = "%@ 到期";
+
+/* Entry editor and 2FA screens, matching Android */
+"Fields" = "欄位";
+"Drag ⋮⋮ to reorder" = "拖曳  ⋮⋮  可重新排序";
+"Question" = "問題";
+"Edit entry" = "編輯項目";
+"Edit card" = "編輯銀行卡";
+"Edit secure note" = "編輯安全筆記";
+"None" = "無";
+"Remove reminder" = "移除提醒";
+"OK" = "好";
+"Remove %@" = "移除%@";
+"The Base32 key shown with the QR code" = "QR 碼旁顯示的 Base32 金鑰";
+"From image" = "從圖片讀取";
+"%@ · %lld digits · %lld s" = "%@ · %lld 位 · %lld 秒";
