@@ -2,6 +2,15 @@ import SwiftUI
 import UIKit
 import VaultCore
 
+/// Localize app-owned dynamic labels; never apply this to a user's record names or field values.
+@MainActor func localized(_ key: String) -> String {
+    AppSettings.shared.language.bundle().localizedString(forKey: key, value: nil, table: nil)
+}
+
+@MainActor func localizedFormat(_ key: String, _ arguments: CVarArg...) -> String {
+    String(format: localized(key), locale: AppSettings.shared.language.locale, arguments: arguments)
+}
+
 /// How soon the vault locks after the app leaves the screen; the same choices as Android.
 enum AutoLock: String, CaseIterable, Identifiable {
     case immediately, oneMinute, fiveMinutes, deviceLock
@@ -57,6 +66,23 @@ enum ClipboardClear: String, CaseIterable, Identifiable {
 @MainActor final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     private let defaults = UserDefaults.standard
+    private let appearance = AppearancePreferences()
+    @Published var theme: AppTheme { didSet { appearance.theme = theme; applyInterfaceStyle() } }
+    @Published var language: AppLanguage { didSet { appearance.language = language } }
+    /// Sets the style on every window, so sheets and covers follow the chosen theme at once. SwiftUI's preferredColorScheme alone left presented screens (the settings sheet holding this picker) and the root on the old style.
+    func applyInterfaceStyle() {
+        let style: UIUserInterfaceStyle = switch theme { case .system: .unspecified; case .light: .light; case .dark: .dark }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows { window.overrideUserInterfaceStyle = style }
+        }
+    }
+    var colorScheme: ColorScheme? {
+        switch theme {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
     @Published var autoLock: AutoLock { didSet { defaults.set(autoLock.rawValue, forKey: "autoLock") } }
     @Published var allowCopy: Bool { didSet { defaults.set(allowCopy, forKey: "allowCopy"); if !allowCopy { SecretClipboard.clear() } } }
     @Published var clipboardClear: ClipboardClear { didSet { defaults.set(clipboardClear.rawValue, forKey: "clipboardClear") } }
@@ -66,6 +92,8 @@ enum ClipboardClear: String, CaseIterable, Identifiable {
         defaults.set(generator.numbers, forKey: "genNumbers"); defaults.set(generator.symbols, forKey: "genSymbols")
     } }
     private init() {
+        theme = appearance.theme
+        language = appearance.language
         autoLock = defaults.string(forKey: "autoLock").flatMap(AutoLock.init) ?? .immediately
         allowCopy = defaults.object(forKey: "allowCopy") as? Bool ?? true
         clipboardClear = defaults.string(forKey: "clipboardClear").flatMap(ClipboardClear.init) ?? .m1

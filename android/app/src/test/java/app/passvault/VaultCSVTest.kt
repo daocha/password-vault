@@ -92,6 +92,10 @@ class VaultCSVTest {
         for (count in Bip39.WORD_COUNTS) repeat(20) { val words = Bip39.generate(count); assertEquals(count, words.size); assertNull(Bip39.problem(words)) }
         assertEquals(listOf("abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract"), Bip39.suggestions("ab"))
     }
+    @Test fun seedWordSeparatorsMatchIos() {
+        assertEquals(listOf("abandon", "about"), Bip39.split(" ABANDON\r\nabout "))
+        assertEquals(listOf("abandon\u00a0about"), Bip39.split("abandon\u00a0about"))
+    }
     @Test fun seedsNeverInCsvButSurviveRecordEncoding() {
         val seed = VaultRecord(name = "Wallet", type = RecordType.seed, fields = listOf(VaultField(kind = FieldKind.password, label = SEED_LABEL, value = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong")))
         val login = VaultRecord(name = "Site")

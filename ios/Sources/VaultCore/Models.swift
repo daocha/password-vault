@@ -48,7 +48,7 @@ public struct VaultRecord: Codable, Identifiable, Equatable, Sendable {
         .init(kind: .note, label: "Notes")
     ]
     public var legacy: [String: String] = [:]
-    /// nil or "login" for passwords; "seed" for BIP-39 seed phrases (created on Android) and "totp" for authenticator keys, which never go into CSV.
+    /// nil or "login" for passwords; "seed" for seed phrases/private keys and "totp" for authenticator keys, which never go into CSV.
     /// "card" (payment card) and "note" (secure note) are listed with the passwords and are not written to CSV either.
     public var type: String? = nil
     /// Optional reminder date, ISO `yyyy-MM-dd`; nil (omitted from the file) for none. Cards also expire on their own expiry date.

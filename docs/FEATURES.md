@@ -5,9 +5,13 @@ This repository is a native implementation under development, not an audited or 
 | Capability | Implementation |
 | --- | --- |
 | Offline iOS / Android | SwiftUI and Jetpack Compose; no server or runtime network client |
+| Appearance and language | Both apps remember System / Light / Dark appearance and System default / English / Simplified Chinese / Traditional Chinese language choices. iOS applies the chosen appearance and locale across the app and includes translated interface resources |
+| Wallet seed phrases and private keys | Both apps generate or enter 12/24-word English BIP-39 phrases, validate the checksum against a hash-checked wordlist, and store optional BIP-39 passphrases or a private key. Words and keys stay hidden until revealed, cannot be copied, and are excluded from CSV. Encrypted backups and transfers preserve them; unknown fields are retained when editing |
 | Master-password unlock | Argon2id + authenticated key wrapping + OS-protected device secret |
 | Face ID / Touch ID / Android strong biometrics | Key release protected by the platform, requires real-device verification |
 | CRUD, search, favorites, groups | Implemented in both native UIs |
+| List filters and 2FA order | Both apps offer Favorites, card/note and folder filters, show visible/total counts, honor imported `legacy.totpOrder` positions and can reorder every 2FA code, including ones hidden by filters. Only moved codes are marked changed |
+| List appearance | iOS uses the same default 16-point medium title, 14-point subtitle and compact row spacing as Android, with native system fonts and accessibility scaling. By maintainer request, iOS keeps favorite badges over entry icons and places folder badges on the right; Android places favorites on the right and folders below the title |
 | Hidden passwords and security answers | Eye-button reveal; reset when the editor closes or app locks |
 | Strong generator | OS/libsodium randomness, rejection sampling, adjustable 12–128 characters and symbols |
 | Ordered custom fields | Usernames, passwords, notes, question-answer pairs; drag reorder plus Android accessible move buttons |
