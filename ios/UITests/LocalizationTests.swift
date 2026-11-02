@@ -24,11 +24,17 @@ final class LocalizationTests: XCTestCase {
         }
         openSettings(app)
         let biometrics = app.switches["settings.biometrics"].firstMatch
-        if !biometrics.isHittable { app.swipeUp() }
-        XCTAssertTrue(biometrics.waitForExistence(timeout: 10))
-        biometrics.tap()
+        XCTAssertTrue(biometrics.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0..<3 {
+            if biometrics.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(biometrics.isHittable, app.debugDescription)
+        // SwiftUI can expose the whole labelled row as a Switch. Its centre is the label,
+        // which does not toggle on every runtime. Hit the native control on the right.
+        biometrics.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         let currentPassword = app.secureTextFields["Current app password"]
-        XCTAssertTrue(currentPassword.waitForExistence(timeout: 10))
+        XCTAssertTrue(currentPassword.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "The biometric password prompt should open its keyboard without a swipe")
         XCTAssertTrue(currentPassword.isHittable)
         currentPassword.typeText("test")
@@ -74,7 +80,14 @@ final class LocalizationTests: XCTestCase {
     }
 
     private func selectLanguage(_ language: String, in app: XCUIApplication) {
-        app.buttons["settings.language"].tap()
+        let languageRow = app.buttons["settings.language"]
+        // Opening biometrics can scroll Settings down. Bring the language row back into view.
+        for _ in 0..<3 {
+            if languageRow.isHittable { break }
+            app.swipeDown()
+        }
+        XCTAssertTrue(languageRow.isHittable, app.debugDescription)
+        languageRow.tap()
         let option = app.buttons["language.\(language)"]
         XCTAssertTrue(option.waitForExistence(timeout: 10))
         option.tap()
