@@ -21,7 +21,7 @@ struct TotpCountdown: View {
             Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 3)
             Circle().trim(from: 0, to: Double(remaining) / Double(account.period)).stroke(urgent ? Color.red : Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
             Text("\(remaining)").font(.caption2.monospacedDigit()).foregroundStyle(urgent ? Color.red : Color.secondary)
-        }.frame(width: 28, height: 28).accessibilityLabel("\(remaining) seconds left")
+        }.frame(width: 32, height: 32).accessibilityLabel("\(remaining) seconds left")
     }
 }
 
@@ -29,26 +29,69 @@ struct TotpCountdown: View {
 struct TotpRow: View {
     @ObservedObject private var settings = AppSettings.shared
     let record: VaultRecord
+    @ScaledMetric(relativeTo: .body) private var titleSize = 16.0
+    @ScaledMetric(relativeTo: .subheadline) private var subtitleSize = 14.0
+    @ScaledMetric(relativeTo: .body) private var titleHeight = 24.0
+    @ScaledMetric(relativeTo: .subheadline) private var subtitleHeight = 20.0
+    @ScaledMetric(relativeTo: .title3) private var codeSize = 22.0
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            HStack(spacing: 14) {
-                RecordIcon(record: record)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.headline).foregroundStyle(.primary)
-                    if let account = record.totp?.account, !account.isEmpty { Text(account).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                }
-                Spacer()
+            HStack(spacing: 16) {
+                RecordIcon(record: record).frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.system(size: titleSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1).frame(minHeight: titleHeight, alignment: .leading)
+                    if let account = record.totp?.account, !account.isEmpty { Text(account).font(.system(size: subtitleSize)).foregroundStyle(.secondary).lineLimit(1).frame(minHeight: subtitleHeight, alignment: .leading) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
                 if let totp = record.totp {
                     let code = totp.code(at: context.date)
+                    HStack(spacing: 0) {
                     Button { copyLocally(code) } label: {
-                        Text(formatTotpCode(code)).font(.title3.monospaced().weight(.semibold)).foregroundStyle(totp.remaining(at: context.date) <= 5 ? Color.red : Color.accentColor)
+                        Text(formatTotpCode(code)).font(.system(size: codeSize, weight: .semibold, design: .monospaced)).foregroundStyle(totp.remaining(at: context.date) <= 5 ? Color.red : Color.accentColor).padding(.horizontal, 8).padding(.vertical, 4)
                     }.buttonStyle(.borderless).disabled(!settings.allowCopy).accessibilityLabel("Copy code")
                     TotpCountdown(account: totp, date: context.date)
+                    }
                 } else {
                     Image(systemName: "exclamationmark.triangle").foregroundStyle(.red).accessibilityLabel("This 2FA entry is damaged and cannot make codes.")
                 }
-            }.padding(.vertical, 5)
+            }
         }
+    }
+}
+
+/// Reordering always includes every code, even while the main list is filtered.
+struct TotpReorderView: View {
+    @EnvironmentObject var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var codes: [VaultRecord]
+    private let originalIDs: [String]
+    init(codes: [VaultRecord]) { _codes = State(initialValue: codes); originalIDs = codes.map(\.id) }
+    var body: some View {
+        NavigationStack {
+            List {
+                Text("Drag a code by its handle to move it.").font(.callout).foregroundStyle(.secondary)
+                ForEach(codes) { record in
+                    VaultEntryRow(record: record, showsStatus: false)
+                    .accessibilityAction(named: Text("Move up")) { move(record.id, by: -1) }
+                    .accessibilityAction(named: Text("Move down")) { move(record.id, by: 1) }
+                }.onMove { codes.move(fromOffsets: $0, toOffset: $1) }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Reorder 2FA codes").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(model.busy) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let updated = TotpOrder.apply(model.records, ordered: codes.map(\.id), now: ISO8601DateFormatter().string(from: Date()))
+                        model.run({ try $0.save(updated); return updated }, done: { dismiss() })
+                    }.disabled(model.busy || codes.map(\.id) == originalIDs)
+                }
+            }
+            .disabled(model.busy)
+        }.interactiveDismissDisabled(model.busy)
+    }
+    private func move(_ id: String, by offset: Int) {
+        guard let index = codes.firstIndex(where: { $0.id == id }), codes.indices.contains(index + offset) else { return }
+        codes.swapAt(index, index + offset)
     }
 }
 

@@ -15,6 +15,11 @@ enum class RecordType { login, seed, totp, card, note }
 /** The list tab a record appears under: cards and secure notes share the passwords tab. */
 val RecordType.tab get() = if (this == RecordType.card || this == RecordType.note) RecordType.login else this
 const val SEED_LABEL = "Seed phrase"
+/** The same folder choices on both platforms, including imported card/note groups. */
+object VaultFolders {
+    fun names(records: List<VaultRecord>): List<String> = records.filter { it.type.tab == RecordType.login }
+        .map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() }
+}
 const val PRIVATE_KEY_LABEL = "Private key"
 const val SEED_PASSPHRASE_LABEL = "BIP-39 passphrase"
 /** An earlier value of a password or security answer, with the time it was replaced. Created when a saved value changes and by Password Keeper (.pkb2) imports; separate from any field the user names "Previous password". */

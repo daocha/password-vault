@@ -3,6 +3,9 @@
 "%@ (%lld)" = "%@ (%lld)";
 "%lld characters" = "%lld characters";
 "%lld codes" = "%lld codes";
+"%lld of %lld codes" = "%lld of %lld codes";
+"%lld of %lld entries" = "%lld of %lld entries";
+"%lld of %lld seed phrases" = "%lld of %lld seed phrases";
 "%lld password attempts remaining" = "%lld password attempts remaining";
 "%lld passwords checked" = "%lld passwords checked";
 "%lld records" = "%lld records";
@@ -64,6 +67,7 @@
 "Card expires %@" = "Card expires %@";
 "Card number" = "Card number";
 "Cardholder" = "Cardholder";
+"Cards" = "Cards";
 "Change app password" = "Change app password";
 "Change decoy password" = "Change decoy password";
 "Change password" = "Change password";
@@ -112,6 +116,7 @@
 "Digits" = "Digits";
 "Discard changes" = "Discard changes";
 "Done" = "Done";
+"Drag a code by its handle to move it." = "Drag a code by its handle to move it.";
 "Easy to guess. Replace them with generated ones." = "Easy to guess. Replace them with generated ones.";
 "Edit" = "Edit";
 "Edit 2FA code" = "Edit 2FA code";
@@ -208,6 +213,8 @@
 "Mode" = "Mode";
 "More" = "More";
 "Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so." = "Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so.";
+"Move down" = "Move down";
+"Move up" = "Move up";
 "Name" = "Name";
 "Needs attention" = "Needs attention";
 "Never" = "Never";
@@ -269,6 +276,8 @@
 "Remove decoy vault" = "Remove decoy vault";
 "Remove from favorites" = "Remove from favorites";
 "Remove the decoy vault and everything in it? Your real vault is not affected." = "Remove the decoy vault and everything in it? Your real vault is not affected.";
+"Reorder" = "Reorder";
+"Reorder 2FA codes" = "Reorder 2FA codes";
 "Repeat decoy password" = "Repeat decoy password";
 "Repeat new app password" = "Repeat new app password";
 "Repeat passphrase" = "Repeat passphrase";

@@ -829,7 +829,7 @@ class MainActivity : FragmentActivity() {
         LaunchedEffect(listState) { snapshotFlow { listState.isScrollInProgress }.collect { if (it && searchOpen) { focusManager.clearFocus(); searchOpen = false } } }
         val type = tab; val seedTab = tab == RecordType.seed; val totpTab = tab == RecordType.totp
         val ofType = records.filter { it.type.tab == type }
-        val groups = remember(records) { records.filter { it.type.tab == RecordType.login }.map { it.group.trim() }.filter { it.isNotEmpty() }.distinct().sortedBy { it.lowercase() } }
+        val groups = remember(records) { VaultFolders.names(records) }
         // A group filter whose last entry was moved or deleted has no chip left to clear it.
         LaunchedEffect(groups) { if (group != null && group !in groups) group = null }
         LaunchedEffect(ofType) { if (kind != null && ofType.none { it.type == kind }) kind = null }

@@ -3,6 +3,9 @@
 "%@ (%lld)" = "%@（%lld）";
 "%lld characters" = "%lld 個字元";
 "%lld codes" = "%lld 個驗證碼";
+"%lld of %lld codes" = "%lld / %lld 個驗證碼";
+"%lld of %lld entries" = "共 %lld 個項目，顯示 %lld 個";
+"%lld of %lld seed phrases" = "共 %lld 組助記詞，顯示 %lld 組";
 "%lld password attempts remaining" = "剩餘 %lld 次密碼嘗試機會";
 "%lld passwords checked" = "已檢查 %lld 個密碼";
 "%lld records" = "%lld 個項目";
@@ -64,6 +67,7 @@
 "Card expires %@" = "卡片到期日期：%@";
 "Card number" = "卡號";
 "Cardholder" = "持卡人";
+"Cards" = "銀行卡";
 "Change app password" = "變更主密碼";
 "Change decoy password" = "更改誘餌密碼";
 "Change password" = "更改密碼";
@@ -112,6 +116,7 @@
 "Digits" = "位數";
 "Discard changes" = "捨棄變更";
 "Done" = "完成";
+"Drag a code by its handle to move it." = "拖曳右側把手即可移動驗證碼。";
 "Easy to guess. Replace them with generated ones." = "容易被猜中。請換成隨機產生的密碼。";
 "Edit" = "編輯";
 "Edit 2FA code" = "編輯兩步驟驗證碼";
@@ -208,6 +213,8 @@
 "Mode" = "模式";
 "More" = "更多";
 "Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so." = "大多數網站使用 SHA1、6 位數字和 30 秒。僅在網站要求時變更。";
+"Move down" = "下移";
+"Move up" = "上移";
 "Name" = "名稱";
 "Needs attention" = "需要處理";
 "Never" = "永不";
@@ -269,6 +276,8 @@
 "Remove decoy vault" = "移除誘餌密碼庫";
 "Remove from favorites" = "取消我的最愛";
 "Remove the decoy vault and everything in it? Your real vault is not affected." = "移除誘餌保險庫及其中的所有內容？真實保險庫不受影響。";
+"Reorder" = "排序";
+"Reorder 2FA codes" = "調整兩步驟驗證碼順序";
 "Repeat decoy password" = "再次輸入誘餌密碼";
 "Repeat new app password" = "再次輸入新 App 密碼";
 "Repeat passphrase" = "再次輸入密碼";

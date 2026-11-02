@@ -251,9 +251,10 @@ func groupColor(_ name: String) -> Color { let c = groupColorRGB(name); return C
 /// A group's name in its own color: colored border, a light tint behind the text, and the normal text color so contrast holds in light and dark mode.
 struct GroupTag: View {
     let name: String
+    @ScaledMetric(relativeTo: .caption2) private var fontSize = 11.0
     var body: some View {
         let tint = groupColor(name)
-        Text(name.trimmingCharacters(in: .whitespaces)).font(.caption2).foregroundStyle(.primary).lineLimit(1)
+        Text(name.trimmingCharacters(in: .whitespacesAndNewlines)).font(.system(size: fontSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
             .padding(.horizontal, 6).padding(.vertical, 1)
             .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(tint, lineWidth: 1))
@@ -277,195 +278,10 @@ struct RecordIcon: View {
                 .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
                 .frame(width: 38)
         } else {
-            Image(systemName: record.isSeed ? "wallet.bifold" : record.favorite ? "star.fill" : record.isCard ? "creditcard.fill" : record.isNote ? "note.text" : "key.fill").foregroundStyle(.tint).frame(width: 30)
-        }
-    }
-}
-
-struct RecordList: View {
-    @EnvironmentObject var model: VaultModel
-    @State private var query = ""
-    /// The search field is opened from the toolbar and tucks away once the list is dragged; the query stays applied.
-    @State private var searchOpen = false
-    @FocusState private var searchFocused: Bool
-    @State private var favorites = false
-    @State private var editing: VaultRecord?
-    @State private var editingTotp: VaultRecord?
-    @State private var tab: VaultTab = .passwords
-    @State private var viewingSeed: VaultRecord?
-    @State private var editingSeed: VaultRecord?
-    @State private var seedDeletion: Set<String>?
-    private var showTotp: Bool { tab == .totp }
-    @State private var transfer = false
-    @State private var health = false
-    /// The health group to open and scroll to (the expiry banner opens "expiring"); nil opens the report with every group collapsed.
-    @State private var healthFocus: String?
-    var filtered: [VaultRecord] {
-        model.records.filter { tab.contains($0) && $0.matches(query) && (!favorites || $0.favorite) }.sorted {
-            if !showTotp && $0.favorite != $1.favorite { return $0.favorite }
-            return $0.name.lowercased() < $1.name.lowercased()
-        }
-    }
-    var body: some View {
-        NavigationStack {
-            List {
-                if searchOpen {
-                    Section {
-                        HStack {
-                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            TextField("Search names, usernames, notes", text: $query).focused($searchFocused).submitLabel(.search)
-                            if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.borderless).accessibilityLabel("Clear search") }
-                        }
-                    }
-                }
-                Section {
-                    Picker("Show", selection: $tab) {
-                        ForEach(VaultTab.allCases) { Text(LocalizedStringKey($0.label)).tag($0) }
-                    }.pickerStyle(.segmented)
-                    HStack {
-                        Button { favorites.toggle() } label: {
-                            Label("Favorites", systemImage: favorites ? "star.fill" : "star")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(favorites ? .accentColor : .secondary)
-                        .accessibilityLabel("Favorites only")
-                        .accessibilityValue(favorites ? "On" : "Off")
-                        Spacer()
-                    }
-                }
-                if model.backupDue {
-                    Section {
-                        Label(model.lastBackup.map { localizedFormat("Last backup %@ · %lld entries changed since", $0.formatted(.relative(presentation: .named)), BackupReminder.changedSince(model.records, lastBackup: $0)) }
-                              ?? localized("No backup yet. If this phone is lost or reset, these entries are gone."), systemImage: "externaldrive.badge.exclamationmark")
-                        HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless)
-                    }
-                }
-                let expiring = model.records.filter { $0.needsNotice() }.count
-                if expiring > 0 {
-                    Button { healthFocus = "expiring"; health = true } label: {
-                        HStack { Label("Expired or due within 14 days: \(expiring)", systemImage: "calendar.badge.exclamationmark").lineLimit(1); Spacer(); Text("Review") }.font(.footnote)
-                    }.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                }
-                if !model.records.contains(where: { tab.contains($0) }) {
-                    Section {
-                        if tab == .seed {
-                            ContentUnavailableView("No seed phrases", systemImage: "wallet.bifold", description: Text("Generate or enter a 12- or 24-word BIP-39 seed phrase, or store a wallet private key. Keep phrases for wallets with significant funds offline."))
-                        } else if showTotp {
-                            ContentUnavailableView("No 2FA codes", systemImage: "number", description: Text("Tap Add 2FA code to scan a QR code or enter its setup key."))
-                        } else {
-                            ContentUnavailableView("A little peace of mind", systemImage: "key", description: Text("Add your first password or import your Password Keeper CSV."))
-                        }
-                    }.listRowBackground(Color.clear)
-                }
-                Section(localizedFormat(showTotp ? "%lld codes" : tab == .seed ? "%lld seed phrases" : "%lld records", filtered.count)) {
-                    ForEach(filtered) { record in
-                        if record.isTotp { Button { editingTotp = record } label: { TotpRow(record: record) } } else {
-                        Button { if record.isSeed { viewingSeed = record } else { editing = record } } label: {
-                            HStack(spacing: 14) {
-                                RecordIcon(record: record)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(record.name.isEmpty ? localized("Untitled record") : record.name).font(.headline).foregroundStyle(.primary)
-                                    if record.isSeed { Text(record.privateKey == nil ? localizedFormat("%lld words", record.seedWords.count) : localized("Private key")).font(.caption).foregroundStyle(.secondary) }
-                                    else if record.isCard, !record.cardSummary.isEmpty { Text(record.cardSummary).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                                    else if !record.website.isEmpty { Text(record.website).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                                    if !record.group.trimmingCharacters(in: .whitespaces).isEmpty { GroupTag(name: record.group) }
-                                }
-                                Spacer()
-                                ExpiryBadge(record: record)
-                            }.padding(.vertical, 5)
-                        }
-                        }
-                    }.onDelete { offsets in
-                        let ids = Set(offsets.map { filtered[$0].id })
-                        if model.records.contains(where: { ids.contains($0.id) && $0.isSeed }) { seedDeletion = ids; return }
-                        let updated = model.records.filter { !ids.contains($0.id) }
-                        model.run { try $0.save(updated); return updated }
-                    }
-                }
-            }
-            .safeAreaInset(edge: .bottom, alignment: .trailing) {
-                addEntryButton
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: 16))
-                    .controlSize(.large)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top, spacing: 0) { vaultToolbar }
-            .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
-            .onChange(of: tab) { _, _ in query = "" }
-            .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { _ in if searchOpen { searchFocused = false; searchOpen = false } })
-            .sheet(item: $editing) { RecordEditor(record: $0) }
-            .sheet(item: $editingTotp) { TotpEditor(record: $0) }
-            .sheet(item: $viewingSeed) { SeedDetail(recordID: $0.id) }
-            .sheet(item: $editingSeed) { SeedEditor(initial: $0, isNew: true) }
-            .confirmationDialog("Delete this seed phrase?", isPresented: Binding(get: { seedDeletion != nil }, set: { if !$0 { seedDeletion = nil } }), titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    let ids = seedDeletion ?? []; seedDeletion = nil
-                    let updated = model.records.filter { !ids.contains($0.id) }
-                    model.run { try $0.save(updated); return updated }
-                }
-            } message: { Text("Without another backup, this wallet cannot be recovered.") }
-            .sheet(isPresented: $transfer) { TransferView() }
-            .sheet(isPresented: $health) { HealthView(focus: healthFocus) }
-            .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
-        }
-    }
-
-    /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
-    private var vaultToolbar: some View {
-        HStack(spacing: 8) {
-            WordMark().font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.8)
-                .accessibilityLabel("PassVault")
-            Spacer(minLength: 0)
-            HStack(spacing: 0) {
-                Button { searchOpen.toggle() } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                        .foregroundStyle(query.isEmpty ? Color.primary : Color.accentColor)
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                Button { healthFocus = nil; health = true } label: {
-                    Label("Vault health", systemImage: "checkmark.shield").frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                Button { model.lock() } label: {
-                    Label("Lock vault", systemImage: "lock").frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                Button { transfer = true } label: {
-                    Label("Settings", systemImage: "gearshape").frame(width: 44, height: 44).contentShape(Rectangle())
-                }.accessibilityIdentifier("vault.settings")
-            }
-            .labelStyle(.iconOnly)
-            .font(.title3)
-            .buttonStyle(.plain)
-            .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 56)
-        .background(.background)
-    }
-
-    private var addEntryButton: some View {
-        Group {
-            if tab == .seed {
-                Button {
-                    var record = VaultRecord(); record.type = "seed"; record.fields = []; editingSeed = record
-                } label: { Label("New seed phrase", systemImage: "plus") }
-            } else if showTotp {
-                Button {
-                    var record = VaultRecord(); record.type = "totp"; record.fields = []; editingTotp = record
-                } label: {
-                    Label("Add 2FA code", systemImage: "qrcode.viewfinder")
-                }
-            } else {
-                Menu {
-                    Button("Login", systemImage: "key") { editing = VaultRecord() }
-                    Button("Payment card", systemImage: "creditcard") { editing = VaultRecord.new(type: "card") }
-                    Button("Secure note", systemImage: "note.text") { editing = VaultRecord.new(type: "note") }
-                } label: {
-                    Label("New entry", systemImage: "plus")
-                }
-            }
+            Image(systemName: record.isSeed ? "wallet.bifold" : record.isCard ? "creditcard.fill" : record.isNote ? "note.text" : "key.fill")
+                .font(.title3).foregroundStyle(.tint).frame(width: 34, height: 34)
+                .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
+                .frame(width: 38)
         }
     }
 }

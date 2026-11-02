@@ -10,6 +10,8 @@ This repository is a native implementation under development, not an audited or 
 | Master-password unlock | Argon2id + authenticated key wrapping + OS-protected device secret |
 | Face ID / Touch ID / Android strong biometrics | Key release protected by the platform, requires real-device verification |
 | CRUD, search, favorites, groups | Implemented in both native UIs |
+| List filters and 2FA order | Both apps offer Favorites, card/note and folder filters, show visible/total counts, honor imported `legacy.totpOrder` positions and can reorder every 2FA code, including ones hidden by filters. Only moved codes are marked changed |
+| List appearance | iOS uses the same default 16-point medium title, 14-point subtitle and compact row spacing as Android, with native system fonts and accessibility scaling. By maintainer request, iOS keeps favorite badges over entry icons and places folder badges on the right; Android places favorites on the right and folders below the title |
 | Hidden passwords and security answers | Eye-button reveal; reset when the editor closes or app locks |
 | Strong generator | OS/libsodium randomness, rejection sampling, adjustable 12–128 characters and symbols |
 | Ordered custom fields | Usernames, passwords, notes, question-answer pairs; drag reorder plus Android accessible move buttons |
