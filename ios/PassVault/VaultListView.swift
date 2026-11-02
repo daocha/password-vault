@@ -214,8 +214,9 @@ struct RecordList: View {
                       ?? localized("No backup yet. If this phone is lost or reset, these entries are gone."), systemImage: "externaldrive.badge.exclamationmark").font(.footnote)
                 HStack { Button("Back up") { transfer = true }; Spacer(); Button("Later") { model.snoozeBackup() }.foregroundStyle(.secondary) }.buttonStyle(.borderless).font(.footnote)
             }
+            .foregroundStyle(Color.noticeText)
             .padding(.horizontal, 16).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+            .background(Color.noticeBackground, in: RoundedRectangle(cornerRadius: 16))
         }
         let expiring = model.records.filter { $0.needsNotice() }.count
         if expiring > 0 {
@@ -226,7 +227,7 @@ struct RecordList: View {
                     Text("Review").font(.footnote.weight(.medium)).foregroundStyle(Color.accentColor)
                 }
                 .foregroundStyle(.primary).padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12)).contentShape(RoundedRectangle(cornerRadius: 12))
+                .background(Color.noticeBackground, in: RoundedRectangle(cornerRadius: 12)).contentShape(RoundedRectangle(cornerRadius: 12))
             }.buttonStyle(.plain)
         }
     }
@@ -451,4 +452,10 @@ struct GroupAssignSheet: View {
 struct HealthTarget: Identifiable {
     let id = UUID()
     let focus: String?
+}
+
+extension Color {
+    /// Android's tertiaryContainer / onTertiaryContainer (see Theme.kt), light and dark, so the list notices match the Android app.
+    static let noticeBackground = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0x24 / 255, green: 0x50 / 255, blue: 0x24 / 255, alpha: 1) : UIColor(red: 0xBC / 255, green: 0xF0 / 255, blue: 0xB4 / 255, alpha: 1) })
+    static let noticeText = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0xBC / 255, green: 0xF0 / 255, blue: 0xB4 / 255, alpha: 1) : UIColor(red: 0x00, green: 0x22 / 255, blue: 0x04 / 255, alpha: 1) })
 }
