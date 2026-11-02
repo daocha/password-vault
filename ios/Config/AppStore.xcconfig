@@ -1,0 +1,3 @@
+// Apple issues the code after approving this app's encryption documentation.
+// Keep the assigned value in AppStore.local.xcconfig; see docs/RELEASING.md.
+#include? "AppStore.local.xcconfig"

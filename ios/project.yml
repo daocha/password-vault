@@ -13,6 +13,8 @@ targets:
   PassVault:
     type: application
     platform: iOS
+    configFiles:
+      Release: Config/AppStore.xcconfig
     sources: [PassVault]
     dependencies:
       - package: VaultCore
@@ -29,6 +31,8 @@ targets:
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: NO
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: PassVault/PassVault.entitlements
       configs:

@@ -187,6 +187,39 @@ GitHub APK retains its existing update flow.
 
 PassVault declares non-exempt encryption and links libsodium. Complete Apple’s encryption questionnaire and obtain any required documentation before review; do not flip the declaration to bypass it.
 
+### App Store upload validation failures
+
+**Invalid Export Compliance Code:** In App Store Connect, open PassVault → App Information →
+App Encryption Documentation. Complete the questionnaire and, if required, submit documentation
+for Apple's review. Once Apple has approved the documentation and issued a code, create the
+gitignored `ios/Config/AppStore.local.xcconfig` with the assigned value:
+
+```xcconfig
+INFOPLIST_KEY_ITSEncryptionExportComplianceCode = YOUR_APPLE_APPROVED_CODE
+```
+
+The Release configuration includes this local file when present; Debug builds do not.
+Use the actual code for PassVault, not the document ID or an API key. An empty or incorrect
+code cannot resolve the rejection. This configuration does not change the app's declaration
+of non-exempt encryption.
+See Apple's [encryption documentation workflow](https://developer.apple.com/help/app-store-connect/manage-app-information/determine-and-upload-app-encryption-documentation/)
+and [compliance-code key](https://developer.apple.com/documentation/bundleresources/information-property-list/itsencryptionexportcompliancecode).
+
+**Missing supported orientations:** The generated app Info.plist declares all four orientations
+for iPhone and iPad, including the iPad-specific key, to support iPad multitasking.
+
+Both fixes require rebuilding the archive: `--upload-archive` exports the existing signed app
+and cannot insert missing metadata. Preserve the failed archive and export directory by moving
+them aside before rebuilding with `scripts/build-ios-app-store.sh`. Keep version `2026.11.3`
+if that is the App Store version you intend to upload. If Apple already accepted the build
+number, increase `versionCode` through a PR first. Do not recreate the published GitHub tag
+or rerun the combined GitHub release to repair an iOS-only upload.
+
+After rebuilding, upload the new archive using `--upload-archive` as shown above. Confirm its
+app Info.plist contains `ITSEncryptionExportComplianceCode` with the approved value and
+`UISupportedInterfaceOrientations` / `UISupportedInterfaceOrientations~ipad` with all four
+orientations before retrying.
+
 References: [Apple SDK requirements](https://developer.apple.com/news/upcoming-requirements/?id=04282026a),
 [create the app record](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/),
 [upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/),
