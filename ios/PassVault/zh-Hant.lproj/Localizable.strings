@@ -427,6 +427,7 @@
 "Weak" = "弱";
 "Unchanged since %@" = "自 %@ 起未更改";
 "Apply" = "套用";
+"age secret key" = "檔案加密金鑰";
 "File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files." = "iOS 不支援檔案加密。此金鑰會保留在加密備份及傳輸到 Android 的資料中。請使用 Android 版 PassVault 加密或解密檔案。";
 "This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it." = "其中包含檔案加密金鑰。除非你仍有包含此金鑰的備份，否則使用它加密的檔案將永遠無法再次開啟。";
 "This includes %lld 2FA codes. Without another copy of their setup keys or the sites' recovery codes, you may lose access to those accounts." = "其中包含 %lld 個兩步驗證碼。如果沒有其他設定金鑰副本或網站的復原碼，你可能無法再登入這些帳戶。";

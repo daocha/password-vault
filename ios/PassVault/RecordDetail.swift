@@ -6,7 +6,7 @@ let fileKeyDeletionMessage = "This includes a file encryption key. Files encrypt
 
 /// Stored labels the app and importers create; shown translated, never rewritten in the data. A label the user typed is shown as is.
 private let builtInFieldLabels: Set<String> = [
-    "Username", "Password", "Notes", "Security question", cardHolderLabel, cardNumberLabel, cardExpiryLabel, cardCodeLabel, cardPinLabel,
+    "Username", "Password", "Notes", "Security question", "age secret key", cardHolderLabel, cardNumberLabel, cardExpiryLabel, cardCodeLabel, cardPinLabel,
 ]
 @MainActor func displayFieldLabel(_ label: String) -> String { builtInFieldLabels.contains(label) ? localized(label) : label }
 
