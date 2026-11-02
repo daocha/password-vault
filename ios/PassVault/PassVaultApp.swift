@@ -133,13 +133,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 @main struct PassVaultApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = VaultModel()
-    @ObservedObject private var settings = AppSettings.shared
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            VaultRoot().environmentObject(model)
-                .environment(\.locale, settings.language.locale)
-                .preferredColorScheme(settings.colorScheme)
+            LocalizedVaultRoot().environmentObject(model)
                 .tint(Color(red: 0.12, green: 0.32, blue: 0.66))
                 .overlay { if phase != .active { Color(red: 0.025, green: 0.07, blue: 0.18).ignoresSafeArea().overlay { Image(systemName: "lock.fill").font(.system(size: 56)).foregroundStyle(.white) } } }
                 .onChange(of: phase) { _, phase in
@@ -150,6 +147,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 // Locking the phone (not just leaving the app to share the file) ends a pending transfer.
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in model.deviceDidLock() }
         }
+    }
+}
+
+/// Changing language recreates presented screens as Android's activity recreation does.
+/// The model remains outside this identity so the open vault and its records are retained.
+struct LocalizedVaultRoot: View {
+    @ObservedObject private var settings = AppSettings.shared
+    var body: some View {
+        VaultRoot()
+            .id(settings.language)
+            .environment(\.locale, settings.language.locale)
+            .preferredColorScheme(settings.colorScheme)
     }
 }
 
@@ -394,7 +403,7 @@ struct RecordList: View {
                 }
                 Button { transfer = true } label: {
                     Label("Settings", systemImage: "gearshape").frame(width: 44, height: 44).contentShape(Rectangle())
-                }
+                }.accessibilityIdentifier("vault.settings")
             }
             .labelStyle(.iconOnly)
             .font(.title3)
@@ -591,6 +600,7 @@ struct TransferView: View {
                         }.pickerStyle(.segmented)
                     }
                     settingsRow("Language", icon: "globe", summary: settings.language.label) { open(.language) }
+                        .accessibilityIdentifier("settings.language")
                 }
                 Section("Security") {
                     settingsRow("Vault health", icon: "checkmark.shield") { health = true }
@@ -699,6 +709,7 @@ struct TransferView: View {
                     Section {
                         ForEach(AppLanguage.allCases) { language in
                             choice(language.label, selected: settings.language == language) { settings.language = language; self.panel = nil }
+                                .accessibilityIdentifier("language.\(language.rawValue)")
                         }
                     }
                 case .autoLock:

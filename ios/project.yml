@@ -36,6 +36,18 @@ targets:
           PRODUCT_BUNDLE_IDENTIFIER: app.passvault.mobile.debug
           INFOPLIST_KEY_CFBundleDisplayName: PassVault Dev
 
+  PassVaultUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: PassVault
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.passvault.mobile.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: '5.9'
+
 schemes:
   PassVault:
     build:
@@ -43,5 +55,8 @@ schemes:
         PassVault: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets: [PassVaultUITests]
     archive:
       config: Release
