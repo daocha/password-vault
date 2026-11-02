@@ -278,12 +278,10 @@ struct RecordIcon: View {
     var body: some View {
         if record.isLogin || record.isTotp, let brand = findBrand(website: record.website, name: record.name) {
             Image(brand.assetName).resizable().scaledToFit().accessibilityLabel(brand.title).frame(width: 34, height: 34).clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
                 .frame(width: 38)
         } else {
             Image(systemName: record.isSeed ? "wallet.bifold" : record.isCard ? "creditcard.fill" : record.isNote ? "note.text" : "key.fill")
                 .font(.title3).foregroundStyle(.tint).frame(width: 34, height: 34)
-                .overlay(alignment: .topTrailing) { if record.favorite { Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(.yellow).offset(x: 4, y: -4) } }
                 .frame(width: 38)
         }
     }

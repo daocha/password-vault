@@ -44,6 +44,7 @@ struct TotpRow: View {
                     Text(record.name.isEmpty ? localized("Untitled") : record.name).font(.system(size: titleSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1).frame(minHeight: titleHeight, alignment: .leading)
                     if let account = record.totp?.account, !account.isEmpty { Text(account).font(.system(size: subtitleSize)).foregroundStyle(.secondary).lineLimit(1).frame(minHeight: subtitleHeight, alignment: .leading) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
+                if record.favorite { Image(systemName: "star.fill").font(.system(size: 18)).foregroundStyle(Color.accentColor).accessibilityLabel("Favorites") }
                 if selection?.selecting == true { EmptyView() }
                 else if let totp = record.totp {
                     let code = totp.code(at: context.date)

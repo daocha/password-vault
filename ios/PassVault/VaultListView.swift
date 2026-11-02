@@ -378,6 +378,7 @@ struct VaultEntryRow: View {
                     GroupTag(name: VaultListFilter.folderName(record)).padding(.top, 4)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
+            if record.favorite { Image(systemName: "star.fill").font(.system(size: 18)).foregroundStyle(Color.accentColor).accessibilityLabel("Favorites") }
             if let selection, !selection.selecting, !record.isTotp {
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
