@@ -109,7 +109,7 @@ struct RecordList: View {
                         }
                     }
                 }
-            }
+            }.fixedSize(horizontal: false, vertical: true)
             if !tabRecords.isEmpty {
                 HStack {
                     Text(localizedFormat(showTotp ? "%lld of %lld codes" : tab == .seed ? "%lld of %lld seed phrases" : "%lld of %lld entries", filtered.count, tabRecords.count))

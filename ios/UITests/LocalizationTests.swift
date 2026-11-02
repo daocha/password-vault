@@ -54,6 +54,9 @@ final class LocalizationTests: XCTestCase {
     private func openSettings(_ app: XCUIApplication) {
         let button = app.buttons["vault.settings"]
         XCTAssertTrue(button.waitForExistence(timeout: 30), app.debugDescription)
+        let tabs = app.segmentedControls.firstMatch
+        XCTAssertTrue(tabs.exists)
+        XCTAssertLessThanOrEqual(tabs.frame.minY - button.frame.maxY, 12, "Tabs should sit directly below the compact header")
         button.tap()
         XCTAssertTrue(app.buttons["settings.language"].waitForExistence(timeout: 10))
     }
