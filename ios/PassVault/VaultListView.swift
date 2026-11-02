@@ -294,13 +294,14 @@ struct RecordList: View {
                     Label("Add 2FA code", systemImage: "qrcode.viewfinder")
                 }
             } else {
+                // Secure note first and Login last, so Login sits next to the button; fixed order keeps iOS from flipping it.
                 Menu {
-                    Button("Login", systemImage: "key") { editing = VaultRecord() }
-                    Button("Payment card", systemImage: "creditcard") { editing = VaultRecord.new(type: "card") }
                     Button("Secure note", systemImage: "note.text") { editing = VaultRecord.new(type: "note") }
+                    Button("Payment card", systemImage: "creditcard") { editing = VaultRecord.new(type: "card") }
+                    Button("Login", systemImage: "key") { editing = VaultRecord() }
                 } label: {
                     Label("New entry", systemImage: "plus")
-                }
+                }.menuOrder(.fixed)
             }
         }
     }
