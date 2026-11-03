@@ -80,8 +80,29 @@ if [ "$app_store" = 1 ]; then
     || die 'App Store releases require an iOS target and release configuration in this repository.'
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'App Store versions must have three numeric components.'
   [ "$code" -le 9999 ] || die 'The single-component iOS build number must be at most 9999.'
-  "$here/build-ios-app-store.sh" --check
 fi
+# Refuse collisions for every selected build before editing versions or building any platform.
+# Older releases may remain in dist; only paths this run would write must be absent.
+apk="$root/dist/$app_name-$version-$code.apk"
+sums="$root/dist/$app_name-$version-$code.SHA256SUMS"
+aab="$root/dist/$app_name-$version-$code-play.aab"
+archive="$root/dist/$app_name-$version-$code.xcarchive"
+store_output="$root/dist/$app_name-$version-$code-app-store"
+outputs=("$apk" "$sums")
+[ "$play" = 0 ] || outputs+=("$aab" "$root/dist/$app_name-$version-$code-play-mapping.txt")
+[ "$app_store" = 0 ] || outputs+=("$archive" "$store_output")
+if [ "$dry_run" = 0 ] && [ -z "$notes_file" ]; then
+  outputs+=("$root/dist/$app_name-$version-notes.md")
+fi
+if [ -e "$root/dist" ] || [ -L "$root/dist" ]; then
+  [ -d "$root/dist" ] || die "Release output path is not a directory: $root/dist"
+fi
+for output in "${outputs[@]}"; do
+  if [ -e "$output" ] || [ -L "$output" ]; then
+    die "Release output already exists: $output. Move it aside before retrying. To upload an existing iOS archive, use scripts/build-ios-app-store.sh --upload-archive PATH."
+  fi
+done
+[ "$app_store" = 0 ] || "$here/build-ios-app-store.sh" --check
 tag="v$version"
 git check-ref-format "refs/tags/$tag" >/dev/null || die "Invalid version tag: $tag"
 if [ "$dry_run" = 0 ]; then
@@ -109,10 +130,7 @@ if [ "$play" = 1 ] && [ -t 0 ]; then find_toolchain; ensure_keystore; fi
 printf 'Building %s %s (%s)%s\n' "$app_name" "$version" "$code" "$([ "$dry_run" = 1 ] && printf ' — local dry run' || true)"
 if [ "$skip_tests" = 1 ]; then "$here/build-android-release.sh" --skip-tests
 else "$here/build-android-release.sh"; fi
-apk="$root/dist/$app_name-$version-$code.apk"
-sums="$root/dist/$app_name-$version-$code.SHA256SUMS"
 [ -f "$apk" ] && [ -f "$sums" ] || die 'Missing release artifacts.'
-aab="$root/dist/$app_name-$version-$code-play.aab"
 if [ "$play" = 1 ]; then
   # Tests and release Lint already ran for the APK; the Play script still lints its own variant unless skipped.
   if [ "$skip_tests" = 1 ]; then "$here/build-android-play.sh" --skip-tests
@@ -123,8 +141,7 @@ forget_passwords
 if [ "$app_store" = 1 ]; then
   if [ "$skip_tests" = 1 ]; then "$here/build-ios-app-store.sh" --skip-tests
   else "$here/build-ios-app-store.sh"; fi
-  archive="$root/dist/$app_name-$version-$code.xcarchive"
-  ipa="$root/dist/$app_name-$version-$code-app-store/$ios_scheme.ipa"
+  ipa="$store_output/$ios_scheme.ipa"
   [ -d "$archive" ] && [ -f "$ipa" ] || die 'Missing App Store archive or IPA.'
 fi
 if [ "$dry_run" = 1 ]; then

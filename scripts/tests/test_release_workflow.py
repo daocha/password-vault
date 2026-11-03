@@ -18,7 +18,9 @@ APP = re.search(r"^app_name=(\w+)$", (PROJECT / "scripts/release-settings.sh").r
 
 # Stand-ins for the build scripts: they write the artifacts the real ones would, named from the version in Gradle.
 STUB_BUILD = '''#!/usr/bin/env python3
-import pathlib, re
+import json, os, pathlib, re
+with open(os.environ['TEST_RELEASE_LOG'], 'a') as f:
+    f.write(json.dumps(['android', pathlib.Path(__file__).name]) + '\\n')
 root = pathlib.Path(__file__).resolve().parents[1]
 s = (root / 'android/app/build.gradle.kts').read_text()
 v = re.search(r'versionName = "([^"]+)"', s).group(1)
@@ -114,6 +116,83 @@ out.mkdir(parents=True, exist_ok=True)
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
+    def test_existing_selected_outputs_stop_before_any_build_or_version_edit(self):
+        suffixes = ('.apk', '.SHA256SUMS', '-play.aab', '-play-mapping.txt',
+                    '.xcarchive', '-app-store', '-notes.md')
+        dist = self.repo / 'dist'
+        dist.mkdir()
+        for dry_run in (False, True):
+            for suffix in suffixes:
+                if dry_run and suffix == '-notes.md':
+                    continue  # Dry runs do not generate release notes.
+                with self.subTest(suffix=suffix, dry_run=dry_run):
+                    stem = f'{APP}-1.1.0' if suffix == '-notes.md' else f'{APP}-1.1.0-2'
+                    output = dist / (stem + suffix)
+                    directory = suffix in ('.xcarchive', '-app-store')
+                    if directory:
+                        output.mkdir()
+                        (output / 'keep').write_bytes(b'existing output')
+                    else:
+                        output.write_bytes(b'existing output')
+                    self.log.unlink(missing_ok=True)
+                    args = ['--version', '1.1.0', '--play', '--app-store']
+                    if dry_run:
+                        args.append('--dry-run')
+                    result = self.run_release(*args)
+                    self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+                    self.assertIn(str(output), result.stderr)
+                    self.assertIn('Move it aside', result.stderr)
+                    self.assertEqual('', self.git('diff'))
+                    self.assertEqual('', self.git('tag'))
+                    self.assertFalse(any(c[0] in ('android', 'ios') or c[:2] == ['git', 'push']
+                                         or c[:2] == ['gh', 'release'] for c in self.calls()))
+                    self.assertEqual([output], list(dist.iterdir()))
+                    if directory:
+                        self.assertEqual(b'existing output', (output / 'keep').read_bytes())
+                        shutil.rmtree(output)
+                    else:
+                        self.assertEqual(b'existing output', output.read_bytes())
+                        output.unlink()
+
+    def test_dangling_output_symlink_stops_before_build(self):
+        dist = self.repo / 'dist'
+        dist.mkdir()
+        output = dist / f'{APP}-1.0.0-1.apk'
+        output.symlink_to(dist / 'missing')
+        result = self.run_release('--dry-run')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(str(output), result.stderr)
+        self.assertEqual([], self.calls())
+        self.assertTrue(output.is_symlink())
+
+    def test_dist_must_be_a_directory(self):
+        (self.repo / 'dist').write_text('keep')
+        result = self.run_release('--dry-run')
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('not a directory', result.stderr)
+        self.assertEqual([], self.calls())
+        self.assertEqual('keep', (self.repo / 'dist').read_text())
+
+    def test_unrelated_and_unselected_outputs_are_preserved(self):
+        dist = self.repo / 'dist'
+        dist.mkdir()
+        for filename in (f'{APP}-0.9.0-1.apk', f'{APP}-1.0.0-1-play.aab',
+                         f'{APP}-1.0.0-1.xcarchive', f'{APP}-1.0.0-1-app-store'):
+            (dist / filename).write_bytes(b'keep')
+        result = self.run_release()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(b'keep', (dist / f'{APP}-0.9.0-1.apk').read_bytes())
+        self.assertEqual(b'keep', (dist / f'{APP}-1.0.0-1-play.aab').read_bytes())
+
+    def test_supplied_notes_file_may_already_exist_in_dist(self):
+        dist = self.repo / 'dist'
+        dist.mkdir()
+        notes = dist / f'{APP}-1.0.0-notes.md'
+        notes.write_text('Provided release notes')
+        result = self.run_release('--notes-file', str(notes))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual('Provided release notes', notes.read_text())
+
     def test_version_bump_sign_publish_order_and_assets(self):
         result = self.run_release("--version", "1.1.0")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -164,12 +243,15 @@ out.mkdir(parents=True, exist_ok=True)
     def test_github_failure_prevents_apple_upload(self):
         for failure in ('TEST_PUSH_FAIL', 'TEST_UPLOAD_FAIL'):
             with self.subTest(failure=failure):
-                # Use a fresh fixture for each failure.
                 self.env[failure] = '1'
                 result = self.run_release('--app-store')
                 self.assertNotEqual(0, result.returncode)
                 self.assertFalse(any('--upload-archive' in c for c in self.calls()))
+                self.assertIn('Push refused' if failure == 'TEST_PUSH_FAIL' else 'upload failed', result.stderr)
                 self.env.pop(failure)
+                # Failed builds leave outputs behind; isolate the next publication failure.
+                shutil.rmtree(self.repo / 'dist')
+                self.log.unlink()
 
     def test_combined_release_exports_dotenv_settings_to_ios_child(self):
         for key in ('DEVELOPMENT_TEAM', 'ASC_KEY_ID', 'ASC_KEY_PATH', 'ASC_ISSUER_ID'):
@@ -185,13 +267,13 @@ out.mkdir(parents=True, exist_ok=True)
         (self.repo / '.env').write_text('not-an-assignment\n')
         result = self.run_release('--dry-run')
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual([], self.calls())
+        self.assertTrue(all(c[0] == 'android' for c in self.calls()))
 
     def test_app_store_dry_run_does_not_publish_or_upload(self):
         result = self.run_release('--app-store', '--dry-run')
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual('', self.git('tag'))
-        self.assertTrue(all(c[0] == 'ios' for c in self.calls()))
+        self.assertTrue(all(c[0] in ('ios', 'android') for c in self.calls()))
         self.assertFalse(any('--upload-archive' in c for c in self.calls()))
 
     def test_app_store_without_ios_configuration_stops_before_build(self):
@@ -242,7 +324,7 @@ out.mkdir(parents=True, exist_ok=True)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(before, self.git('rev-parse', 'HEAD'))
         self.assertEqual('', self.git('tag'))
-        self.assertEqual([], self.calls())
+        self.assertTrue(all(c[0] == 'android' for c in self.calls()))
 
     def test_uncommitted_change_stops_before_build_or_push(self):
         (self.repo / '.gitignore').write_text('dist/\nwork in progress\n')
