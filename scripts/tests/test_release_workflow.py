@@ -218,6 +218,28 @@ out.mkdir(parents=True, exist_ok=True)
         create = next(c for c in self.calls() if c[:3] == ['gh', 'release', 'create'])
         self.assertFalse(any(x.endswith('.aab') or x.endswith('mapping.txt') for x in create))
 
+    def configure_latest_apk_asset(self, name):
+        with (self.repo / "scripts/release-settings.sh").open('a') as f:
+            f.write(f"\nlatest_apk_asset={name}\n")
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'Configure the fixed-name APK')
+
+    def test_fixed_name_apk_is_uploaded_when_configured_and_leaves_nothing_behind(self):
+        self.configure_latest_apk_asset(f'{APP}.apk')
+        result = self.run_release("--version", "1.1.0")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        create = next(c for c in self.calls() if c[:3] == ['gh', 'release', 'create'])
+        self.assertTrue(any(x.endswith(f'/{APP}.apk') for x in create))
+        self.assertTrue(any(x.endswith(f'/{APP}-1.1.0-2.apk') for x in create))
+        self.assertEqual([], list((self.repo / 'dist').glob('.latest-apk.*')))
+
+    def test_no_fixed_name_apk_unless_configured(self):
+        self.configure_latest_apk_asset('')
+        result = self.run_release("--version", "1.1.0")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        create = next(c for c in self.calls() if c[:3] == ['gh', 'release', 'create'])
+        self.assertEqual(1, sum(x.endswith('.apk') for x in create))
+
     def test_app_store_build_matches_version_and_stays_off_github(self):
         result = self.run_release('--version', '1.1.0', '--play', '--app-store', '--skip-tests')
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
