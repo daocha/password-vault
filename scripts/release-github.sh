@@ -173,11 +173,22 @@ if [ -z "$notes_file" ]; then
   notes_file="$root/dist/$app_name-$version-notes.md"
   default_release_notes "$version" "$code" "$commit" > "$notes_file"
 fi
-release_args=(release create "$tag" "$apk" "$sums" --repo "$repo" --verify-tag --draft
+release_files=("$apk" "$sums")
+# Optional, from release-settings.sh: the same APK under a fixed name, so a releases/latest/download link stays valid.
+latest_dir=''
+if [ -n "${latest_apk_asset:-}" ]; then
+  latest_dir="$(mktemp -d "$root/dist/.latest-apk.XXXXXX")"
+  cp "$apk" "$latest_dir/$latest_apk_asset"
+  release_files+=("$latest_dir/$latest_apk_asset")
+fi
+release_args=(release create "$tag" "${release_files[@]}" --repo "$repo" --verify-tag --draft
   --title "$app_name $version" --notes-file "$notes_file")
 [ "$prerelease" = 0 ] || release_args+=(--prerelease)
 # Upload into a draft first. A failed upload must not expose an incomplete public release.
-if ! gh "${release_args[@]}"; then
+uploaded=1
+gh "${release_args[@]}" || uploaded=0
+[ -z "$latest_dir" ] || rm -rf "$latest_dir"
+if [ "$uploaded" = 0 ]; then
   die "Tag was pushed; upload failed. Inspect 'gh release view $tag --repo $repo' for a draft before retrying."
 fi
 if [ "$draft" = 0 ]; then
