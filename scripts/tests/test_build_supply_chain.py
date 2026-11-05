@@ -11,7 +11,8 @@ PROJECT = Path(__file__).resolve().parents[2]
 class BuildSupplyChainTest(unittest.TestCase):
     def test_gradle_never_gets_signing_material(self):
         build = (PROJECT / "android/app/build.gradle.kts").read_text()
-        for word in ("signingConfig", "KEYSTORE", "KEY_PASSWORD", "storePassword", "keyPassword"):
+        # PassVault's ALLOW_SOFTWARE_KEYSTORE setting is about the app's own vault keys, so match the signing names only.
+        for word in ("signingConfig", "_KEYSTORE_", "KEY_PASSWORD", "storePassword", "keyPassword"):
             self.assertNotIn(word, build)
         for script in ("build-android-release.sh", "build-android-play.sh", "_signing-common.sh"):
             text = (PROJECT / "scripts" / script).read_text()
