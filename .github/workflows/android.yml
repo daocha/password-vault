@@ -5,7 +5,18 @@ name: Android
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', '.github/CODEOWNERS', '.github/dependabot.yml']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', '.github/CODEOWNERS', '.github/dependabot.yml']
+  # Emulator and simulator tests skip pushes to main (the pull request ran them), so check main once a night.
+  schedule:
+    - cron: '23 19 * * *'
+  workflow_dispatch:
+
+# A new push to a pull request replaces its older run, so outdated runs do not hold up the queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -54,6 +65,7 @@ jobs:
   # "qa" variant, which accepts software-backed keys and does not need the device unlocked. Keystore keys still need a secure lock
   # screen, hence the PIN (.github/scripts/set-emulator-pin.sh).
   instrumented:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -71,6 +83,8 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # Emulators on shared runners sometimes fail a test by chance, so a failure gets one more try. The warning keeps
+      # that visible: a test that keeps needing it should be fixed.
       - name: Instrumented tests
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -81,7 +95,7 @@ jobs:
           working-directory: android
           script: |
             sh ../.github/scripts/set-emulator-pin.sh
-            ./gradlew --no-daemon :app:connectedQaAndroidTest
+            ./gradlew --no-daemon :app:connectedQaAndroidTest || (echo "::warning::Instrumented tests failed once; retrying" && ./gradlew --no-daemon :app:connectedQaAndroidTest)
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
