@@ -11,6 +11,8 @@ it offline. Only the GitHub sideload build (`src/release`) and a debug build giv
 - Android: `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug` in `android/` (CI runs all three).
   Instrumented tests run on an emulator with the emulator-only `qa` variant: `:app:connectedQaAndroidTest`.
 - iOS: `swift run vault-security-checks` in `ios/` (needs Xcode).
+- After changing a Gradle dependency or plugin, run `scripts/update-gradle-verification.sh`; the build checks every
+  download against `android/gradle/verification-metadata.xml`.
 
 ## Keeping Android and iOS the same
 

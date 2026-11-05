@@ -40,6 +40,10 @@ The name "upload" is historical: this is the app's only signing key, for GitHub 
 - Back the keystore and its password up in two places, one offline. Losing it ends updates for GitHub installs.
 - Gradle never receives the passwords: it runs code from every plugin and library it downloads, so it builds
   unsigned, and `apksigner` or `jarsigner` signs its output after it exits.
+- `android/gradle/verification-metadata.xml` lists the SHA-256 of every Gradle plugin and library, and
+  `distributionSha256Sum` pins Gradle itself, so a download that changed fails the build. After changing a dependency,
+  run `scripts/update-gradle-verification.sh` and read the diff: only the packages you meant to change should move.
+  CI installs XcodeGen with `scripts/install-xcodegen.sh`, which checks a pinned hash.
 - `scripts/print-signing-fingerprint.sh [cert.pem]` prints the key's SHA-256 fingerprint (to compare with Play's
   **App integrity** page or to register the app for Android developer verification). It needs only a JDK or
   openssl, not the Android SDK, and never creates a key.
