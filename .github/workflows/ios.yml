@@ -34,7 +34,7 @@ jobs:
         run: swift run --package-path ios vault-security-checks
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: scripts/install-xcodegen.sh
 
       - name: Generate Xcode project
         working-directory: ios

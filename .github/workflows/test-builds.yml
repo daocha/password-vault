@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Tools
-        run: brew install xcodegen
+        run: scripts/install-xcodegen.sh
 
       - name: Core security checks
         run: swift run --package-path ios vault-security-checks
