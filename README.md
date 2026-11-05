@@ -157,6 +157,19 @@ flowchart LR
 
 ---
 
+### Debug updates over your LAN
+
+To send debug builds to a phone over your LAN, set `PASSVAULT_DEV_UPDATE_HOST` in `.env`, build the debug APK, then run:
+
+```bash
+./scripts/serve-dev-update.sh           # starts in the background; safe to run again after every build
+./scripts/serve-dev-update.sh --status  # also --stop and --foreground
+```
+
+The files are served only under a secret path that the build also puts in the app, so others on the network cannot find the debug APK. The secret is made once, in `~/.android/passvault-dev-update-secret`, and stays the same across builds and new clones. If that file is lost, install the debug build once by hand.
+
+A debug build installed before the secret existed still asks at the old address. Once, after building, run `./scripts/serve-dev-update.sh --migrate`, let the phone update, then run the plain command again. No reinstall is needed. The plain command also stops any older server that has no secret path, on any port.
+
 ## 🚚 Moving your passwords in
 
 **Coming from BlackBerry Password Keeper?** PassVault imports its backup files directly, on both iOS and Android. Password Keeper offers two export types, and they are not equal:
