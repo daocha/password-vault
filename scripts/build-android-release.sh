@@ -28,25 +28,20 @@ trap forget_passwords EXIT
 if [ ! -f "$lineage" ] && ls "$lineage".bak-* >/dev/null 2>&1; then
   die "Found $lineage.bak-* but no $lineage. Restore it or re-run scripts/rotate-signing-key.sh."
 fi
-# Tests run in a separate Gradle process that never receives the signing secrets.
 tasks=(clean)
 [ "$run_tests" = 0 ] || tasks+=(:app:testDebugUnitTest :app:lintRelease)
-run_unsigned_gradle --no-daemon "${tasks[@]}"
-run_signed_gradle :app:assembleRelease
+run_unsigned_gradle --no-daemon "${tasks[@]}" :app:assembleRelease
+unsigned_apk="$android_root/app/build/outputs/apk/release/app-release-unsigned.apk"
+[ -f "$unsigned_apk" ] || die 'The release APK was not produced.'
 source_apk="$android_root/app/build/outputs/apk/release/app-release.apk"
-[ -f "$source_apk" ] || die 'Signed release APK was not produced.'
 if [ -f "$lineage" ]; then
-  # Re-sign with the lineage (APK Signature Scheme v3 only; every supported Android version verifies it).
-  rotated="$android_root/app/build/outputs/apk/release/app-release-rotated.apk"
-  "$apksigner" sign --ks "$keystore" --ks-key-alias "$alias_name" \
-    --ks-pass "env:$keystore_password_var" --key-pass "env:$key_password_var" --lineage "$lineage" \
-    --min-sdk-version "$min_sdk" --rotation-min-sdk-version "$min_sdk" \
-    --v1-signing-enabled false --v2-signing-enabled false --v3-signing-enabled true \
-    --out "$rotated" "$source_apk" \
+  # APK Signature Scheme v3 only with a lineage; every supported Android version verifies it.
+  sign_apk "$unsigned_apk" "$source_apk" --lineage "$lineage" --rotation-min-sdk-version "$min_sdk" \
+    --v2-signing-enabled false --v3-signing-enabled true \
     || die "Signing with the lineage failed. Does $lineage end with the key in $keystore? (Re-run scripts/rotate-signing-key.sh --force.)"
-  rm -f "$rotated.idsig"
-  source_apk="$rotated"
   printf 'Key-rotation lineage attached: %s\n' "$lineage"
+else
+  sign_apk "$unsigned_apk" "$source_apk" --v2-signing-enabled true --v3-signing-enabled false || die 'Signing the APK failed.'
 fi
 verify_release_apk "$source_apk"
 mkdir -p "$root/dist"

@@ -132,19 +132,36 @@ sha256() {
   else die 'Install shasum or sha256sum.'; fi
 }
 
-# Debug/test processes never receive signing material, even if the caller exported it.
+# Gradle runs code from every plugin and library it downloads, so it never receives signing material, even if the
+# caller exported it. It builds unsigned; sign_apk and sign_bundle sign its output after it has exited.
 run_unsigned_gradle() (
   unset "$keystore_password_var" "$key_password_var" "${env_prefix}_KEYSTORE_FILE" "${env_prefix}_KEY_ALIAS"
   cd "$android_root"
   ./gradlew "${gradle_args[@]}" "$@"
 )
 
-# Signed builds: a single-use Gradle process and in-process Kotlin compilation, so no daemon keeps the password.
-run_signed_gradle() (
-  export "${env_prefix}_KEYSTORE_FILE=$keystore" "${env_prefix}_KEY_ALIAS=$alias_name"
-  cd "$android_root"
-  ./gradlew "${gradle_args[@]}" --no-daemon "$@"
-)
+# Signs an APK with the Android SDK's own tool. Arguments: input, output, then the schemes and any lineage to use.
+sign_apk() {
+  local input="$1" output="$2"
+  shift 2
+  "$apksigner" sign --ks "$keystore" --ks-key-alias "$alias_name" \
+    --ks-pass "env:$keystore_password_var" --key-pass "env:$key_password_var" \
+    --min-sdk-version "$min_sdk" --v1-signing-enabled false --v4-signing-enabled false "$@" --out "$output" "$input"
+}
+
+# Signs an Android App Bundle, which Google Play expects to be signed like a JAR. Arguments: input, output.
+sign_bundle() {
+  local key_type
+  key_type="$("$JAVA_HOME/bin/keytool" -list -v -keystore "$keystore" -alias "$alias_name" \
+    -storepass:env "$keystore_password_var" 2>/dev/null | sed -n 's/^Subject Public Key Algorithm: //p')"
+  case "$key_type" in
+    *RSA*) key_type=SHA256withRSA ;;
+    *EC*) key_type=SHA256withECDSA ;;
+    *) die "Cannot sign a bundle with this type of key: $key_type" ;;
+  esac
+  "$JAVA_HOME/bin/jarsigner" -keystore "$keystore" -storepass:env "$keystore_password_var" \
+    -keypass:env "$key_password_var" -sigalg "$key_type" -digestalg SHA-256 -signedjar "$2" "$1" "$alias_name" >/dev/null
+}
 
 forget_passwords() { unset "$keystore_password_var" "$key_password_var"; }
 
