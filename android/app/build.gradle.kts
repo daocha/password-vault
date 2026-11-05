@@ -1,6 +1,7 @@
 import com.android.build.api.artifact.SingleArtifact
 import com.android.build.api.variant.BuiltArtifactsLoader
 import java.security.MessageDigest
+import java.security.SecureRandom
 
 plugins {
     id("com.android.application")
@@ -18,6 +19,22 @@ val devUpdateHost = devSetting("PASSVAULT_DEV_UPDATE_HOST")?.takeIf(String::isNo
 }
 val devUpdatePort = (devSetting("PASSVAULT_DEV_UPDATE_PORT") ?: "8766").also {
     require(it.toIntOrNull() in 1..65535) { "PASSVAULT_DEV_UPDATE_PORT must be a port number" }
+}
+// scripts/serve-dev-update.sh answers only under this path, so others on the LAN cannot find or download the debug APK.
+// Made once and kept next to the debug key, which these updates need anyway, so it stays the same across builds and clones.
+val devUpdateSecret = devUpdateHost?.let {
+    val file = File(System.getProperty("user.home"), ".android/passvault-dev-update-secret")
+    if (!file.isFile) {
+        file.parentFile.mkdirs()
+        val bytes = ByteArray(16).also { random -> SecureRandom().nextBytes(random) }
+        file.createNewFile()
+        file.setReadable(false, false); file.setWritable(false, false)
+        file.setReadable(true, true); file.setWritable(true, true)
+        file.writeText(bytes.joinToString("") { byte -> "%02x".format(byte) } + "\n")
+    }
+    file.readText().trim().also { secret ->
+        require(Regex("[0-9a-f]{32}").matches(secret)) { "$file must hold a 32-digit hex secret; delete it to make a new one" }
+    }
 }
 android {
     namespace = "app.passvault"
@@ -57,7 +74,7 @@ android {
             applicationIdSuffix = ".debug"; versionNameSuffix = "-debug"; manifestPlaceholders["appLabel"] = "PassVault Dev"
             if (devUpdateHost != null) {
                 buildConfigField("String", "UPDATE_CHANNEL", "\"lan\"")
-                buildConfigField("String", "DEV_UPDATE_URL", "\"http://$devUpdateHost:$devUpdatePort/\"")
+                buildConfigField("String", "DEV_UPDATE_URL", "\"http://$devUpdateHost:$devUpdatePort/$devUpdateSecret/\"")
             }
         }
         release {
