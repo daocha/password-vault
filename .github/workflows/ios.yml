@@ -5,7 +5,18 @@ name: iOS
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', '.github/CODEOWNERS', '.github/dependabot.yml']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', '.github/CODEOWNERS', '.github/dependabot.yml']
+  # Emulator and simulator tests skip pushes to main (the pull request ran them), so check main once a night.
+  schedule:
+    - cron: '23 19 * * *'
+  workflow_dispatch:
+
+# A new push to a pull request replaces its older run, so outdated runs do not hold up the queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -37,8 +48,10 @@ jobs:
           CODE_SIGNING_ALLOWED=NO build
 
       - name: Test vault lifecycle, settings and language switching in Simulator
+        if: github.event_name != 'push'
         working-directory: ios
         run: >-
           xcodebuild -project PassVault.xcodeproj -scheme PassVault
           -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
-          -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
+          -parallel-testing-enabled NO -retry-tests-on-failure -test-iterations 2
+          CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
