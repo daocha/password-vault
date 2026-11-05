@@ -38,8 +38,8 @@ The name "upload" is historical: this is the app's only signing key, for GitHub 
 - When no keystore is found, the scripts offer to create one. **Say no if you already have a key**: a new key
   cannot update existing installs.
 - Back the keystore and its password up in two places, one offline. Losing it ends updates for GitHub installs.
-- Passwords reach Gradle only through the environment of a single-use Gradle process; tests and lint run in
-  a separate process that never sees them.
+- Gradle never receives the passwords: it runs code from every plugin and library it downloads, so it builds
+  unsigned, and `apksigner` or `jarsigner` signs its output after it exits.
 - `scripts/print-signing-fingerprint.sh [cert.pem]` prints the key's SHA-256 fingerprint (to compare with Play's
   **App integrity** page or to register the app for Android developer verification). It needs only a JDK or
   openssl, not the Android SDK, and never creates a key.
