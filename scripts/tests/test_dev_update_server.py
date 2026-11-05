@@ -132,6 +132,22 @@ class ServerTest(unittest.TestCase):
             os.kill(pid, 0)
         self.assertEqual(self.project.run("--stop").returncode, 0)
 
+    def test_status_says_whether_it_also_answers_old_builds(self):
+        self.start("--migrate")
+        result = self.project.run("--status")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIn(", also answering builds from before the secret", result.stdout)
+        self.start()
+        result = self.project.run("--status")
+        self.assertEqual(result.stderr, "")
+        self.assertNotIn("also answering", result.stdout)
+
+    def test_script_has_no_case_inside_a_command_substitution(self):
+        # macOS's bash 3.2 cannot parse this and only fails when that line runs. CI's newer bash would not notice.
+        script = (PROJECT / "scripts/serve-dev-update.sh").read_text()
+        self.assertNotIn("$(case", script)
+
     def test_migrate_answers_old_builds_until_the_plain_command_runs(self):
         self.start("--migrate")
         self.assertEqual(self.project.get("/latest.json")[0], 200)
