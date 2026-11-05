@@ -25,14 +25,17 @@ ensure_keystore
 trap forget_passwords EXIT
 tasks=(clean)
 [ "$run_tests" = 0 ] || tasks+=(:app:testDebugUnitTest :app:lintPlayRelease)
-run_unsigned_gradle --no-daemon "${tasks[@]}"
 # The APK of the same variant is built only to check the merged manifest; the bundle is what goes to Play.
-run_signed_gradle :app:bundlePlayRelease :app:assemblePlayRelease
-source_aab="$android_root/app/build/outputs/bundle/playRelease/app-playRelease.aab"
+run_unsigned_gradle --no-daemon "${tasks[@]}" :app:bundlePlayRelease :app:assemblePlayRelease
+unsigned_aab="$android_root/app/build/outputs/bundle/playRelease/app-playRelease.aab"
+unsigned_apk="$android_root/app/build/outputs/apk/playRelease/app-playRelease-unsigned.apk"
+source_aab="$android_root/app/build/outputs/bundle/playRelease/app-playRelease-signed.aab"
 check_apk="$android_root/app/build/outputs/apk/playRelease/app-playRelease.apk"
 source_mapping="$android_root/app/build/outputs/mapping/playRelease/mapping.txt"
-[ -f "$source_aab" ] && [ -f "$check_apk" ] || die 'The playRelease bundle was not produced.'
+[ -f "$unsigned_aab" ] && [ -f "$unsigned_apk" ] || die 'The playRelease bundle was not produced.'
 [ -f "$source_mapping" ] || die 'The playRelease R8 mapping file was not produced.'
+sign_bundle "$unsigned_aab" "$source_aab" || die 'Signing the bundle failed.'
+sign_apk "$unsigned_apk" "$check_apk" --v2-signing-enabled true --v3-signing-enabled false || die 'Signing the APK failed.'
 verify_release_apk "$check_apk"
 permissions="$("$aapt" dump permissions "$check_apk")"
 for permission in ${play_forbidden_permissions[@]+"${play_forbidden_permissions[@]}"}; do

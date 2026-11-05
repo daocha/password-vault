@@ -45,14 +45,7 @@ android {
         resources { excludes += "org/bouncycastle/**" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    // Release signing comes only from the environment (set by scripts/_signing-common.sh); no key is ever committed.
-    val releaseKeystore = System.getenv("PASSVAULT_KEYSTORE_FILE")
-    signingConfigs {
-        if (releaseKeystore != null) create("release") {
-            storeFile = file(releaseKeystore); storePassword = System.getenv("PASSVAULT_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("PASSVAULT_KEY_ALIAS"); keyPassword = System.getenv("PASSVAULT_KEY_PASSWORD")
-        }
-    }
+    // Release builds come out unsigned: Gradle runs third-party code, so scripts/_signing-common.sh signs them after it exits.
     buildTypes {
         // UPDATE_CHANNEL: "none" (qa, and debug without a LAN server: no update check), "lan" (debug with
         // PASSVAULT_DEV_UPDATE_HOST), "github" (sideload APK), "play" (Google Play AAB).
@@ -68,7 +61,6 @@ android {
             }
         }
         release {
-            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true; isShrinkResources = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Phones are ARM; x86 is only for emulators, which use the debug and qa builds (they keep every ABI).
             ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
