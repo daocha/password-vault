@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -148,6 +149,15 @@ class MainActivity : FragmentActivity() {
     private var language by mutableStateOf("")
     /** Applies the in-app language override ("" follows the system) before any resources are read. */
     override fun attachBaseContext(newBase: Context) = super.attachBaseContext(withAppLanguage(newBase))
+    /** Strings read through the activity (getString, stringResource) follow the chosen language at once, without recreating the activity, which would lock the vault. */
+    private var languageResources: android.content.res.Resources? = null
+    override fun getResources(): android.content.res.Resources = languageResources ?: super.getResources()
+    private fun applyLanguage() {
+        // The application context is never wrapped, so an empty tag gets the system's own locale back.
+        val app = applicationContext
+        languageResources = app.createConfigurationContext(languageConfiguration(app.resources.configuration, language)).resources
+    }
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); if (languageResources != null) applyLanguage() }
     private var biometricEnabled by mutableStateOf(false)
     /** Whether PassVault is the device's autofill service; read again whenever the app comes back. */
     private var autofillEnabled by mutableStateOf(false)
@@ -608,7 +618,10 @@ class MainActivity : FragmentActivity() {
         setContent {
             val fileWorking by fileJobs.running.collectAsState()
             val notices by fileNotices.pending.collectAsState()
-            PassVaultTheme(themeMode) { BlockTextCopy(!allowCopy, ::copySecret) {
+            // Compose reads strings through the configuration's locale: give it the chosen language, so a change redraws in place.
+            val systemConfiguration = LocalConfiguration.current
+            val configuration = remember(systemConfiguration, language) { languageConfiguration(if (language.isEmpty()) applicationContext.resources.configuration.let { android.content.res.Configuration(systemConfiguration).apply { setLocales(it.locales) } } else systemConfiguration, language) }
+            CompositionLocalProvider(LocalConfiguration provides configuration) { PassVaultTheme(themeMode) { BlockTextCopy(!allowCopy, ::copySecret) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                         key(generation) {
@@ -654,7 +667,7 @@ class MainActivity : FragmentActivity() {
                         }
                     }
                 }
-            } }
+            } } }
         }
     }
     override fun onStart() {
@@ -1318,7 +1331,7 @@ class MainActivity : FragmentActivity() {
             null -> {}
             SettingsDialog.LanguageChoice -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.Language, null) }, title = { Text(stringResource(R.string.main_language)) },
                 text = { Column {
-                    LANGUAGES.forEach { tag -> androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(language == tag, onClick = { dialog = null; if (language != tag) { language = tag; prefs.edit().putString("language", tag).apply(); recreate() } }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(language == tag, null); Text("  " + stringResource(languageName(tag))) } }
+                    LANGUAGES.forEach { tag -> androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(language == tag, onClick = { dialog = null; if (language != tag) { language = tag; prefs.edit().putString("language", tag).apply(); applyLanguage() } }).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(language == tag, null); Text("  " + stringResource(languageName(tag))) } }
                 } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_close)) } })
             SettingsDialog.AutoLockChoice -> AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.Timer, null) }, title = { Text(stringResource(R.string.main_auto_lock)) },
                 text = { Column {

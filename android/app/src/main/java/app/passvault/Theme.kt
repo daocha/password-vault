@@ -58,9 +58,12 @@ fun PassVaultTheme(mode: ThemeMode, content: @Composable () -> Unit) {
 /** [base] in the in-app language override ("" follows the system), applied before any resources are read. */
 fun withAppLanguage(base: android.content.Context): android.content.Context {
     val tag = base.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE).getString("language", "").orEmpty()
-    if (tag.isEmpty()) return base
-    return base.createConfigurationContext(android.content.res.Configuration(base.resources.configuration).apply { setLocale(java.util.Locale.forLanguageTag(tag)) })
+    return if (tag.isEmpty()) base else base.createConfigurationContext(languageConfiguration(base.resources.configuration, tag))
 }
+
+/** [base] with the locale of the in-app language [tag]; an empty tag leaves the locale [base] already has. */
+fun languageConfiguration(base: android.content.res.Configuration, tag: String): android.content.res.Configuration =
+    android.content.res.Configuration(base).apply { if (tag.isNotEmpty()) setLocale(java.util.Locale.forLanguageTag(tag)) }
 
 /** Dialogs, sheets and popups get their own window: give it the activity's autofill, content-capture and tapjacking protection. */
 @androidx.compose.runtime.Composable
