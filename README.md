@@ -2,7 +2,7 @@
 
 <img src="assets/banner.png" alt="PassVault: your passwords, your control" width="720" />
 
-# 🔐 PassVault
+# 🔐 PassVault &nbsp; <a href="https://play.google.com/store/apps/details?id=app.passvault.mobile"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="60" align="middle"></a>
 
 **Your passwords, on your phone, and nowhere else.**
 
@@ -21,9 +21,6 @@ No account · No server · No analytics · No cloud sync
 [![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=white)](#-build-for-ios)
 [![Offline](https://img.shields.io/badge/works-100%25%20offline-success)](docs/SECURITY.md)
 [![Repo size](https://img.shields.io/github/repo-size/daocha/password-vault)](https://github.com/daocha/password-vault)
-
-[![Get it on GitHub](https://img.shields.io/badge/GET%20IT%20ON-GITHUB-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/daocha/password-vault/releases/latest)
-<a href="https://play.google.com/store/apps/details?id=app.passvault.mobile"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="60" align="middle"></a>
 
 </div>
 
