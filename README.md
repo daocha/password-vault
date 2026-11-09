@@ -23,6 +23,7 @@ No account · No server · No analytics · No cloud sync
 [![Repo size](https://img.shields.io/github/repo-size/daocha/password-vault)](https://github.com/daocha/password-vault)
 
 [![Get it on GitHub](https://img.shields.io/badge/GET%20IT%20ON-GITHUB-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/daocha/password-vault/releases/latest)
+<a href="https://play.google.com/store/apps/details?id=app.passvault.mobile"><img src="https://img.shields.io/badge/GET%20IT%20ON-Google%20Play-414141?style=for-the-badge&logo=googleplay&logoColor=white" alt="Get it on Google Play" height="44"></a>
 
 </div>
 
