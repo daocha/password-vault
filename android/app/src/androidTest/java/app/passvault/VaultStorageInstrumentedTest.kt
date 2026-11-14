@@ -247,6 +247,8 @@ class VaultStorageInstrumentedTest {
         val refused = assertThrows(DeviceLockedException::class.java) { needsUnlockedDevice { throw android.security.keystore.UserNotAuthenticatedException() } }
         assertTrue(refused.cause is android.security.keystore.UserNotAuthenticatedException)
         assertEquals(7, needsUnlockedDevice { 7 })
+    }
+
     @Test fun unlockDerivesBothKeysSideBySideAndRecordsWhereTheTimeWent() {
         engine.create(password); engine.save(listOf(record("real"))); engine.lock()
         assertEquals(listOf("real"), engine.unlock(password).map { it.name })
