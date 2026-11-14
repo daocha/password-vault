@@ -36,8 +36,9 @@ private struct SeedInput: UIViewRepresentable {
         view.accessibilityLabel = localized(title)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: SeedTextView, context: Context) -> CGSize? {
+        // Take the whole width offered, not just the text's: an empty field would otherwise be zero wide and impossible to tap.
         let width = proposal.width ?? 240
-        return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     final class Coordinator: NSObject, UITextViewDelegate {
