@@ -47,9 +47,19 @@ private data class DeviceState(var attempts: Int, var erased: Boolean, var salt:
 }
 class VaultChangedException : IllegalStateException("The vault changed in another window. Unlock it again.")
 
-/** How long the last password unlock took, and how much of that was Argon2id. The rest is Keystore, files and decryption. */
-class UnlockTiming(val totalMillis: Long, val hashingMillis: Long) {
-    override fun toString() = "Unlock took $totalMillis ms: password hashing $hashingMillis ms, Keystore and files ${totalMillis - hashingMillis} ms"
+/**
+ * Where the last unlock's time went, for debug builds: Argon2id ([hashingMillis], 0 for biometrics), the biometric key's Keystore
+ * decryption ([biometricMillis]), the protected state ([stateMillis]: Keystore plus its small file, [stateReads] and [stateWrites] times,
+ * its key held in [keyLocation]), and the rest (vault file, decryption, parsing).
+ */
+class UnlockTiming(val biometric: Boolean, val totalMillis: Long, val hashingMillis: Long, val biometricMillis: Long, val stateMillis: Long,
+                   val stateReads: Int, val stateWrites: Int, val keyLocation: String) {
+    val otherMillis get() = (totalMillis - hashingMillis - biometricMillis - stateMillis).coerceAtLeast(0)
+    override fun toString() = buildString {
+        append(if (biometric) "Biometric" else "Password").append(" unlock $totalMillis ms: ")
+        if (biometric) append("biometric key $biometricMillis ms") else append("password hashing $hashingMillis ms")
+        append(", protected state $stateMillis ms ($stateReads reads, $stateWrites writes, key in $keyLocation), vault file $otherMillis ms")
+    }
 }
 
 /**
@@ -79,7 +89,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
     /** Whether the open vault is the decoy one. Every operation acts on the open vault only. */
     private var activeDecoy = false
     private var loadedBlob: String? = null
-    /** Set by each password unlock, for the debug build's timing message. */
+    /** Set by each password or biometric unlock in debug builds, for the timing message and the Settings row. */
     @Volatile var lastUnlockTiming: UnlockTiming? = null
         private set
     private var hashingMillis = 0L
@@ -192,9 +202,15 @@ class VaultEngine(private val storage: ProtectedStorage) {
         finally { plain.fill(0); candidate.fill(0) }
     }
     fun unlock(password: String) = VaultAccess.serialized {
-        val started = android.os.SystemClock.elapsedRealtime()
-        lock(); authenticate(password, unlocking = true).let { load(it.key, it.decoy) }
-            .also { lastUnlockTiming = UnlockTiming(android.os.SystemClock.elapsedRealtime() - started, hashingMillis) }
+        val started = startTiming()
+        lock(); authenticate(password, unlocking = true).let { load(it.key, it.decoy) }.also { finishTiming(started, biometric = false, biometricMillis = 0) }
+    }
+    private fun startTiming(): Long { hashingMillis = 0; storage.clock.millis = 0; storage.clock.reads = 0; storage.clock.writes = 0; return android.os.SystemClock.elapsedRealtime() }
+    private fun finishTiming(started: Long, biometric: Boolean, biometricMillis: Long) {
+        if (!BuildConfig.DEBUG) return
+        val total = android.os.SystemClock.elapsedRealtime() - started; val clock = storage.clock
+        lastUnlockTiming = UnlockTiming(biometric, total, if (biometric) 0 else hashingMillis, biometricMillis, clock.millis, clock.reads, clock.writes,
+            runCatching { storage.stateKeyLocation() }.getOrDefault("unknown"))
     }
     fun biometricCipher(encrypt: Boolean): Cipher = VaultAccess.serialized { check(state() != null); return@serialized storage.biometricCipher(encrypt) }
     /** Biometrics hold the main vault's key, so they can only be set up from the main vault. */
@@ -205,10 +221,15 @@ class VaultEngine(private val storage: ProtectedStorage) {
      * and the decoy's password-change allowance. It opens the main vault.
      */
     fun unlockBiometric(cipher: Cipher): List<VaultRecord> = VaultAccess.serialized {
+        val started = startTiming()
         lock()
         val value = state() ?: error("Create a vault first.")
-        val loaded = load(storage.readBiometric(cipher), decoy = false)
+        val keyStarted = android.os.SystemClock.elapsedRealtime()
+        val candidate = storage.readBiometric(cipher)
+        val biometricMillis = android.os.SystemClock.elapsedRealtime() - keyStarted
+        val loaded = load(candidate, decoy = false)
         if (value.attempts != 0 || value.decoyChanges != 0) { value.attempts = 0; value.decoyChanges = 0; storage.writeState(value.encode(), ratchet = false) }
+        finishTiming(started, biometric = true, biometricMillis = biometricMillis)
         return@serialized loaded
     }
     fun hasBiometric() = VaultAccess.serialized { state() != null && storage.hasBiometric() }

@@ -44,13 +44,25 @@ struct DeviceState: Codable {
     /// Decoy password changes since the real password or biometrics last opened the vault (see `VaultEngine.changePassword`); omitted when 0.
     var decoyChanges: Int? = nil
 }
-/// How long the last password unlock took, and how much of that was Argon2id. The rest is the Keychain, files and decryption.
+/// Where the last unlock's time went, for debug builds: Argon2id (`hashingMilliseconds`, 0 for biometrics), releasing the biometric key
+/// (`biometricMilliseconds`, which includes the Face ID or Touch ID scan), the protected state in the Keychain (`stateMilliseconds`, read
+/// `stateReads` and written `stateWrites` times), and the rest (vault file, decryption, parsing). Mirrors Android's `UnlockTiming`.
 public struct UnlockTiming: Sendable, CustomStringConvertible {
-    public let totalMilliseconds: Int, hashingMilliseconds: Int
+    public var biometric = false
+    public var totalMilliseconds = 0, hashingMilliseconds = 0, biometricMilliseconds = 0, stateMilliseconds = 0, stateReads = 0, stateWrites = 0
+    public init(biometric: Bool = false, totalMilliseconds: Int = 0, hashingMilliseconds: Int = 0, biometricMilliseconds: Int = 0,
+                stateMilliseconds: Int = 0, stateReads: Int = 0, stateWrites: Int = 0) {
+        self.biometric = biometric; self.totalMilliseconds = totalMilliseconds; self.hashingMilliseconds = hashingMilliseconds
+        self.biometricMilliseconds = biometricMilliseconds; self.stateMilliseconds = stateMilliseconds; self.stateReads = stateReads; self.stateWrites = stateWrites
+    }
+    public var otherMilliseconds: Int { max(0, totalMilliseconds - hashingMilliseconds - biometricMilliseconds - stateMilliseconds) }
     public var description: String {
-        "Unlock took \(totalMilliseconds) ms: password hashing \(hashingMilliseconds) ms, Keychain and files \(totalMilliseconds - hashingMilliseconds) ms"
+        (biometric ? "Biometric unlock \(totalMilliseconds) ms: biometric key \(biometricMilliseconds) ms" : "Password unlock \(totalMilliseconds) ms: password hashing \(hashingMilliseconds) ms")
+            + ", protected state \(stateMilliseconds) ms (\(stateReads) reads, \(stateWrites) writes, key in Keychain), vault file \(otherMilliseconds) ms"
     }
 }
+
+private func milliseconds(since start: UInt64) -> Int { Int((DispatchTime.now().uptimeNanoseconds - start) / 1_000_000) }
 
 /// Runs `main` and `side` at the same time, so an unlock's two Argon2id derivations take about as long as one. Either may run short of
 /// memory while both run (each needs 64 MiB): the one that failed runs again alone, so a device with little memory is only slower. The
@@ -77,10 +89,12 @@ public final class VaultEngine: @unchecked Sendable {
     private var records = [VaultRecord]()
     /// Whether the open vault is the decoy one. Every operation acts on the open vault only.
     private var activeDecoy = false
-    /// Set by each password unlock, for the debug build's timing message. Read under the engine's lock: the app reads it on the main thread.
+    /// Set by each password or biometric unlock, for the debug build's timing message and Settings row. Read under the engine's lock: the app reads it on the main thread.
     private var unlockTiming: UnlockTiming?
     public var lastUnlockTiming: UnlockTiming? { serialized { unlockTiming } }
     private var hashingMilliseconds = 0
+    /// Time spent on the protected state since the current unlock started, and how often it was read and written.
+    private var stateClock = UnlockTiming()
     private static let keyAAD = Data("PassVault/key/v1".utf8)
     private static let ownerAAD = Data("PassVault/decoy-owner/v1".utf8)
     /// Decoy password changes allowed between openings by the real password or biometrics.
@@ -94,7 +108,10 @@ public final class VaultEngine: @unchecked Sendable {
         return try JSONDecoder().decode(DeviceState.self, from: data)
     }
     private func state() throws -> DeviceState? {
-        guard let data = try storage.readState() else {
+        let started = DispatchTime.now().uptimeNanoseconds
+        let read = try storage.readState()
+        stateClock.stateMilliseconds += milliseconds(since: started); stateClock.stateReads += 1
+        guard let data = read else {
             guard try !storage.hasBlobs() else { throw VaultError.invalid("Protected state is missing. Vault access is refused.") }
             return nil
         }
@@ -111,7 +128,11 @@ public final class VaultEngine: @unchecked Sendable {
         guard (0...Self.decoyChanges).contains(value.decoyChanges ?? 0) else { throw VaultError.invalid("Damaged protected state.") }
         return value
     }
-    private func write(_ value: DeviceState) throws { try storage.writeState(JSONEncoder().encode(value)) }
+    private func write(_ value: DeviceState) throws {
+        let started = DispatchTime.now().uptimeNanoseconds
+        defer { stateClock.stateMilliseconds += milliseconds(since: started); stateClock.stateWrites += 1 }
+        try storage.writeState(JSONEncoder().encode(value))
+    }
     /// The vault files the state points at: the main one and, if set up, the decoy one.
     private func liveBlobs(_ value: DeviceState) -> Set<String> { Set([value.blob] + [value.decoy?.blob].compactMap { $0 }) }
     public func exists() throws -> Bool { try serialized { try state() != nil } }
@@ -209,18 +230,30 @@ public final class VaultEngine: @unchecked Sendable {
         key = candidate; records = loaded; activeDecoy = decoy; return loaded
     }
     public func unlock(password: String) throws -> [VaultRecord] { try serialized {
-        let started = DispatchTime.now().uptimeNanoseconds
+        let started = startTiming()
         let found = try authenticate(password, unlocking: true)
         let loaded = try load(found.key, decoy: found.decoy)
-        unlockTiming = UnlockTiming(totalMilliseconds: Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000), hashingMilliseconds: hashingMilliseconds)
+        finishTiming(started, biometric: false, biometricMilliseconds: 0)
         return loaded
     } }
+    private func startTiming() -> UInt64 { hashingMilliseconds = 0; stateClock = UnlockTiming(); return DispatchTime.now().uptimeNanoseconds }
+    private func finishTiming(_ started: UInt64, biometric: Bool, biometricMilliseconds: Int) {
+        var timing = stateClock
+        timing.biometric = biometric; timing.totalMilliseconds = milliseconds(since: started)
+        timing.hashingMilliseconds = biometric ? 0 : hashingMilliseconds; timing.biometricMilliseconds = biometricMilliseconds
+        unlockTiming = timing
+    }
     /// Biometrics always open the main vault. The key is released only by the Secure Enclave after a biometric match, which proves the owner is
     /// present, so like the main password it clears failed password attempts and the decoy's password-change allowance.
     public func unlockBiometric() throws -> [VaultRecord] { try serialized {
+        let started = startTiming()
         guard var value = try state() else { throw VaultError.locked }
-        let loaded = try load(storage.readBiometricKey(), decoy: false)
+        let keyStarted = DispatchTime.now().uptimeNanoseconds
+        let candidate = try storage.readBiometricKey()
+        let biometricMilliseconds = milliseconds(since: keyStarted)
+        let loaded = try load(candidate, decoy: false)
         if value.attempts != 0 || value.decoyChanges != nil { value.attempts = 0; value.decoyChanges = nil; try write(value) }
+        finishTiming(started, biometric: true, biometricMilliseconds: biometricMilliseconds)
         return loaded
     } }
     public func enableBiometrics(password: String) throws { try serialized {

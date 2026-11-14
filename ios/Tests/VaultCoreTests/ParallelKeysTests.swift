@@ -29,7 +29,9 @@ final class ParallelKeysTests: XCTestCase {
     }
 
     func testUnlockRecordsWhereTheTimeWent() throws {
-        XCTAssertEqual(UnlockTiming(totalMilliseconds: 1500, hashingMilliseconds: 1200).description,
-                       "Unlock took 1500 ms: password hashing 1200 ms, Keychain and files 300 ms")
+        XCTAssertEqual(UnlockTiming(totalMilliseconds: 1500, hashingMilliseconds: 1100, stateMilliseconds: 300, stateReads: 3, stateWrites: 2).description,
+                       "Password unlock 1500 ms: password hashing 1100 ms, protected state 300 ms (3 reads, 2 writes, key in Keychain), vault file 100 ms")
+        XCTAssertEqual(UnlockTiming(biometric: true, totalMilliseconds: 400, biometricMilliseconds: 150, stateMilliseconds: 200, stateReads: 2).description,
+                       "Biometric unlock 400 ms: biometric key 150 ms, protected state 200 ms (2 reads, 0 writes, key in Keychain), vault file 50 ms")
     }
 }

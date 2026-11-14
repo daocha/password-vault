@@ -221,7 +221,9 @@ class VaultStorageInstrumentedTest {
         engine.create(password); engine.save(listOf(record("real"))); engine.lock()
         assertEquals(listOf("real"), engine.unlock(password).map { it.name })
         val timing = checkNotNull(engine.lastUnlockTiming)
-        assertTrue(timing.toString(), timing.hashingMillis > 0 && timing.hashingMillis <= timing.totalMillis)
+        assertTrue(timing.toString(), !timing.biometric && timing.hashingMillis > 0 && timing.hashingMillis + timing.stateMillis <= timing.totalMillis)
+        // Reserving the attempt and clearing it again are the two writes; the key's location is named.
+        assertEquals(timing.toString(), 2, timing.stateWrites); assertTrue(timing.toString(), timing.stateReads >= 1 && timing.keyLocation != "unknown")
         android.util.Log.i("PassVaultTest", timing.toString())
         engine.createDecoy(password, "Another decoy phrase 2?"); engine.lock()
         assertTrue(engine.unlock("Another decoy phrase 2?").isEmpty() && engine.isDecoy()); engine.lock()

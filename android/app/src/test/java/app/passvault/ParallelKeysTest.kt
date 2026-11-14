@@ -44,6 +44,9 @@ class ParallelKeysTest {
     }
 
     @Test fun timingSaysWhereTheTimeWent() {
-        assertEquals("Unlock took 1500 ms: password hashing 1200 ms, Keystore and files 300 ms", UnlockTiming(1500, 1200).toString())
+        assertEquals("Password unlock 1500 ms: password hashing 1100 ms, protected state 300 ms (3 reads, 2 writes, key in StrongBox), vault file 100 ms",
+            UnlockTiming(false, 1500, 1100, 0, 300, 3, 2, "StrongBox").toString())
+        assertEquals("Biometric unlock 400 ms: biometric key 150 ms, protected state 200 ms (2 reads, 0 writes, key in TEE), vault file 50 ms",
+            UnlockTiming(true, 400, 0, 150, 200, 2, 0, "TEE").toString())
     }
 }

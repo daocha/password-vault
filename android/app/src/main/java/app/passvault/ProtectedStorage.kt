@@ -115,7 +115,26 @@ class ProtectedStorage(private val context: Context) {
         cipher.updateAAD("PassVault/file-recovery/v1".toByteArray())
         write(file, cipher.iv + cipher.doFinal(bytes), requireSync = true)
     }
-    fun readState(): ByteArray? = VaultAccess.serialized {
+    /** Debug timing: time spent reading and writing the protected state (Keystore and its file), and how often. */
+    class StateClock { var millis = 0L; var reads = 0; var writes = 0 }
+    val clock = StateClock()
+    private inline fun <T> timed(write: Boolean, action: () -> T): T {
+        val started = android.os.SystemClock.elapsedRealtime()
+        try { return action() } finally { clock.millis += android.os.SystemClock.elapsedRealtime() - started; if (write) clock.writes++ else clock.reads++ }
+    }
+    /** Where the current state key lives ("StrongBox", "TEE" or "software"), for the debug timing message. */
+    fun stateKeyLocation(): String = VaultAccess.serialized {
+        val alias = java.util.Collections.list(keystore.aliases()).filter { it.startsWith(stateAliasPrefix) }.maxByOrNull { it.removePrefix(stateAliasPrefix).toIntOrNull() ?: 0 }
+            ?: return@serialized "no key"
+        val key = secretKey(alias) ?: return@serialized "no key"
+        val info = SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore").getKeySpec(key, KeyInfo::class.java) as KeyInfo
+        @Suppress("DEPRECATION")
+        if (android.os.Build.VERSION.SDK_INT >= 31) when (info.securityLevel) {
+            KeyProperties.SECURITY_LEVEL_STRONGBOX -> "StrongBox"; KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> "TEE"; else -> "software"
+        } else if (info.isInsideSecureHardware) "secure hardware" else "software"
+    }
+    fun readState(): ByteArray? = VaultAccess.serialized { timed(write = false) { readStateNow() } }
+    private fun readStateNow(): ByteArray? = VaultAccess.serialized {
         if (File(directory, "erased").exists()) {
             finishErasure()
             return@serialized "{\"version\":1,\"attempts\":10,\"erased\":true,\"salt\":\"\",\"secret\":\"\",\"wrapped\":\"\",\"blob\":\"00000000-0000-0000-0000-000000000000\"}".toByteArray()
@@ -144,7 +163,8 @@ class ProtectedStorage(private val context: Context) {
      * so copies of earlier state (with fewer failed attempts recorded) can no longer be decrypted. Skip it only for writes that never
      * make an old copy more useful to an attacker, such as clearing the counter after the password was proven.
      */
-    fun writeState(bytes: ByteArray, ratchet: Boolean = true): Unit = VaultAccess.serialized {
+    fun writeState(bytes: ByteArray, ratchet: Boolean = true): Unit = VaultAccess.serialized { timed(write = true) { writeStateNow(bytes, ratchet) } }
+    private fun writeStateNow(bytes: ByteArray, ratchet: Boolean): Unit = VaultAccess.serialized {
         val existing = if (stateFileExists()) read(File(directory, "state"), 16384) else null
         if (existing != null && StateFormat.isNewer(existing) && secretKey(legacyStateAlias) == null) throw NewerVersionException(backup = false)
         val held = existing?.let(StateFormat::generation)?.takeIf { it > 0 && keystore.containsAlias(stateAlias(it)) }

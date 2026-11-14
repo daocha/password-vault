@@ -578,7 +578,7 @@ class MainActivity : FragmentActivity() {
                     val candidate = biometricCandidate ?: return
                     biometricCandidate = null
                     work({ engine.saveBiometric(authenticated, candidate); null }, cleanup = { candidate.fill(0) }) { biometricEnabled = true; message = getString(R.string.main_biometric_enabled) }
-                } else work({ engine.unlockBiometric(authenticated) })
+                } else work({ engine.unlockBiometric(authenticated) }) { showUnlockTiming() }
             }
             override fun onAuthenticationError(code: Int, error: CharSequence) {
                 biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
@@ -757,6 +757,11 @@ class MainActivity : FragmentActivity() {
             finally { cleanup(); busy = false }
         }
     }
+    /** Debug builds: how long the unlock took and where (also kept in Settings → Last unlock). Release builds record nothing. */
+    private fun showUnlockTiming() {
+        if (!BuildConfig.DEBUG) return
+        engine.lastUnlockTiming?.let { android.util.Log.i("PassVault", it.toString()); message = it.toString() }
+    }
     /** Locking does not re-read the attempt count or erasure; a task that ran past a lock may have changed both. */
     private suspend fun refreshUnlockScreen() {
         val status = withContext(vaultQueue) { Triple(runCatching { engine.exists() }.getOrDefault(exists), runCatching { engine.isErased() }.getOrDefault(erased), runCatching { engine.remainingAttempts() }.getOrDefault(remaining)) }
@@ -820,7 +825,7 @@ class MainActivity : FragmentActivity() {
                 Text(stringResource(R.string.main_no_password_reset), Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 CheckRow(consent, { consent = it }) { Text(stringResource(R.string.main_consent_erase)) }
             }
-            Button(onClick = { val value = password; val unlocking = exists; password = ""; confirm = ""; work({ if (unlocking) engine.unlock(value) else engine.create(value) }) { if (BuildConfig.DEBUG && unlocking) engine.lastUnlockTiming?.let { android.util.Log.i("PassVault", it.toString()); message = it.toString() } } }, enabled = ready && password.isNotEmpty() && (exists || (samePassword(password, confirm) && consent && problem == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
+            Button(onClick = { val value = password; val unlocking = exists; password = ""; confirm = ""; work({ if (unlocking) engine.unlock(value) else engine.create(value) }) { if (unlocking) showUnlockTiming() } }, enabled = ready && password.isNotEmpty() && (exists || (samePassword(password, confirm) && consent && problem == null)), modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) { Text(if (exists) stringResource(R.string.main_unlock_vault) else stringResource(R.string.main_create_vault)) }
             if (exists && biometricEnabled) OutlinedButton(onClick = { biometrics() }, enabled = ready, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp)) { Icon(Icons.Default.Fingerprint, null); Text("  " + stringResource(R.string.main_unlock_with_biometrics)) }
             if (exists) Text(stringResource(R.string.main_attempts_remaining, remaining), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1286,6 +1291,8 @@ class MainActivity : FragmentActivity() {
                     val report = remember(records) { VaultHealth.check(records) }
                     Row(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title), report.score?.let { stringResource(R.string.health_summary, it, report.problemCount) } ?: stringResource(R.string.health_nothing)) { openHealth() }
                     Row(Icons.Outlined.Timer, stringResource(R.string.main_auto_lock), stringResource(autoLock.labelRes)) { dialog = SettingsDialog.AutoLockChoice }
+                    // Debug builds only, not translated: where the last unlock's time went, to compare devices.
+                    if (BuildConfig.DEBUG) engine.lastUnlockTiming?.let { timing -> Row(Icons.Outlined.Timer, "Last unlock (debug)", timing.toString()) { message = timing.toString() } }
                     // Biometrics always open the real vault, so the decoy vault neither shows nor changes them.
                     if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else disableBiometrics() }) }) {
                         if (biometricEnabled) disableBiometrics() else dialog = SettingsDialog.EnableBiometrics
