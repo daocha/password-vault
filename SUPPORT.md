@@ -25,7 +25,7 @@ you chose when you exported it.
 
 ### My vault says it was erased
 
-After 10 wrong passwords in a row, PassVault erases the vault on that device to stop guessing. Tap
+After 10 wrong passwords without a correct one in between, PassVault erases the vault on that device to stop guessing. Tap
 **Start a new vault**, create a new master password, then import your most recent backup from
 **Settings → Import**.
 
@@ -68,7 +68,7 @@ cleared in Settings. The Android version supports autofill.
 
 ### Does PassVault sync to iCloud or back up to the cloud?
 
-No. The vault is excluded from device and cloud backups and is never uploaded. Only files you export
+No. The vault is excluded from iCloud and device backups and is never uploaded. Only files you export
 yourself leave the app, and they go wherever you choose to save them.
 
 ## More information
