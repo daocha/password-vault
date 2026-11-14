@@ -469,3 +469,38 @@ func biometricSupportChecks() throws {
     try check(BiometricAvailability.unsupported.canToggle(enabled: true), "biometrics can always be turned off")
     try check(BiometricAvailability.available.canToggle(enabled: false), "ready device can turn biometrics on")
 }
+
+/// Unlocking derives the main and decoy keys side by side; both vaults still open, and a wrong password still costs exactly one attempt.
+func parallelUnlockChecks() throws {
+    let main = "A lengthy test passphrase 1!", decoyPassword = "Another decoy phrase 2?"
+    let engine = VaultEngine(storage: MemoryStorage())
+    _ = try engine.create(password: main)
+    var secret = VaultRecord(); secret.name = "Real bank"
+    try engine.save([secret]); engine.lock()
+    try check(try engine.unlock(password: main).map(\.name) == ["Real bank"], "main password opens the vault without a decoy")
+    try check(engine.lastUnlockTiming.map { !$0.biometric && $0.hashingMilliseconds > 0 && $0.hashingMilliseconds + $0.stateMilliseconds <= $0.totalMilliseconds } == true, "unlock records its hashing time")
+    try check(engine.lastUnlockTiming.map { $0.stateWrites == 2 && $0.stateReads >= 1 } == true, "unlock counts its protected-state reads and writes")
+    try engine.createDecoy(password: main, decoyPassword: decoyPassword); engine.lock()
+    try check(try engine.unlock(password: decoyPassword).isEmpty && engine.isDecoy(), "decoy password still opens the decoy")
+    engine.lock()
+    try check(try engine.unlock(password: main).map(\.name) == ["Real bank"] && !engine.isDecoy(), "main password still opens the main vault")
+    try engine.enableBiometrics(password: main); engine.lock()
+    try check(try engine.unlockBiometric().map(\.name) == ["Real bank"], "biometrics open the real vault")
+    try check(engine.lastUnlockTiming.map { $0.biometric && $0.hashingMilliseconds == 0 && $0.stateReads >= 1 } == true, "biometric unlock records its own timing")
+    engine.lock()
+    try rejects("wrong password") { _ = try engine.unlock(password: "Wrong passphrase 9!") }
+    try check(try engine.remainingAttempts() == 9, "a wrong password costs one attempt")
+}
+
+/// A failed pair of derivations wipes the key that succeeded in place: zeroing a copy would leave the key itself in memory.
+func parallelKeyWipeChecks() throws {
+    struct OutOfMemory: Error {}
+    for mainFails in [true, false] {
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: 32, alignment: 1); defer { buffer.deallocate() }
+        memset(buffer, 0xAB, 32)
+        let key: () throws -> Data? = { Data(bytesNoCopy: buffer, count: 32, deallocator: .none) }
+        let failing: () throws -> Data? = { throw OutOfMemory() }
+        try rejects("a pair whose other derivation keeps failing") { _ = try mainFails ? bothKeys(failing, key) : bothKeys(key, failing) }
+        try check((0..<32).allSatisfy { buffer.load(fromByteOffset: $0, as: UInt8.self) == 0 }, "the derived key's own bytes are wiped when the pair fails (main fails: \(mainFails))")
+    }
+}

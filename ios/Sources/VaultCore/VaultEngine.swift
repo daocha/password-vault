@@ -44,6 +44,52 @@ struct DeviceState: Codable {
     /// Decoy password changes since the real password or biometrics last opened the vault (see `VaultEngine.changePassword`); omitted when 0.
     var decoyChanges: Int? = nil
 }
+/// Where the last unlock's time went, for debug builds: Argon2id (`hashingMilliseconds`, 0 for biometrics), releasing the biometric key
+/// (`biometricMilliseconds`, which includes the Face ID or Touch ID scan), the protected state in the Keychain (`stateMilliseconds`, read
+/// `stateReads` and written `stateWrites` times), and the rest (vault file, decryption, parsing). Mirrors Android's `UnlockTiming`.
+public struct UnlockTiming: Sendable, CustomStringConvertible {
+    public var biometric = false
+    public var totalMilliseconds = 0, hashingMilliseconds = 0, biometricMilliseconds = 0, stateMilliseconds = 0, stateReads = 0, stateWrites = 0
+    public init(biometric: Bool = false, totalMilliseconds: Int = 0, hashingMilliseconds: Int = 0, biometricMilliseconds: Int = 0,
+                stateMilliseconds: Int = 0, stateReads: Int = 0, stateWrites: Int = 0) {
+        self.biometric = biometric; self.totalMilliseconds = totalMilliseconds; self.hashingMilliseconds = hashingMilliseconds
+        self.biometricMilliseconds = biometricMilliseconds; self.stateMilliseconds = stateMilliseconds; self.stateReads = stateReads; self.stateWrites = stateWrites
+    }
+    public var otherMilliseconds: Int { max(0, totalMilliseconds - hashingMilliseconds - biometricMilliseconds - stateMilliseconds) }
+    public var description: String {
+        (biometric ? "Biometric unlock \(totalMilliseconds) ms: biometric key \(biometricMilliseconds) ms" : "Password unlock \(totalMilliseconds) ms: password hashing \(hashingMilliseconds) ms")
+            + ", protected state \(stateMilliseconds) ms (\(stateReads) reads, \(stateWrites) writes, key in Keychain), vault file \(otherMilliseconds) ms"
+    }
+}
+
+private func milliseconds(since start: UInt64) -> Int { Int((DispatchTime.now().uptimeNanoseconds - start) / 1_000_000) }
+
+/// Runs `main` and `side` at the same time, so an unlock's two Argon2id derivations take about as long as one. Either may run short of
+/// memory while both run (each needs 64 MiB): the one that failed runs again alone, so a device with little memory is only slower. The
+/// other's key is zeroed if the pair still fails.
+public func bothKeys(_ main: () throws -> Data?, _ side: () throws -> Data?) throws -> (Data?, Data?) {
+    var first: Result<Data?, Error> = .success(nil), second: Result<Data?, Error> = .success(nil)
+    withoutActuallyEscaping(main) { main in withoutActuallyEscaping(side) { side in
+        DispatchQueue.concurrentPerform(iterations: 2) { index in
+            if index == 0 { first = Result { try main() } } else { second = Result { try side() } }
+        }
+    } }
+    // Move each key out of its Result, so `a` and `b` hold the only reference: wiping a copy would leave the key itself in memory.
+    var a: Data?, b: Data?, mainFailed = false, sideFailed = false
+    switch first { case .success(let key): a = key; case .failure: mainFailed = true }
+    switch second { case .success(let key): b = key; case .failure: sideFailed = true }
+    first = .success(nil); second = .success(nil)
+    if mainFailed { do { a = try main() } catch { wipe(&b); throw error } }
+    if sideFailed { do { b = try side() } catch { wipe(&a); throw error } }
+    return (a, b)
+}
+
+/// Zeroes the key's own bytes and drops it. The caller must hold the only reference; otherwise copy-on-write zeroes a copy instead.
+func wipe(_ key: inout Data?) {
+    let count = key?.count ?? 0
+    key?.resetBytes(in: 0..<count); key = nil
+}
+
 public final class VaultEngine: @unchecked Sendable {
     private let storage: VaultStorage
     private let mutex = NSRecursiveLock()
@@ -51,6 +97,12 @@ public final class VaultEngine: @unchecked Sendable {
     private var records = [VaultRecord]()
     /// Whether the open vault is the decoy one. Every operation acts on the open vault only.
     private var activeDecoy = false
+    /// Set by each password or biometric unlock, for the debug build's timing message and Settings row. Read under the engine's lock: the app reads it on the main thread.
+    private var unlockTiming: UnlockTiming?
+    public var lastUnlockTiming: UnlockTiming? { serialized { unlockTiming } }
+    private var hashingMilliseconds = 0
+    /// Time spent on the protected state since the current unlock started, and how often it was read and written.
+    private var stateClock = UnlockTiming()
     private static let keyAAD = Data("PassVault/key/v1".utf8)
     private static let ownerAAD = Data("PassVault/decoy-owner/v1".utf8)
     /// Decoy password changes allowed between openings by the real password or biometrics.
@@ -64,7 +116,10 @@ public final class VaultEngine: @unchecked Sendable {
         return try JSONDecoder().decode(DeviceState.self, from: data)
     }
     private func state() throws -> DeviceState? {
-        guard let data = try storage.readState() else {
+        let started = DispatchTime.now().uptimeNanoseconds
+        let read = try storage.readState()
+        stateClock.stateMilliseconds += milliseconds(since: started); stateClock.stateReads += 1
+        guard let data = read else {
             guard try !storage.hasBlobs() else { throw VaultError.invalid("Protected state is missing. Vault access is refused.") }
             return nil
         }
@@ -81,7 +136,11 @@ public final class VaultEngine: @unchecked Sendable {
         guard (0...Self.decoyChanges).contains(value.decoyChanges ?? 0) else { throw VaultError.invalid("Damaged protected state.") }
         return value
     }
-    private func write(_ value: DeviceState) throws { try storage.writeState(JSONEncoder().encode(value)) }
+    private func write(_ value: DeviceState) throws {
+        let started = DispatchTime.now().uptimeNanoseconds
+        defer { stateClock.stateMilliseconds += milliseconds(since: started); stateClock.stateWrites += 1 }
+        try storage.writeState(JSONEncoder().encode(value))
+    }
     /// The vault files the state points at: the main one and, if set up, the decoy one.
     private func liveBlobs(_ value: DeviceState) -> Set<String> { Set([value.blob] + [value.decoy?.blob].compactMap { $0 }) }
     public func exists() throws -> Bool { try serialized { try state() != nil } }
@@ -138,26 +197,35 @@ public final class VaultEngine: @unchecked Sendable {
         value.attempts += 1
         try write(value) // Reserve before expensive work; interruption consumes this attempt.
         let checkMain = unlocking || !activeDecoy, checkDecoy = unlocking || activeDecoy
-        var main: Data?, legacy = false
-        if checkMain {
+        var legacy = false
+        let current = value
+        func mainKey() throws -> Data? {
+            guard checkMain else { return nil }
             // Vaults made before passwords were normalized are keyed from the text exactly as typed. Accept that form once and re-wrap in the
             // normalized form below. Both forms count as one attempt.
             for raw in PasswordText.differs(password) ? [false, true] : [false] {
-                if let found = try unwrap(password, salt: value.salt, secret: value.secret, wrapped: value.wrappedKey, legacy: raw) { main = found; legacy = raw; break }
+                if let found = try unwrap(password, salt: current.salt, secret: current.secret, wrapped: current.wrappedKey, legacy: raw) { legacy = raw; return found }
             }
+            return nil
         }
-        var decoy: Data?
-        if checkDecoy {
-            if let d = value.decoy { decoy = try unwrap(password, salt: d.salt, secret: d.secret, wrapped: d.wrappedKey) }
-            else if unlocking { var throwaway = try VaultCrypto.passwordKey(password, salt: VaultCrypto.random(16)); throwaway.resetBytes(in: 0..<throwaway.count) }
+        func decoyKey() throws -> Data? {
+            guard checkDecoy else { return nil }
+            if let d = current.decoy { return try unwrap(password, salt: d.salt, secret: d.secret, wrapped: d.wrappedKey) }
+            if unlocking { var throwaway = try VaultCrypto.passwordKey(password, salt: VaultCrypto.random(16)); throwaway.resetBytes(in: 0..<throwaway.count) }
+            return nil
         }
-        if let main {
+        let started = DispatchTime.now().uptimeNanoseconds
+        // Unlocking always derives both keys (see above), so they run side by side; other checks derive only one.
+        var keys = checkMain && checkDecoy ? try bothKeys(mainKey, decoyKey) : (try mainKey(), try decoyKey())
+        hashingMilliseconds = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
+        if let main = keys.0 {
+            wipe(&keys.1) // the same password opened both: the main vault wins, as on Android
             value.attempts = 0; value.decoyChanges = nil
             if legacy { let wrapped = try wrap(password, dataKey: main); value.salt = wrapped.salt; value.secret = wrapped.secret; value.wrappedKey = wrapped.wrapped }
             try write(value)
             return (main, false)
         }
-        if let decoy { value.attempts = before; try write(value); return (decoy, true) }
+        if let decoy = keys.1 { value.attempts = before; try write(value); return (decoy, true) }
         lock()
         if value.attempts == 10 { try erase(value); throw VaultError.erased }
         throw VaultError.authentication
@@ -170,13 +238,31 @@ public final class VaultEngine: @unchecked Sendable {
         let loaded = FileKeys.stamp(try Records.decode(plaintext))
         key = candidate; records = loaded; activeDecoy = decoy; return loaded
     }
-    public func unlock(password: String) throws -> [VaultRecord] { try serialized { let found = try authenticate(password, unlocking: true); return try load(found.key, decoy: found.decoy) } }
+    public func unlock(password: String) throws -> [VaultRecord] { try serialized {
+        let started = startTiming()
+        let found = try authenticate(password, unlocking: true)
+        let loaded = try load(found.key, decoy: found.decoy)
+        finishTiming(started, biometric: false, biometricMilliseconds: 0)
+        return loaded
+    } }
+    private func startTiming() -> UInt64 { hashingMilliseconds = 0; stateClock = UnlockTiming(); return DispatchTime.now().uptimeNanoseconds }
+    private func finishTiming(_ started: UInt64, biometric: Bool, biometricMilliseconds: Int) {
+        var timing = stateClock
+        timing.biometric = biometric; timing.totalMilliseconds = milliseconds(since: started)
+        timing.hashingMilliseconds = biometric ? 0 : hashingMilliseconds; timing.biometricMilliseconds = biometricMilliseconds
+        unlockTiming = timing
+    }
     /// Biometrics always open the main vault. The key is released only by the Secure Enclave after a biometric match, which proves the owner is
     /// present, so like the main password it clears failed password attempts and the decoy's password-change allowance.
     public func unlockBiometric() throws -> [VaultRecord] { try serialized {
+        let started = startTiming()
         guard var value = try state() else { throw VaultError.locked }
-        let loaded = try load(storage.readBiometricKey(), decoy: false)
+        let keyStarted = DispatchTime.now().uptimeNanoseconds
+        let candidate = try storage.readBiometricKey()
+        let biometricMilliseconds = milliseconds(since: keyStarted)
+        let loaded = try load(candidate, decoy: false)
         if value.attempts != 0 || value.decoyChanges != nil { value.attempts = 0; value.decoyChanges = nil; try write(value) }
+        finishTiming(started, biometric: true, biometricMilliseconds: biometricMilliseconds)
         return loaded
     } }
     public func enableBiometrics(password: String) throws { try serialized {

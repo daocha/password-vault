@@ -10,6 +10,8 @@ import AVFoundation
     @Published var exists = true
     @Published var busy = false
     @Published var message = ""
+    /// Debug builds: the last unlock's timing, shown after unlocking and kept in Settings.
+    @Published var unlockSummary = ""
     @Published var attempts = 10
     @Published var erased = false
     /// When the last encrypted backup was saved, and the reminder settings. Ordinary preferences: only times and a choice, no secrets.
@@ -120,12 +122,22 @@ import AVFoundation
         backgroundedAt = nil
         autoUnlockWithBiometrics()
     }
+    /// Debug builds: how long the unlock took and where (also kept in Settings → Last unlock). Release builds show nothing.
+    /// The engine's own timing, plus everything until the vault is on screen (the status checks that follow the unlock).
+    func showUnlockTiming(since started: UInt64) {
+        #if DEBUG
+        guard let timing = engine?.lastUnlockTiming else { return }
+        unlockSummary = "\(timing); vault shown after \((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000) ms"
+        print("PassVault: \(unlockSummary)"); message = unlockSummary
+        #endif
+    }
     func autoUnlockWithBiometrics() {
         // Face ID can make the scene inactive and active again. Attempt only once per foreground visit,
         // so cancelling (or falling back to the app password) never immediately opens another prompt.
         guard protectedDataAvailable, exists, !erased, !unlocked, !busy, biometricEnabled, !biometricAutoPrompted else { return }
         biometricAutoPrompted = true
-        run { try $0.unlockBiometric() }
+        let started = DispatchTime.now().uptimeNanoseconds
+        run({ try $0.unlockBiometric() }, done: { [weak self] in self?.showUnlockTiming(since: started) })
     }
     /// A device lock always overrides the background delay, as screen-off does on Android.
     func deviceDidLock() {
@@ -273,10 +285,11 @@ struct UnlockView: View {
                     Button(LocalizedStringKey(model.exists ? "Unlock vault" : "Create vault")) {
                         let value = password; password = ""; confirmation = ""
                         let exists = model.exists
-                        model.run { engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }
+                        let started = DispatchTime.now().uptimeNanoseconds
+                        model.run({ engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }, done: { if exists { model.showUnlockTiming(since: started) } })
                     }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
-                        if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { model.run { try $0.unlockBiometric() } } }
+                        if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { let started = DispatchTime.now().uptimeNanoseconds; model.run({ try $0.unlockBiometric() }, done: { model.showUnlockTiming(since: started) }) } }
                         Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
                     }
                 }
@@ -436,6 +449,10 @@ struct TransferView: View {
                 Section(header: Text("Security").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
                     settingsRow("Vault health", icon: "checkmark.shield") { health = true }
                     settingsRow("Auto-lock", icon: "timer", summary: settings.autoLock.label) { open(.autoLock) }
+                    #if DEBUG
+                    // Debug builds only, not translated: where the last unlock's time went, to compare devices.
+                    if !model.unlockSummary.isEmpty { settingsRow("Last unlock (debug)", icon: "timer", summary: model.unlockSummary) { model.message = model.unlockSummary } }
+                    #endif
                     // Without Face ID or Touch ID ready the switch is off and greyed out, saying why, instead of asking for the password first.
                     if !model.decoy {
                         Toggle(isOn: Binding(get: { model.biometricEnabled }, set: { enabled in
