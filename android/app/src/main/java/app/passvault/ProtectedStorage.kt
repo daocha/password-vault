@@ -133,7 +133,11 @@ class ProtectedStorage(private val context: Context) {
             KeyProperties.SECURITY_LEVEL_STRONGBOX -> "StrongBox"; KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> "TEE"; else -> "software"
         } else if (info.isInsideSecureHardware) "secure hardware" else "software"
     }
-    fun readState(): ByteArray? = VaultAccess.serialized { timed(write = false) { readStateNow() } }
+    fun readState(): ByteArray? = VaultAccess.serialized {
+        VaultAccess.cachedState?.let { return@serialized it.copyOf() }
+        val erased = File(directory, "erased").exists()
+        timed(write = false) { readStateNow() }?.also { if (!erased) VaultAccess.cachedState = it.copyOf() }
+    }
     private fun readStateNow(): ByteArray? = VaultAccess.serialized {
         if (File(directory, "erased").exists()) {
             finishErasure()
@@ -163,7 +167,11 @@ class ProtectedStorage(private val context: Context) {
      * so copies of earlier state (with fewer failed attempts recorded) can no longer be decrypted. Skip it only for writes that never
      * make an old copy more useful to an attacker, such as clearing the counter after the password was proven.
      */
-    fun writeState(bytes: ByteArray, ratchet: Boolean = true): Unit = VaultAccess.serialized { timed(write = true) { writeStateNow(bytes, ratchet) } }
+    fun writeState(bytes: ByteArray, ratchet: Boolean = true): Unit = VaultAccess.serialized {
+        VaultAccess.cachedState = null // a failed write leaves the file in doubt: the next read asks Keystore
+        timed(write = true) { writeStateNow(bytes, ratchet) }
+        VaultAccess.cachedState = bytes.copyOf()
+    }
     private fun writeStateNow(bytes: ByteArray, ratchet: Boolean): Unit = VaultAccess.serialized {
         val existing = if (stateFileExists()) read(File(directory, "state"), 16384) else null
         if (existing != null && StateFormat.isNewer(existing) && secretKey(legacyStateAlias) == null) throw NewerVersionException(backup = false)
@@ -187,13 +195,15 @@ class ProtectedStorage(private val context: Context) {
     }
     // Initialize the OS key before writing the first encrypted vault blob.
     fun initializeKey(): Unit = VaultAccess.serialized {
+        VaultAccess.cachedState = null
         check(!stateFileExists() && !hasBlobs()) { "Protected device key is missing. Access is refused." }
         deleteStateKeys(); generate(stateAlias(1), false)
     }
-    fun deleteState(): Unit = VaultAccess.serialized { AtomicFile(File(directory, "state")).delete(); AtomicFile(File(directory, "erased")).delete(); deleteStateKeys() }
+    fun deleteState(): Unit = VaultAccess.serialized { VaultAccess.cachedState = null; AtomicFile(File(directory, "state")).delete(); AtomicFile(File(directory, "erased")).delete(); deleteStateKeys() }
     fun finishErasure(): Unit = VaultAccess.serialized {
         // A nonsecret tombstone only denies access. It is never an authorization token.
         // Persist it before removing the Keystore key so interrupted cleanup resumes safely.
+        VaultAccess.cachedState = null
         write(File(directory, "erased"), byteArrayOf(1))
         deleteBiometric()
         deleteStateKeys()

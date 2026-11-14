@@ -232,6 +232,25 @@ class VaultStorageInstrumentedTest {
         assertEquals(9, engine.remainingAttempts())
     }
 
+    @Test fun oneTransactionDecryptsTheStateOnceAndSeesItsOwnWrites() {
+        engine.create(password); engine.lock()
+        VaultAccess.serialized {
+            storage.clock.reads = 0
+            assertTrue(engine.exists()); assertEquals(10, engine.remainingAttempts())
+            assertEquals("status checks in one transaction ask Keystore once", 1, storage.clock.reads)
+            assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") }
+            assertEquals("a write in the transaction is what later reads see", 9, engine.remainingAttempts())
+            assertEquals(1, storage.clock.reads)
+        }
+        // A new transaction decrypts through Keystore again, so a file swapped in between is still caught.
+        val reads = storage.clock.reads
+        assertEquals(9, engine.remainingAttempts()); assertEquals(reads + 1, storage.clock.reads)
+        val original = stateFile().readBytes()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") }
+        stateFile().writeBytes(original)
+        assertThrows(IllegalStateException::class.java) { engine.remainingAttempts() }
+    }
+
     @Test fun tenWrongAttemptsEraseEverythingIncludingKeys() {
         engine.create(password); engine.save(listOf(record("secret"))); engine.lock()
         repeat(9) { assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") } }
