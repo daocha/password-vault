@@ -6,6 +6,10 @@ import Foundation
 public struct StatusMessage: Equatable, Sendable {
     /// Android hides its snackbar after 6 seconds.
     public static let displaySeconds: Double = 6
+    /// How long a message stays up: `displaySeconds`, or until OK (nil) while a screen reader or switch control is in use,
+    /// which may not reach the message in time. Android asks the system the same (calculateRecommendedTimeoutMillis), which
+    /// keeps a snackbar with a button up while TalkBack is on.
+    public static func displayTime(assistiveTechnology: Bool) -> Double? { assistiveTechnology ? nil : displaySeconds }
     public private(set) var text = ""
     public private(set) var isError = false
     public private(set) var serial = 0

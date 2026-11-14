@@ -97,5 +97,9 @@ func statusMessageChecks() throws {
     try check(status.isShowing && status.isError, "a dismissed message's timer leaves the next message alone")
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let android = try String(contentsOf: root.appendingPathComponent("android/app/src/main/java/app/passvault/MainActivity.kt"), encoding: .utf8)
-    try check(android.contains("delay(\(Int(StatusMessage.displaySeconds * 1000)))"), "iOS messages stay up as long as Android's snackbar")
+    let timeout = try String(contentsOf: root.appendingPathComponent("android/app/src/main/java/app/passvault/MessageTimeout.kt"), encoding: .utf8)
+    try check(timeout.contains("const val MESSAGE_MILLIS = \(Int(StatusMessage.displaySeconds * 1000))L") && android.contains("delay(messageTimeoutMillis("), "iOS messages stay up as long as Android's snackbar")
+    try check(StatusMessage.displayTime(assistiveTechnology: true) == nil && StatusMessage.displayTime(assistiveTechnology: false) == StatusMessage.displaySeconds,
+              "messages stay until OK while a screen reader is on")
+    try check(android.contains("liveRegion = LiveRegionMode.Polite"), "TalkBack reads messages out, as VoiceOver does")
 }

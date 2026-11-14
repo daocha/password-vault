@@ -223,6 +223,7 @@ final class ModelTestStorage: VaultStorage {
 
     func testMessagesCloseWithOKAndHideThemselves() async throws {
         let model = VaultModel(engine: VaultEngine(storage: ModelTestStorage()))
+        model.assistiveTechnology = { false }
         model.show("Decoy vault removed.", error: false)
         XCTAssertEqual(model.message, "Decoy vault removed.")
         XCTAssertFalse(model.status.isError)
@@ -242,6 +243,7 @@ final class ModelTestStorage: VaultStorage {
         _ = try engine.create(password: password)
         engine.lock()
         let model = VaultModel(engine: engine)
+        model.assistiveTechnology = { false }
         model.messageSeconds = 0.05
         let started = DispatchTime.now().uptimeNanoseconds
         model.run({ try $0.unlock(password: self.password) }, done: { model.showUnlockTiming(since: started) })
@@ -253,5 +255,16 @@ final class ModelTestStorage: VaultStorage {
         while model.status.isShowing && Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
         XCTAssertFalse(model.status.isShowing, "the unlock timing stayed on screen")
         XCTAssertTrue(model.unlocked)
+    }
+
+    func testMessagesStayUntilOKWhileAScreenReaderIsOn() async throws {
+        let model = VaultModel(engine: VaultEngine(storage: ModelTestStorage()))
+        model.assistiveTechnology = { true }
+        model.messageSeconds = 0.05
+        model.show("Wrong password")
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(model.status.isShowing, "VoiceOver users may not reach the message in time")
+        model.dismissMessage()
+        XCTAssertFalse(model.status.isShowing)
     }
 }

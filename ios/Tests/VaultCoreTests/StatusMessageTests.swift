@@ -48,4 +48,9 @@ final class StatusMessageTests: XCTestCase {
     func testDisplayTimeMatchesAndroid() {
         XCTAssertEqual(StatusMessage.displaySeconds, 6)
     }
+
+    func testScreenReadersKeepMessagesUntilOK() {
+        XCTAssertNil(StatusMessage.displayTime(assistiveTechnology: true))
+        XCTAssertEqual(StatusMessage.displayTime(assistiveTechnology: false), 6)
+    }
 }
