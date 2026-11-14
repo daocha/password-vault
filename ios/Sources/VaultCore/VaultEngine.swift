@@ -77,8 +77,9 @@ public final class VaultEngine: @unchecked Sendable {
     private var records = [VaultRecord]()
     /// Whether the open vault is the decoy one. Every operation acts on the open vault only.
     private var activeDecoy = false
-    /// Set by each password unlock, for the debug build's timing message.
-    public private(set) var lastUnlockTiming: UnlockTiming?
+    /// Set by each password unlock, for the debug build's timing message. Read under the engine's lock: the app reads it on the main thread.
+    private var unlockTiming: UnlockTiming?
+    public var lastUnlockTiming: UnlockTiming? { serialized { unlockTiming } }
     private var hashingMilliseconds = 0
     private static let keyAAD = Data("PassVault/key/v1".utf8)
     private static let ownerAAD = Data("PassVault/decoy-owner/v1".utf8)
@@ -211,7 +212,7 @@ public final class VaultEngine: @unchecked Sendable {
         let started = DispatchTime.now().uptimeNanoseconds
         let found = try authenticate(password, unlocking: true)
         let loaded = try load(found.key, decoy: found.decoy)
-        lastUnlockTiming = UnlockTiming(totalMilliseconds: Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000), hashingMilliseconds: hashingMilliseconds)
+        unlockTiming = UnlockTiming(totalMilliseconds: Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000), hashingMilliseconds: hashingMilliseconds)
         return loaded
     } }
     /// Biometrics always open the main vault. The key is released only by the Secure Enclave after a biometric match, which proves the owner is

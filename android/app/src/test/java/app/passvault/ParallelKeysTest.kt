@@ -35,6 +35,14 @@ class ParallelKeysTest {
         assertTrue(mainKey.all { it == 0.toByte() })
     }
 
+    @Test fun anInterruptStillWaitsForTheOtherKeyAndIsKeptForTheCaller() {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val (a, b) = bothKeys({ Thread.currentThread().interrupt(); release.countDown(); byteArrayOf(1) },
+            { release.await(5, TimeUnit.SECONDS); Thread.sleep(50); byteArrayOf(2) })
+        assertArrayEquals(byteArrayOf(1), a); assertArrayEquals(byteArrayOf(2), b)
+        assertTrue("the interrupt is restored", Thread.interrupted())
+    }
+
     @Test fun timingSaysWhereTheTimeWent() {
         assertEquals("Unlock took 1500 ms: password hashing 1200 ms, Keystore and files 300 ms", UnlockTiming(1500, 1200).toString())
     }

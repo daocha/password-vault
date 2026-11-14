@@ -59,9 +59,15 @@ class UnlockTiming(val totalMillis: Long, val hashingMillis: Long) {
  */
 internal fun bothKeys(main: () -> ByteArray?, side: () -> ByteArray?): Pair<ByteArray?, ByteArray?> {
     val task = java.util.concurrent.FutureTask(side)
-    Thread(task, "PassVault-argon2").start()
+    // No thread to spare: derive one after the other, as before.
+    if (runCatching { Thread(task, "PassVault-argon2").start() }.isFailure) return main().let { a -> a to runCatching(side).getOrElse { e -> a?.fill(0); throw e } }
     val first = runCatching(main)
-    val second = try { Result.success(task.get()) } catch (e: java.util.concurrent.ExecutionException) { Result.failure(e.cause ?: e) }
+    // Always wait for the other derivation, even if interrupted: returning early would leave its key unzeroed and still running.
+    var interrupted = false; var second: Result<ByteArray?>? = null
+    while (second == null) second = try { Result.success(task.get()) }
+        catch (e: java.util.concurrent.ExecutionException) { Result.failure(e.cause ?: e) }
+        catch (_: InterruptedException) { interrupted = true; null }
+    if (interrupted) Thread.currentThread().interrupt()
     val a = first.getOrElse { runCatching(main).getOrElse { e -> second.getOrNull()?.fill(0); throw e } }
     val b = second.getOrElse { runCatching(side).getOrElse { e -> a?.fill(0); throw e } }
     return a to b
