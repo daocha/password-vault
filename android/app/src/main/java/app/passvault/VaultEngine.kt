@@ -103,7 +103,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
         val blob = UUID.randomUUID().toString()
         val value = DeviceState(0, false, wrapped.salt, wrapped.secret, wrapped.wrapped, blob)
         // Without its state the new file would block every later attempt ("Protected state is missing"), e.g. when Keystore refuses the
-        // key because the device was opened with face unlock.
+        // key because the device was opened with a face unlock Keystore does not count.
         try {
             storage.writeBlob(blob, VaultCrypto.seal(Records.encode(emptyList()), dataKey, blob.toByteArray()))
             storage.writeState(value.encode())

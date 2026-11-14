@@ -34,7 +34,7 @@
     <string name="main_incorrect_password">Incorrect password. %1$d attempts left before this vault is erased.</string>
     <string name="main_operation_failed">Operation failed.</string>
     <string name="main_biometric_not_enrolled">Enroll a strong (Class 3) fingerprint or face biometric in device settings.</string>
-    <string name="main_device_locked">Android is keeping PassVault\'s keys locked. Lock the screen, unlock it with your PIN, pattern or password (face unlock and Smart Lock do not count on this device), then try again.</string>
+    <string name="main_device_locked">Android is keeping PassVault\'s keys locked. Lock the screen, unlock it with your PIN, pattern or password (on some devices face unlock does not count), then try again.</string>
     <string name="main_biometric_unsupported">Not available: this device has no fingerprint sensor or other strong biometric</string>
     <string name="main_biometric_unavailable">Biometrics are unavailable right now</string>
     <string name="main_biometric_use_password_first">Unlock with your password, then enable biometric unlock in settings.</string>

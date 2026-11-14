@@ -33,8 +33,9 @@ internal object StateFormat {
 }
 
 /**
- * Keystore refused a key that only works while the device is unlocked, though the screen is on: Android unlocks those keys only after the
- * PIN, pattern, password or a strong (Class 3) biometric. Face unlock on many devices, Smart Lock and other trust agents do not count.
+ * Keystore refused a key that only works while the device is unlocked, though the screen is on. The PIN, pattern, password and a strong
+ * (Class 3) biometric always release those keys. Whether face unlock or Smart Lock also does depends on the device: Samsung's face unlock
+ * does, the Lenovo Y700 Gen 4's does not (its face unlock is not a biometric Android knows about).
  */
 class DeviceLockedException(cause: Throwable? = null) : IllegalStateException(
     "Android is keeping PassVault's keys locked. Lock the screen, unlock it with your PIN, pattern or password, then try again.", cause)
