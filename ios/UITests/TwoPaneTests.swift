@@ -74,10 +74,17 @@ final class TwoPaneTests: XCTestCase {
     private func addLogin(_ name: String, in app: XCUIApplication) {
         let add = app.buttons["New entry"]
         XCTAssertTrue(waitUntilHittable(add), app.debugDescription)
-        // A menu tapped while the list is still settling (just after unlocking or a sheet closing) may not open: try again.
+        // SwiftUI exposes the menu as a labelled button around the unlabelled control that opens it, and a tap on the
+        // outer element does not always reach it. Try the inner control, a tap at its centre, then a long press.
         let login = app.buttons["Login"]
-        for _ in 0..<4 {
-            add.tap()
+        let attempts: [() -> Void] = [
+            { add.buttons.firstMatch.exists ? add.buttons.firstMatch.tap() : add.tap() },
+            { add.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() },
+            { add.press(forDuration: 0.8) },
+            { add.tap() },
+        ]
+        for attempt in attempts {
+            attempt()
             if login.waitForExistence(timeout: 3) { break }
         }
         XCTAssertTrue(login.exists, app.debugDescription)
