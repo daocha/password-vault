@@ -55,3 +55,15 @@ jobs:
           -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
           -parallel-testing-enabled NO -retry-tests-on-failure -test-iterations 2
           CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
+
+      # A wide screen (iPad, unfolded foldable iPhone) opens entries in a pane beside the list. The iPad mini is the
+      # closest simulator to an unfolded phone. Only the side-pane tests run here: the others expect an iPhone layout.
+      - name: Test the side pane on iPad Simulator
+        if: github.event_name != 'push'
+        working-directory: ios
+        run: >-
+          xcodebuild -project PassVault.xcodeproj -scheme PassVault
+          -configuration Debug -destination 'platform=iOS Simulator,name=iPad mini (A17 Pro),OS=latest'
+          -only-testing:PassVaultUITests/TwoPaneTests -only-testing:PassVaultAppTests/EntryPaneModelTests
+          -parallel-testing-enabled NO -retry-tests-on-failure -test-iterations 2
+          CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test

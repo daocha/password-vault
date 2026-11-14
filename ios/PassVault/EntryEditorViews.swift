@@ -146,10 +146,23 @@ struct GeneratorSheet: View {
 
 /// Add or edit a login, card or secure note. Same layout as Android: a details card, then one card per field.
 struct RecordEditor: View {
+    @StateObject private var draft: EditorDraft<VaultRecord>
+    init(record: VaultRecord) { _draft = StateObject(wrappedValue: EditorDraft(record)) }
+    var body: some View { RecordEditorForm(draft: draft) }
+}
+
+/// The editor itself. Its fields live in `draft`, which the vault list keeps while the screen changes width.
+struct RecordEditorForm: View {
     @ObservedObject private var settings = AppSettings.shared
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
-    @State var record: VaultRecord
+    @ObservedObject var draft: EditorDraft<VaultRecord>
+    /// Set when the vault list shows this editor: gets the saved entry's id, or nil when discarded. Otherwise the editor dismisses itself.
+    var done: ((String?) -> Void)? = nil
+    private var record: VaultRecord {
+        get { draft.form }
+        nonmutating set { draft.form = newValue }
+    }
     @State private var revealed = Set<String>()
     @State private var generatingFor: String?
     @State private var groupFocused = false
@@ -171,7 +184,7 @@ struct RecordEditor: View {
                     Spacer()
                     if record.fields.count > 1 { Text("Drag ⋮⋮ to reorder").font(.caption2).foregroundStyle(Color.aOnSurfaceVariant) }
                 }.rowStyle(top: 6).moveDisabled(true)
-                ForEach($record.fields) { $field in
+                ForEach($draft.form.fields) { $field in
                     fieldCard($field).rowStyle()
                         .accessibilityAction(named: Text("Move up")) { move(field.id, by: -1) }
                         .accessibilityAction(named: Text("Move down")) { move(field.id, by: 1) }
@@ -183,7 +196,7 @@ struct RecordEditor: View {
             .environment(\.editMode, .constant(record.fields.count > 1 ? .active : .inactive))
             .navigationTitle(LocalizedStringKey(title)).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
+                ToolbarItem(placement: .cancellationAction) { Button { close(nil) } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { record.favorite.toggle() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
@@ -204,11 +217,11 @@ struct RecordEditor: View {
     private var detailsCard: some View {
         SurfaceCard {
             VStack(spacing: 10) {
-                OutlinedField(label: localized("Name"), icon: "person.text.rectangle", text: $record.name)
-                if !record.isNote { OutlinedField(label: localized("Website/App name"), icon: "globe", text: $record.website, keyboard: .URL) }
+                OutlinedField(label: localized("Name"), icon: "person.text.rectangle", text: $draft.form.name)
+                if !record.isNote { OutlinedField(label: localized("Website/App name"), icon: "globe", text: $draft.form.website, keyboard: .URL) }
                 groupField
                 // A card's own expiry date is its reminder.
-                if !record.isCard { ExpiryField(value: $record.expires) }
+                if !record.isCard { ExpiryField(value: $draft.form.expires) }
             }
         }
     }
@@ -219,7 +232,7 @@ struct RecordEditor: View {
         let matches = typed.isEmpty ? [] : groups.filter { $0.localizedCaseInsensitiveContains(typed) && $0.caseInsensitiveCompare(typed) != .orderedSame }
         let isNew = !groups.isEmpty && !typed.isEmpty && !groups.contains { $0.caseInsensitiveCompare(typed) == .orderedSame }
         return VStack(spacing: 4) {
-            OutlinedField(label: localized("Group"), icon: "folder", text: $record.group, supporting: isNew ? localized("New group") : nil, focusChanged: { groupFocused = $0 }) {
+            OutlinedField(label: localized("Group"), icon: "folder", text: $draft.form.group, supporting: isNew ? localized("New group") : nil, focusChanged: { groupFocused = $0 }) {
                 if !groups.isEmpty {
                     Menu {
                         ForEach(groups, id: \.self) { name in Button { record.group = name } label: { Label(name, systemImage: "folder") } }
@@ -308,8 +321,10 @@ struct RecordEditor: View {
         var updated = model.records
         if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
         let snapshot = updated
-        model.run({ try $0.save(snapshot); return snapshot }, done: { dismiss() })
+        let saved = record.id
+        model.run({ try $0.save(snapshot); return snapshot }, done: { close(saved) })
     }
+    private func close(_ saved: String?) { if let done { done(saved) } else { dismiss() } }
 }
 
 private extension View {

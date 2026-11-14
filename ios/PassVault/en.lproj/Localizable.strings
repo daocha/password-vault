@@ -432,3 +432,10 @@
 "File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files." = "File encryption is not supported on iOS. This key is kept for encrypted backups and transfers to Android. Use PassVault on Android to encrypt or decrypt files.";
 "This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it." = "This includes a file encryption key. Files encrypted with it can never be opened again, unless you still have a backup that contains it.";
 "This includes %lld 2FA codes. Without another copy of their setup keys or the sites' recovery codes, you may lose access to those accounts." = "This includes %lld 2FA codes. Without another copy of their setup keys or the sites' recovery codes, you may lose access to those accounts.";
+"Close" = "Close";
+"Discard unsaved changes?" = "Discard unsaved changes?";
+"Discard" = "Discard";
+"Keep editing" = "Keep editing";
+"The entry you are editing has changes that are not saved." = "The entry you are editing has changes that are not saved.";
+"No entry selected" = "No entry selected";
+"Choose an entry from the list, or add a new one." = "Choose an entry from the list, or add a new one.";

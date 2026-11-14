@@ -68,6 +68,9 @@ struct TotpDetail: View {
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) private var dismiss
     let recordID: String
+    /// Set when the vault list opened this entry (see EntryPaneHooks).
+    var hooks: EntryPaneHooks? = nil
+    @State private var canPresentEditor = false
     @State private var keyShown = false
     @State private var editing: VaultRecord?
     @State private var deleting = false
@@ -101,21 +104,25 @@ struct TotpDetail: View {
                 .background(Color.aBackground)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") }
+                    ToolbarItem(placement: .topBarLeading) { Button { close() } label: { Image(systemName: hooks?.inPane == true ? "xmark" : "chevron.left") }.accessibilityLabel(Text(LocalizedStringKey(hooks?.inPane == true ? "Close" : "Back"))) }
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button { toggleFavorite() } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                             .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
-                        Button { keyShown = false; editing = record } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
+                        Button { keyShown = false; if let hooks { hooks.edit(record) } else { editing = record } } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
                         Menu {
                             Button(role: .destructive) { deleting = true } label: { Label("Delete 2FA code", systemImage: "trash") }
                         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More")
                     }
                 }
                 .sheet(item: $editing) { TotpEditor(record: $0) }
+                .sheet(item: EntryPaneHooks.editorItem(hooks, ready: canPresentEditor)) { item in item.view(done: hooks?.editorDone ?? { _ in }) }
+                // After a fold, the editor that was open in the side pane returns as a sheet over these details. UIKit cannot
+                // present it while this screen is still sliding in, so wait for that first.
+                .task { if hooks != nil { try? await Task.sleep(for: .milliseconds(500)); canPresentEditor = true } }
                 .alert("Delete this 2FA code?", isPresented: $deleting) {
                     Button("Delete", role: .destructive) {
                         let updated = model.records.filter { $0.id != recordID }
-                        model.run({ try $0.save(updated); return updated }, done: { dismiss() })
+                        model.run({ try $0.save(updated); return updated }, done: { close() })
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { Text("If two-factor authentication is still on for “\(record.name)”, you will need another backup of this key or the site's recovery codes to sign in.") }
@@ -171,6 +178,9 @@ struct TotpDetail: View {
         let snapshot = updated
         model.run { try $0.save(snapshot); return snapshot }
     }
+
+    /// Back, Close or a finished delete: the vault list's open-entry state when it opened this, otherwise this screen's own dismiss.
+    private func close() { if let hooks { hooks.close() } else { dismiss() } }
 }
 
 /// Reordering always includes every code, even while the main list is filtered.
@@ -213,19 +223,30 @@ struct TotpReorderView: View {
 /// Adds or edits an authenticator account: scan its QR code, read it from a screenshot, or type the setup key.
 /// A Google Authenticator export QR holds several accounts and is offered for import instead of filling the form.
 struct TotpEditor: View {
+    @StateObject private var draft: EditorDraft<TotpForm>
+    let original: VaultRecord
+    init(record: VaultRecord) { original = record; _draft = StateObject(wrappedValue: EditorDraft(TotpForm(record: record))) }
+    var body: some View { TotpEditorForm(draft: draft, original: original) }
+}
+
+/// The editor itself. Its fields live in `draft`, which the vault list keeps while the screen changes width.
+struct TotpEditorForm: View {
     @ObservedObject private var settings = AppSettings.shared
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
+    @ObservedObject var draft: EditorDraft<TotpForm>
     let original: VaultRecord
-    @State private var name: String
-    @State private var issuer: String
-    @State private var account: String
-    @State private var key: String
-    @State private var algorithm: String
-    @State private var digits: Int
-    @State private var period: Int
-    @State private var notes: String
-    @State private var favorite: Bool
+    /// Set when the vault list shows this editor: gets the saved entry's id, or nil when discarded. Otherwise the editor dismisses itself.
+    var done: ((String?) -> Void)? = nil
+    private var name: String { get { draft.form.name } nonmutating set { draft.form.name = newValue } }
+    private var issuer: String { get { draft.form.issuer } nonmutating set { draft.form.issuer = newValue } }
+    private var account: String { get { draft.form.account } nonmutating set { draft.form.account = newValue } }
+    private var key: String { get { draft.form.key } nonmutating set { draft.form.key = newValue } }
+    private var algorithm: String { get { draft.form.algorithm } nonmutating set { draft.form.algorithm = newValue } }
+    private var digits: Int { get { draft.form.digits } nonmutating set { draft.form.digits = newValue } }
+    private var period: Int { get { draft.form.period } nonmutating set { draft.form.period = newValue } }
+    private var notes: String { get { draft.form.notes } nonmutating set { draft.form.notes = newValue } }
+    private var favorite: Bool { get { draft.form.favorite } nonmutating set { draft.form.favorite = newValue } }
     @State private var keyShown: Bool
     @State private var scanning = false
     @State private var photo: PhotosPickerItem?
@@ -235,15 +256,11 @@ struct TotpEditor: View {
     @State private var importNote = ""
     @State private var advanced: Bool
 
-    init(record: VaultRecord) {
-        original = record
-        let start = record.totp
-        _name = State(initialValue: record.name); _issuer = State(initialValue: start?.issuer ?? ""); _account = State(initialValue: start?.account ?? "")
-        _key = State(initialValue: start?.secretBase32 ?? ""); _algorithm = State(initialValue: start?.algorithm ?? "SHA1")
-        _digits = State(initialValue: start?.digits ?? 6); _period = State(initialValue: start?.period ?? 30)
-        _notes = State(initialValue: record.fields.first { $0.kind == .note }?.value ?? ""); _favorite = State(initialValue: record.favorite)
-        _keyShown = State(initialValue: start == nil)
-        _advanced = State(initialValue: start.map { $0.algorithm != "SHA1" || $0.digits != 6 || $0.period != 30 } ?? false)
+    init(draft: EditorDraft<TotpForm>, original: VaultRecord, done: ((String?) -> Void)? = nil) {
+        _draft = ObservedObject(wrappedValue: draft); self.original = original; self.done = done
+        // A new code's key starts visible; a saved one's stays hidden, also after a fold rebuilds the editor.
+        _keyShown = State(initialValue: original.totp == nil)
+        _advanced = State(initialValue: draft.form.usesAdvancedSettings)
     }
     private var isNew: Bool { !model.records.contains { $0.id == original.id } }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -271,9 +288,9 @@ struct TotpEditor: View {
                     }
                     if let notice { Text(LocalizedStringKey(notice)).font(.subheadline).foregroundStyle(noticeError ? Color.red : Color.green).frame(maxWidth: .infinity, alignment: .leading) }
                     if let duplicate { Text("This 2FA code is already in your vault as “\(duplicate.name)”.").font(.subheadline).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) }
-                    OutlinedField(label: localized("Service"), icon: "person.text.rectangle", text: $name)
-                    OutlinedField(label: localized("Account (optional)"), icon: "person", text: $account, keyboard: .emailAddress)
-                    OutlinedField(label: localized("Setup key"), icon: "key", text: $key, secure: !keyShown, monospaced: true, capitalization: .characters,
+                    OutlinedField(label: localized("Service"), icon: "person.text.rectangle", text: $draft.form.name)
+                    OutlinedField(label: localized("Account (optional)"), icon: "person", text: $draft.form.account, keyboard: .emailAddress)
+                    OutlinedField(label: localized("Setup key"), icon: "key", text: $draft.form.key, secure: !keyShown, monospaced: true, capitalization: .characters,
                                   supporting: localized(!key.isEmpty && secret == nil ? "The key must be Base32: letters A–Z and digits 2–7." : "The Base32 key shown with the QR code"),
                                   supportingIsError: !key.isEmpty && secret == nil, error: !key.isEmpty && secret == nil) {
                         Button { keyShown.toggle() } label: { Image(systemName: keyShown ? "eye.slash" : "eye").foregroundStyle(Color.aOnSurfaceVariant).frame(width: 36, height: 36).contentShape(Rectangle()) }
@@ -294,7 +311,7 @@ struct TotpEditor: View {
                             }
                         }
                     }
-                    OutlinedField(label: localized("Notes (optional)"), text: $notes, multiline: true, capitalization: .sentences)
+                    OutlinedField(label: localized("Notes (optional)"), text: $draft.form.notes, multiline: true, capitalization: .sentences)
                     Text("Setup keys are left out of CSV exports; only encrypted backups include them. Keep a backup: losing this phone without one means losing these codes.")
                         .font(.caption).foregroundStyle(Color.aOnSurfaceVariant).multilineTextAlignment(.center).frame(maxWidth: .infinity)
                 }.padding(.horizontal, 16).padding(.bottom, 32)
@@ -302,7 +319,7 @@ struct TotpEditor: View {
             .background(Color.aBackground)
             .navigationTitle(LocalizedStringKey(isNew ? "New 2FA code" : "Edit 2FA code")).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
+                ToolbarItem(placement: .cancellationAction) { Button { close(nil) } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
@@ -317,7 +334,7 @@ struct TotpEditor: View {
             }
             .confirmationDialog(pendingImport?.isEmpty == false ? localizedFormat("Add %lld 2FA codes?", pendingImport?.count ?? 0) : localized("Nothing new to add from this QR code."), isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
                 if let records = pendingImport, !records.isEmpty {
-                    Button("Add") { pendingImport = nil; model.run({ try $0.merge(records) }, done: { dismiss() }) }
+                    Button("Add") { pendingImport = nil; model.run({ try $0.merge(records) }, done: { close(nil) }) }
                 }
                 Button("Cancel", role: .cancel) { pendingImport = nil }
             } message: { Text(importNote) }
@@ -336,9 +353,9 @@ struct TotpEditor: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Most sites use SHA1, 6 digits and 30 seconds. Change these only if the site says so.").font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                         Text("Algorithm").font(.subheadline.weight(.medium))
-                        Picker("Algorithm", selection: $algorithm) { ForEach(TotpAccount.algorithms, id: \.self) { Text($0).tag($0) } }.pickerStyle(.segmented)
+                        Picker("Algorithm", selection: $draft.form.algorithm) { ForEach(TotpAccount.algorithms, id: \.self) { Text($0).tag($0) } }.pickerStyle(.segmented)
                         Text("Digits").font(.subheadline.weight(.medium))
-                        Picker("Digits", selection: $digits) { ForEach([6, 7, 8], id: \.self) { Text("\($0)").tag($0) } }.pickerStyle(.segmented)
+                        Picker("Digits", selection: $draft.form.digits) { ForEach([6, 7, 8], id: \.self) { Text("\($0)").tag($0) } }.pickerStyle(.segmented)
                         OutlinedField(label: localized("Period (seconds)"), text: Binding(get: { String(period) }, set: { period = Int($0.filter(\.isNumber).prefix(3)) ?? 0 }), keyboard: .numberPad,
                                       error: !(1...300).contains(period))
                     }.padding(.horizontal, 16).padding(.bottom, 16)
@@ -403,8 +420,10 @@ struct TotpEditor: View {
         var updated = model.records
         if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
         let snapshot = updated
-        model.run({ try $0.save(snapshot); return snapshot }, done: { dismiss() })
+        let saved = record.id
+        model.run({ try $0.save(snapshot); return snapshot }, done: { close(saved) })
     }
+    private func close(_ saved: String?) { if let done { done(saved) } else { dismiss() } }
 }
 
 /// Decodes a QR code from a picture on the device (Core Image); nothing leaves the phone.

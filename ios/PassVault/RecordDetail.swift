@@ -64,6 +64,9 @@ struct RecordDetail: View {
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) private var dismiss
     let recordID: String
+    /// Set when the vault list opened this entry (see EntryPaneHooks).
+    var hooks: EntryPaneHooks? = nil
+    @State private var canPresentEditor = false
     @State private var revealed = Set<String>()
     @State private var editing: VaultRecord?
     @State private var historyField: VaultField?
@@ -90,23 +93,27 @@ struct RecordDetail: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back")
+                        Button { close() } label: { Image(systemName: hooks?.inPane == true ? "xmark" : "chevron.left") }.accessibilityLabel(Text(LocalizedStringKey(hooks?.inPane == true ? "Close" : "Back")))
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button { toggleFavorite(record) } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                             .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
-                        if !record.isFileKey { Button { revealed = []; editing = record } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit") }
+                        if !record.isFileKey { Button { revealed = []; if let hooks { hooks.edit(record) } else { editing = record } } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit") }
                         Menu {
                             Button(role: .destructive) { deleting = true } label: { Label("Delete entry", systemImage: "trash") }
                         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More")
                     }
                 }
                 .sheet(item: $editing) { RecordEditor(record: $0) }
+                .sheet(item: EntryPaneHooks.editorItem(hooks, ready: canPresentEditor)) { item in item.view(done: hooks?.editorDone ?? { _ in }) }
+                // After a fold, the editor that was open in the side pane returns as a sheet over these details. UIKit cannot
+                // present it while this screen is still sliding in, so wait for that first.
+                .task { if hooks != nil { try? await Task.sleep(for: .milliseconds(500)); canPresentEditor = true } }
                 .sheet(item: $historyField) { PasswordHistoryView(field: $0) }
                 .alert("Delete this entry?", isPresented: $deleting) {
                     Button("Delete", role: .destructive) {
                         let updated = model.records.filter { $0.id != recordID }
-                        model.run({ try $0.save(updated); return updated }, done: { dismiss() })
+                        model.run({ try $0.save(updated); return updated }, done: { close() })
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { Text(record.isFileKey ? localized(fileKeyDeletionMessage) : localizedFormat("“%@” will be permanently removed from this vault.", record.name)) }
@@ -192,4 +199,7 @@ struct RecordDetail: View {
         let snapshot = updated
         model.run { try $0.save(snapshot); return snapshot }
     }
+
+    /// Back, Close or a finished delete: the vault list's open-entry state when it opened this, otherwise this screen's own dismiss.
+    private func close() { if let hooks { hooks.close() } else { dismiss() } }
 }
