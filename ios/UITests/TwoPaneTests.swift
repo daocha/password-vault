@@ -15,9 +15,10 @@ final class TwoPaneTests: XCTestCase {
         let wide = app.windows.firstMatch.horizontalSizeClass == .regular
         XCTAssertEqual(app.staticTexts["No entry selected"].exists, wide, "only a wide screen has the side pane")
 
+        app.buttons["tab.seed"].tap()
         let suffix = UUID().uuidString.prefix(4)
         let first = "Pane A \(suffix)", second = "Pane B \(suffix)"
-        addLogin(first, in: app)
+        addSeed(first, in: app)
         if wide {
             XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 10), "a saved new entry opens beside the list: \(app.debugDescription)")
             XCTAssertTrue(settings.isHittable, "the list stays usable beside the pane")
@@ -25,7 +26,7 @@ final class TwoPaneTests: XCTestCase {
             XCTAssertTrue(waitUntilHittable(settings), "a narrow screen returns to the list: \(app.debugDescription)")
             XCTAssertFalse(app.buttons["Close"].exists)
         }
-        addLogin(second, in: app)
+        addSeed(second, in: app)
 
         row(first, in: app).tap()
         let edit = app.buttons["Edit"]
@@ -41,7 +42,7 @@ final class TwoPaneTests: XCTestCase {
             XCTAssertFalse(settings.isHittable)
             // Edit still opens as a sheet over the details, and discarding returns to them.
             edit.tap()
-            XCTAssertTrue(app.textFields["Name"].waitForExistence(timeout: 10), app.debugDescription)
+            XCTAssertTrue(app.textViews["Wallet name"].waitForExistence(timeout: 10), app.debugDescription)
             app.buttons["Discard changes"].tap()
             XCTAssertTrue(waitUntilHittable(app.buttons["Back"]), app.debugDescription)
             app.buttons["Back"].tap()
@@ -52,7 +53,7 @@ final class TwoPaneTests: XCTestCase {
     /// Editing in the pane: tapping another entry with unsaved changes asks first, and Keep editing keeps what was typed.
     private func editBesideTheList(first: String, second: String, in app: XCUIApplication) {
         app.buttons["Edit"].tap()
-        let name = app.textFields["Name"]
+        let name = app.textViews["Wallet name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.buttons["vault.settings"].isHittable, "the editor opens beside the list")
         name.tap()
@@ -61,7 +62,7 @@ final class TwoPaneTests: XCTestCase {
         let alert = app.alerts["Discard unsaved changes?"]
         XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
         alert.buttons["Keep editing"].tap()
-        XCTAssertTrue((name.value as? String)?.hasSuffix(" edited") == true, "Keep editing keeps the typed text")
+        XCTAssertTrue((name.value as? String)?.contains("edited") == true, "Keep editing keeps the typed text")
 
         row(second, in: app).tap()
         XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
@@ -71,26 +72,18 @@ final class TwoPaneTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["\(first) edited"].exists, "the discarded name was not saved")
     }
 
-    private func addLogin(_ name: String, in app: XCUIApplication) {
-        let add = app.buttons["New entry"]
+    /// Adds a generated seed phrase. The seed tab's add button is a plain button; the passwords tab's is a menu, which
+    /// XCUITest could not open on the CI simulator.
+    private func addSeed(_ name: String, in app: XCUIApplication) {
+        let add = app.buttons["New seed phrase"]
         XCTAssertTrue(waitUntilHittable(add), app.debugDescription)
-        // SwiftUI exposes the menu as a labelled button around the unlabelled control that opens it, and a tap on the
-        // outer element does not always reach it. Try the inner control, a tap at its centre, then a long press.
-        let login = app.buttons["Login"]
-        let attempts: [() -> Void] = [
-            { add.buttons.firstMatch.exists ? add.buttons.firstMatch.tap() : add.tap() },
-            { add.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() },
-            { add.press(forDuration: 0.8) },
-            { add.tap() },
-        ]
-        for attempt in attempts {
-            attempt()
-            if login.waitForExistence(timeout: 3) { break }
-        }
-        XCTAssertTrue(login.exists, app.debugDescription)
-        login.tap()
-        let field = app.textFields["Name"]
+        add.tap()
+        let field = app.textViews["Wallet name"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), app.debugDescription)
+        // Confirm the generated words before typing, while the keyboard cannot cover the checkbox.
+        let written = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "I wrote these words down")).firstMatch
+        XCTAssertTrue(written.waitForExistence(timeout: 10), app.debugDescription)
+        written.tap()
         field.tap()
         field.typeText(name)
         app.buttons["Save"].tap()
