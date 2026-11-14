@@ -457,3 +457,15 @@ func totpOrderChecks() throws {
     let code = Transfer.newCode()
     try check(try Transfer.open(Transfer.seal(saved, code: code), code: code).first?.legacy["totpOrder"] == "3", "a transfer keeps a 2FA code's position")
 }
+
+/// Biometric unlock is offered only where Face ID or Touch ID is ready, and can always be turned off.
+func biometricSupportChecks() throws {
+    try check(BiometricAvailability(laErrorCode: nil, hasSensor: true) == .available, "biometrics available when LocalAuthentication agrees")
+    try check(BiometricAvailability(laErrorCode: -7, hasSensor: true) == .notEnrolled, "biometryNotEnrolled asks to enroll")
+    try check(BiometricAvailability(laErrorCode: -6, hasSensor: false) == .unsupported, "no sensor means unsupported")
+    try check(BiometricAvailability(laErrorCode: -6, hasSensor: true) == .unavailable, "a denied sensor is only unavailable")
+    try check(!BiometricAvailability.unsupported.canToggle(enabled: false), "unsupported device cannot turn biometrics on")
+    try check(!BiometricAvailability.notEnrolled.canToggle(enabled: false), "unenrolled device cannot turn biometrics on")
+    try check(BiometricAvailability.unsupported.canToggle(enabled: true), "biometrics can always be turned off")
+    try check(BiometricAvailability.available.canToggle(enabled: false), "ready device can turn biometrics on")
+}

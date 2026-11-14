@@ -73,7 +73,11 @@ class VaultEngine(private val storage: ProtectedStorage) {
     /** The vault files the state points at: the main one and, if set up, the decoy one. */
     private fun liveBlobs(value: DeviceState) = setOfNotNull(value.blob, value.decoy?.blob)
     fun exists() = VaultAccess.serialized { state() != null }
-    fun isErased() = VaultAccess.serialized { storage.readState()?.let { DeviceState.decode(it).erased } ?: false }
+    /**
+     * True after erasure, and also when vault files exist without their protected state (a create that could not save its state, as
+     * earlier builds left behind): nothing can decrypt them, so they may be reset like an erased vault.
+     */
+    fun isErased() = VaultAccess.serialized { storage.orphaned() || (storage.readState()?.let { DeviceState.decode(it).erased } ?: false) }
     fun resetErasedVault(): Unit = VaultAccess.serialized {
         check(isErased()) { "Only an already-erased vault can be reset without a password." }
         lock(); storage.deleteBiometric(); storage.removeBlobs(emptySet()); storage.deleteState()
@@ -98,8 +102,13 @@ class VaultEngine(private val storage: ProtectedStorage) {
         val dataKey = VaultCrypto.random(32); val wrapped = wrap(password, dataKey)
         val blob = UUID.randomUUID().toString()
         val value = DeviceState(0, false, wrapped.salt, wrapped.secret, wrapped.wrapped, blob)
-        storage.writeBlob(blob, VaultCrypto.seal(Records.encode(emptyList()), dataKey, blob.toByteArray()))
-        storage.writeState(value.encode()); key = dataKey; records = emptyList(); activeDecoy = false; loadedBlob = blob; return@serialized records
+        // Without its state the new file would block every later attempt ("Protected state is missing"), e.g. when Keystore refuses the
+        // key because the device was opened with face unlock.
+        try {
+            storage.writeBlob(blob, VaultCrypto.seal(Records.encode(emptyList()), dataKey, blob.toByteArray()))
+            storage.writeState(value.encode())
+        } catch (e: Exception) { dataKey.fill(0); runCatching { storage.abandonCreate() }; throw e }
+        key = dataKey; records = emptyList(); activeDecoy = false; loadedBlob = blob; return@serialized records
     }
     private class Found(val key: ByteArray, val decoy: Boolean)
     /**

@@ -34,6 +34,9 @@
     <string name="main_incorrect_password">密碼錯誤。此保險庫被清除前還剩 %1$d 次嘗試機會。</string>
     <string name="main_operation_failed">操作失敗。</string>
     <string name="main_biometric_not_enrolled">請在裝置設定中登錄強生物辨識（Class 3）指紋或臉部資料。</string>
+    <string name="main_device_locked">Android 正在鎖定 PassVault 的金鑰。請鎖定螢幕，再用 PIN 碼、圖案或密碼解鎖（在此裝置上，臉部解鎖和 Smart Lock 不算數），然後重試。</string>
+    <string name="main_biometric_unsupported">無法使用：此裝置沒有指紋感應器或其他強生物辨識</string>
+    <string name="main_biometric_unavailable">生物辨識暫時無法使用</string>
     <string name="main_biometric_use_password_first">請先使用主密碼解鎖，然後在設定中啟用生物辨識解鎖。</string>
     <string name="main_enable_biometric_unlock">啟用生物辨識解鎖</string>
     <string name="main_unlock_passvault">解鎖 PassVault</string>

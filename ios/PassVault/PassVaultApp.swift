@@ -418,6 +418,8 @@ struct TransferView: View {
     @State private var confirmNew = ""
     @State private var panel: VaultSettingsPanel?
     @State private var health = false
+    @State private var biometrics = BiometricAvailability.current()
+    @Environment(\.scenePhase) private var phase
     var body: some View {
         NavigationStack {
             Form {
@@ -434,6 +436,7 @@ struct TransferView: View {
                 Section(header: Text("Security").font(.footnote.weight(.semibold)).foregroundStyle(Color.aPrimary).textCase(nil)) {
                     settingsRow("Vault health", icon: "checkmark.shield") { health = true }
                     settingsRow("Auto-lock", icon: "timer", summary: settings.autoLock.label) { open(.autoLock) }
+                    // Without Face ID or Touch ID ready the switch is off and greyed out, saying why, instead of asking for the password first.
                     if !model.decoy {
                         Toggle(isOn: Binding(get: { model.biometricEnabled }, set: { enabled in
                             if enabled { open(.biometrics) }
@@ -443,10 +446,11 @@ struct TransferView: View {
                                 IconBadge(symbol: "faceid", size: 36, tint: .aOnSecondaryContainer, container: .aSecondaryContainer)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Biometric unlock").font(.callout)
-                                    Text(LocalizedStringKey(model.biometricEnabled ? "On" : "Off")).font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
+                                    Text(LocalizedStringKey(model.biometricEnabled ? "On" : biometrics.offSummary)).font(.caption).foregroundStyle(Color.aOnSurfaceVariant)
                                 }
                             }
-                        }.disabled(model.busy).accessibilityIdentifier("settings.biometrics")
+                        }.disabled(model.busy || !biometrics.canToggle(enabled: model.biometricEnabled)).accessibilityIdentifier("settings.biometrics")
+                        .onChange(of: phase) { _, now in if now == .active { biometrics = .current() } }
                     }
                     settingsRow("Change app password", icon: "key") { open(.changePassword) }
                     if !model.decoy {

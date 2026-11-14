@@ -24,6 +24,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -295,8 +296,11 @@ class MainActivity : FragmentActivity() {
         }
     }
     /** Text for a failure: "update the app" for data from a newer version, otherwise the error's own message. */
-    private fun errorText(e: Exception, fallback: Int): String =
-        if (e is NewerVersionException) getString(if (e.backup) R.string.main_newer_backup else R.string.main_newer_vault) else e.message ?: getString(fallback)
+    private fun errorText(e: Exception, fallback: Int): String = when (e) {
+        is NewerVersionException -> getString(if (e.backup) R.string.main_newer_backup else R.string.main_newer_vault)
+        is DeviceLockedException -> getString(R.string.main_device_locked)
+        else -> e.message ?: getString(fallback)
+    }
     private fun readImport(parse: () -> List<VaultRecord>, parsed: () -> Unit = {}) {
         if (busy) return
         busy = true; message = ""; messageError = false; val epoch = generation
@@ -344,6 +348,9 @@ class MainActivity : FragmentActivity() {
     private val fileNotices = FileNotices.shared
     private val fileRecovery by lazy { FileRecovery(applicationContext) }
     private var recoveryUnavailable by mutableStateOf(false)
+    /** Startup could not read the vault because Keystore kept its keys locked (see [DeviceLockedException]). */
+    private var startupLocked = false
+    private var biometricAvailability by mutableStateOf(BiometricSupport.Availability.AVAILABLE)
     private fun fileVault(decoy: Boolean = decoySession) = FileVault(decoy, BackupStatus(prefs, if (decoy) "decoy." else "").instance)
     private fun clearVaultHistory(decoy: Boolean) {
         BackupStatus(prefs, if (decoy) "decoy." else "").clear()
@@ -601,20 +608,7 @@ class MainActivity : FragmentActivity() {
             catch (_: Exception) { recoveryUnavailable = true }
         }
         // A storage provider can be slow or unavailable. Recovery owns file output, but must not block vault initialization/unlock.
-        lifecycleScope.launch {
-            try {
-                val status = withContext(vaultQueue) {
-                    engine = VaultEngine(ProtectedStorage(this@MainActivity))
-                    Triple(engine.exists(), engine.remainingAttempts(), engine.hasBiometric())
-                }
-                exists = status.first; remaining = status.second; biometricEnabled = status.third; ready = true
-                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) autoBiometrics()
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) {
-                message = errorText(e, R.string.main_storage_unavailable)
-                if (::engine.isInitialized) { erased = withContext(vaultQueue) { runCatching { engine.isErased() }.getOrDefault(false) }; ready = erased }
-            }
-        }
+        openVault()
         setContent {
             val fileWorking by fileJobs.running.collectAsState()
             val notices by fileNotices.pending.collectAsState()
@@ -677,10 +671,32 @@ class MainActivity : FragmentActivity() {
         val timeout = lockTimeout
         if (getSystemService(KeyguardManager::class.java).isDeviceLocked || (timeout != null && backgroundSince > 0 && SystemClock.elapsedRealtime() - backgroundSince >= timeout)) lockVault()
     }
+    /** Opens the engine and reads the unlock screen's status. Run at startup, and again on resume while Keystore refused the keys. */
+    private fun openVault() {
+        val retry = startupLocked; startupLocked = false
+        lifecycleScope.launch {
+            try {
+                val status = withContext(vaultQueue) {
+                    engine = VaultEngine(ProtectedStorage(this@MainActivity))
+                    Triple(engine.exists(), engine.remainingAttempts(), engine.hasBiometric())
+                }
+                exists = status.first; remaining = status.second; biometricEnabled = status.third; ready = true; if (retry) message = ""
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) autoBiometrics()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                message = errorText(e, R.string.main_storage_unavailable)
+                startupLocked = e is DeviceLockedException
+                if (::engine.isInitialized) { erased = withContext(vaultQueue) { runCatching { engine.isErased() }.getOrDefault(false) }; ready = erased }
+            }
+        }
+    }
     override fun onResume() {
         super.onResume()
         updates?.onResume()
         autofillEnabled = autofillManager?.hasEnabledAutofillServices() == true
+        biometricAvailability = BiometricSupport.availability(this)
+        // Back after unlocking the device with its PIN: Keystore may now release the keys it refused at startup.
+        if (startupLocked && !ready) openVault()
         autoBiometrics()
     }
     /** Also called when asynchronous startup completes after onResume. */
@@ -1262,9 +1278,9 @@ class MainActivity : FragmentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun SettingsScreen() {
         var dialog by this::settingsDialog
-        @Composable fun Row(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String? = null, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) =
+        @Composable fun Row(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String? = null, trailing: (@Composable () -> Unit)? = null, enabled: Boolean = true, onClick: () -> Unit) =
             ListItem(headlineContent = { Text(title) }, supportingContent = subtitle?.let { { Text(it) } }, leadingContent = { IconBadge(icon) }, trailingContent = trailing,
-                modifier = Modifier.clickable(onClick = onClick), colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+                modifier = Modifier.clickable(enabled = enabled, onClick = onClick).alpha(if (enabled) 1f else 0.6f), colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
         @Composable fun Group(content: @Composable ColumnScope.() -> Unit) = Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) { Column(Modifier.padding(vertical = 4.dp), content = content) }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
             topBar = { TopAppBar(title = { Text(stringResource(R.string.main_settings)) }, navigationIcon = { IconButton(onClick = { settings = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
@@ -1287,7 +1303,16 @@ class MainActivity : FragmentActivity() {
                     Row(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title), report.score?.let { stringResource(R.string.health_summary, it, report.problemCount) } ?: stringResource(R.string.health_nothing)) { openHealth() }
                     Row(Icons.Outlined.Timer, stringResource(R.string.main_auto_lock), stringResource(autoLock.labelRes)) { dialog = SettingsDialog.AutoLockChoice }
                     // Biometrics always open the real vault, so the decoy vault neither shows nor changes them.
-                    if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), if (biometricEnabled) stringResource(R.string.main_on) else stringResource(R.string.main_off), trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else disableBiometrics() }) }) {
+                    // Without a strong biometric the switch is off and greyed out, saying why, instead of asking for the password and then failing.
+                    val canToggleBiometrics = BiometricSupport.canToggle(biometricAvailability, biometricEnabled)
+                    val biometricStatus = when {
+                        biometricEnabled -> stringResource(R.string.main_on)
+                        biometricAvailability == BiometricSupport.Availability.UNSUPPORTED -> stringResource(R.string.main_biometric_unsupported)
+                        biometricAvailability == BiometricSupport.Availability.NOT_ENROLLED -> stringResource(R.string.main_biometric_not_enrolled)
+                        biometricAvailability == BiometricSupport.Availability.UNAVAILABLE -> stringResource(R.string.main_biometric_unavailable)
+                        else -> stringResource(R.string.main_off)
+                    }
+                    if (!decoySession) Row(Icons.Outlined.Fingerprint, stringResource(R.string.main_biometric_unlock), biometricStatus, enabled = canToggleBiometrics, trailing = { Switch(biometricEnabled, { on -> if (on) dialog = SettingsDialog.EnableBiometrics else disableBiometrics() }, enabled = canToggleBiometrics) }) {
                         if (biometricEnabled) disableBiometrics() else dialog = SettingsDialog.EnableBiometrics
                     }
                     if (autofillManager?.isAutofillSupported == true) Row(Icons.Outlined.Keyboard, stringResource(R.string.autofill_setting), stringResource(if (autofillEnabled) R.string.autofill_setting_on else R.string.autofill_setting_off),
