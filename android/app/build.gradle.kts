@@ -55,6 +55,9 @@ android {
     // Only the app's own languages. Libraries ship ~80 translations each; the Chinese forms they use (zh-rCN/TW/HK) are kept so
     // system pieces such as the date picker and the biometric prompt stay translated.
     androidResources { localeFilters += listOf("en", "b+zh+Hans", "b+zh+Hant", "zh-rCN", "zh-rTW", "zh-rHK") }
+    // The language is chosen inside the app, so every Play install needs every translation. With language splits, Play
+    // installs only the phone's own languages, and choosing Chinese on a phone set to English would show English.
+    bundle { language { enableSplit = false } }
     // Code and native libraries are stored compressed: about half the APK download, unpacked once at install.
     packaging {
         jniLibs { useLegacyPackaging = true }; dex { useLegacyPackaging = true }
