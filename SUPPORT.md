@@ -6,6 +6,8 @@ see your vault or recover it for you.**
 
 ## Get help
 
+- **Email:** [ray@dcha.xyz](mailto:ray@dcha.xyz). Never send passwords, vault or backup files, recovery
+  phrases or two-factor secrets: support never needs them and cannot open your vault.
 - **Questions and bug reports:** [open an issue on GitHub](https://github.com/daocha/password-vault/issues).
   Issues are public. Never include passwords, vault or backup files, recovery phrases, two-factor
   secrets or screenshots that show them.
