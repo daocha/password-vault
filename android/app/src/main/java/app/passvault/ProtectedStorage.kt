@@ -44,6 +44,18 @@ class DeviceLockedException(cause: Throwable? = null) : IllegalStateException(
 internal inline fun <T> needsUnlockedDevice(action: () -> T): T =
     try { action() } catch (e: UserNotAuthenticatedException) { throw DeviceLockedException(e) }
 
+/**
+ * Startup work that Keystore refused with [DeviceLockedException]. The activity runs it again when it returns to the foreground, by which
+ * time the user may have unlocked the device in a way Keystore counts.
+ */
+internal class LockedRetry {
+    private var pending = false
+    /** Records a failed attempt: only a [DeviceLockedException] asks for another. */
+    fun failed(e: Exception) { pending = e is DeviceLockedException }
+    /** Whether to run the work again now: true once per refusal. */
+    fun take() = pending.also { pending = false }
+}
+
 /** Creates [directory] if needed. Another thread creating it at the same moment is not a failure (`mkdirs` then returns false). */
 internal fun ensureDirectory(directory: File): File = directory.apply { check(mkdirs() || isDirectory) { "Could not create $path." } }
 

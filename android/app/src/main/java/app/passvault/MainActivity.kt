@@ -348,8 +348,9 @@ class MainActivity : FragmentActivity() {
     private val fileNotices = FileNotices.shared
     private val fileRecovery by lazy { FileRecovery(applicationContext) }
     private var recoveryUnavailable by mutableStateOf(false)
-    /** Startup could not read the vault because Keystore kept its keys locked (see [DeviceLockedException]). */
-    private var startupLocked = false
+    /** Startup could not read the vault, or check interrupted file work, because Keystore kept its keys locked (see [DeviceLockedException]). */
+    private val vaultRetry = LockedRetry()
+    private val recoveryRetry = LockedRetry()
     private var biometricAvailability by mutableStateOf(BiometricSupport.Availability.AVAILABLE)
     private fun fileVault(decoy: Boolean = decoySession) = FileVault(decoy, BackupStatus(prefs, if (decoy) "decoy." else "").instance)
     private fun clearVaultHistory(decoy: Boolean) {
@@ -595,18 +596,7 @@ class MainActivity : FragmentActivity() {
         onBackPressedDispatcher.addCallback(this, backCallback)
         lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || fileCrypt || health || sending != null || receiving || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
-        lifecycleScope.launch {
-            try {
-                fileJobs.withOutput { withContext(Dispatchers.IO) {
-                    val pending = fileRecovery.recover()
-                    fileNotices.retainRecovery(pending.map { it.id }.toSet())
-                    pending.forEach { entry -> fileNotices.add(entry.source, getString(
-                        if (entry.plaintext) R.string.files_left_behind_plain else R.string.files_left_behind,
-                        entry.name.ifEmpty { getString(R.string.files_unknown_name) }), entry.id) }
-                } }
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (_: Exception) { recoveryUnavailable = true }
-        }
+        recoverFiles()
         // A storage provider can be slow or unavailable. Recovery owns file output, but must not block vault initialization/unlock.
         openVault()
         setContent {
@@ -671,9 +661,24 @@ class MainActivity : FragmentActivity() {
         val timeout = lockTimeout
         if (getSystemService(KeyguardManager::class.java).isDeviceLocked || (timeout != null && backgroundSince > 0 && SystemClock.elapsedRealtime() - backgroundSince >= timeout)) lockVault()
     }
+    /** Checks file work a crash interrupted. Run at startup, and again on resume while Keystore refused its key. */
+    private fun recoverFiles(retry: Boolean = false) {
+        lifecycleScope.launch {
+            try {
+                fileJobs.withOutput { withContext(Dispatchers.IO) {
+                    val pending = fileRecovery.recover()
+                    fileNotices.retainRecovery(pending.map { it.id }.toSet())
+                    pending.forEach { entry -> fileNotices.add(entry.source, getString(
+                        if (entry.plaintext) R.string.files_left_behind_plain else R.string.files_left_behind,
+                        entry.name.ifEmpty { getString(R.string.files_unknown_name) }), entry.id) }
+                } }
+                if (retry) recoveryUnavailable = false
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { recoveryRetry.failed(e); recoveryUnavailable = true }
+        }
+    }
     /** Opens the engine and reads the unlock screen's status. Run at startup, and again on resume while Keystore refused the keys. */
-    private fun openVault() {
-        val retry = startupLocked; startupLocked = false
+    private fun openVault(retry: Boolean = false) {
         lifecycleScope.launch {
             try {
                 val status = withContext(vaultQueue) {
@@ -685,7 +690,7 @@ class MainActivity : FragmentActivity() {
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
                 message = errorText(e, R.string.main_storage_unavailable)
-                startupLocked = e is DeviceLockedException
+                vaultRetry.failed(e)
                 if (::engine.isInitialized) { erased = withContext(vaultQueue) { runCatching { engine.isErased() }.getOrDefault(false) }; ready = erased }
             }
         }
@@ -696,7 +701,8 @@ class MainActivity : FragmentActivity() {
         autofillEnabled = autofillManager?.hasEnabledAutofillServices() == true
         biometricAvailability = BiometricSupport.availability(this)
         // Back after unlocking the device with its PIN: Keystore may now release the keys it refused at startup.
-        if (startupLocked && !ready) openVault()
+        if (vaultRetry.take() && !ready) openVault(retry = true)
+        if (recoveryRetry.take()) recoverFiles(retry = true)
         autoBiometrics()
     }
     /** Also called when asynchronous startup completes after onResume. */
