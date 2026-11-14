@@ -372,7 +372,8 @@ struct SeedEditorForm: View {
         do {
             let record = try initial.editingSeed(name: name, favorite: favorite, words: words, privateKey: mode == "key" ? key : nil, passphrase: passphrase, notes: notes)
             var updated = model.records
-            if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
+            // Only this editor's changes: the entry may have changed elsewhere since editing began.
+            if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = updated[index].applyingEdits(record, since: initial) } else { updated.append(record) }
             let snapshot = updated
             let saved = record.id
             model.run({ try $0.save(snapshot); return snapshot }, done: { close(saved) })

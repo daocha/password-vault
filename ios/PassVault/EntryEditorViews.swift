@@ -315,13 +315,16 @@ struct RecordEditorForm: View {
     }
 
     private func save() {
-        record.name = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        record.updatedAt = VaultTimestamp.format()
-        record = record.recordingPasswordChanges(previous: model.records.first { $0.id == record.id })
+        var edited = record
+        edited.name = edited.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        edited.updatedAt = VaultTimestamp.format()
+        // Only this editor's changes: the entry may have changed elsewhere since editing began (see applyingEdits).
+        let current = model.records.first { $0.id == edited.id }
+        let result = (current.map { $0.applyingEdits(edited, since: draft.original) } ?? edited).recordingPasswordChanges(previous: current)
         var updated = model.records
-        if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
+        if let index = updated.firstIndex(where: { $0.id == result.id }) { updated[index] = result } else { updated.append(result) }
         let snapshot = updated
-        let saved = record.id
+        let saved = result.id
         model.run({ try $0.save(snapshot); return snapshot }, done: { close(saved) })
     }
     private func close(_ saved: String?) { if let done { done(saved) } else { dismiss() } }

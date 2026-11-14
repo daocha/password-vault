@@ -150,3 +150,25 @@ public struct SeedForm: EditorForm, Sendable {
         return secret != (original.secret ?? [])
     }
 }
+
+extension VaultRecord {
+    /// An editor's save, applied to the entry as it is now (`self`). Only what the editor changed (`edited` compared with
+    /// `base`, the entry when editing began) replaces the current values, so changes made meanwhile elsewhere are kept: on a
+    /// wide screen the list stays usable beside an open editor (a group set for selected entries, a 2FA reorder, an edit from
+    /// Vault health). Fields count as one value: an editor that changed any field replaces them all.
+    public func applyingEdits(_ edited: VaultRecord, since base: VaultRecord) -> VaultRecord {
+        var result = self
+        if edited.name != base.name { result.name = edited.name }
+        if edited.website != base.website { result.website = edited.website }
+        if edited.group != base.group { result.group = edited.group }
+        if edited.favorite != base.favorite { result.favorite = edited.favorite }
+        if edited.type != base.type { result.type = edited.type }
+        if edited.expires != base.expires { result.expires = edited.expires }
+        if edited.fields != base.fields { result.fields = edited.fields }
+        for key in Set(base.legacy.keys).union(edited.legacy.keys) where edited.legacy[key] != base.legacy[key] {
+            result.legacy[key] = edited.legacy[key]
+        }
+        result.updatedAt = edited.updatedAt
+        return result
+    }
+}

@@ -422,7 +422,8 @@ struct TotpEditorForm: View {
         record.name = trimmedName; record.favorite = favorite; record.type = "totp"; record.fields = fields
         record.updatedAt = VaultTimestamp.format()
         var updated = model.records
-        if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
+        // Only this editor's changes: the code may have been reordered or changed elsewhere since editing began.
+        if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = updated[index].applyingEdits(record, since: original) } else { updated.append(record) }
         let snapshot = updated
         let saved = record.id
         model.run({ try $0.save(snapshot); return snapshot }, done: { close(saved) })

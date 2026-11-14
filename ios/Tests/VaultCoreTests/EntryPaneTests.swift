@@ -164,4 +164,37 @@ final class EntryPaneTests: XCTestCase {
         edited.name = "Bank"
         XCTAssertTrue(edited.hasChanges(from: original))
     }
+
+    func testSavingAnEditorKeepsChangesMadeElsewhereMeanwhile() {
+        var base = VaultRecord(); base.name = "Bank"; base.group = "Personal"; base.legacy["totpOrder"] = "3"
+        // Meanwhile, from the list beside the editor: a new group and a 2FA reorder.
+        var current = base; current.group = "Family"; current.legacy["totpOrder"] = "1"; current.updatedAt = "later"
+        // The editor changed only the name and the password.
+        var edited = base; edited.name = "Bank (joint)"; edited.fields[1].value = "new secret"; edited.updatedAt = "saved"
+        let result = current.applyingEdits(edited, since: base)
+        XCTAssertEqual(result.name, "Bank (joint)")
+        XCTAssertEqual(result.fields[1].value, "new secret")
+        XCTAssertEqual(result.group, "Family", "the group set from the list is kept")
+        XCTAssertEqual(result.legacy["totpOrder"], "1", "the 2FA order is kept")
+        XCTAssertEqual(result.updatedAt, "saved")
+    }
+
+    func testEditorsOwnChangesWinOverChangesElsewhere() {
+        var base = VaultRecord(); base.group = "Personal"; base.favorite = false; base.legacy["note"] = "x"
+        var current = base; current.group = "Family"; current.favorite = true
+        var edited = base; edited.group = "Work"; edited.legacy["note"] = nil; edited.expires = "2030-01-01"
+        let result = current.applyingEdits(edited, since: base)
+        XCTAssertEqual(result.group, "Work", "what the person set in the editor is saved")
+        XCTAssertTrue(result.favorite, "a favorite set elsewhere is kept when the editor left it alone")
+        XCTAssertNil(result.legacy["note"], "a value the editor removed stays removed")
+        XCTAssertEqual(result.expires, "2030-01-01")
+    }
+
+    func testUnchangedEditorLeavesTheCurrentEntryAsItIs() {
+        var base = VaultRecord(); base.name = "Mail"
+        var current = base; current.name = "Mail (work)"; current.fields.append(VaultField(kind: .note, label: "Extra", value: "kept"))
+        let result = current.applyingEdits(base, since: base)
+        XCTAssertEqual(result.name, "Mail (work)")
+        XCTAssertEqual(result.fields, current.fields)
+    }
 }

@@ -123,4 +123,9 @@ func entryPaneChecks() throws {
     try check(!generated.hasChanges(from: blank), "an unconfirmed generated phrase is not unsaved work")
     generated.acknowledged = true
     try check(generated.hasChanges(from: blank), "a confirmed generated phrase is unsaved work")
+    var base = VaultRecord(); base.name = "Bank"; base.group = "Personal"
+    var meanwhile = base; meanwhile.group = "Family"; meanwhile.legacy["totpOrder"] = "1"
+    var edited = base; edited.name = "Bank (joint)"
+    let saved = meanwhile.applyingEdits(edited, since: base)
+    try check(saved.name == "Bank (joint)" && saved.group == "Family" && saved.legacy["totpOrder"] == "1", "saving an editor keeps changes made beside it meanwhile")
 }
