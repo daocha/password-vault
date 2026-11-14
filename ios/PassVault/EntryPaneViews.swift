@@ -4,6 +4,9 @@ import VaultCore
 /// An editor's fields, owned by the vault list rather than the editor, so they outlive the sheet or pane showing them.
 /// Folding or unfolding the phone moves the editor between a sheet and the side pane; both show the same draft.
 @MainActor final class EditorDraft<Form: EditorForm>: ObservableObject {
+    /// A fresh id per editor. An object's address cannot be used: a freed draft's address can be reused by the next one,
+    /// and the next editor would then inherit the last one's view state, such as a revealed setup key.
+    let id = UUID()
     let original: Form
     @Published var form: Form
     init(_ form: Form) { original = form; self.form = form }
@@ -29,11 +32,11 @@ import VaultCore
         }
     }
     /// Identifies the draft, so a new editor starts fresh instead of reusing the last one's view state.
-    nonisolated var id: ObjectIdentifier {
+    nonisolated var id: UUID {
         switch self {
-        case .record(let draft): ObjectIdentifier(draft)
-        case .totp(let draft, _): ObjectIdentifier(draft)
-        case .seed(let draft, _, _): ObjectIdentifier(draft)
+        case .record(let draft): draft.id
+        case .totp(let draft, _): draft.id
+        case .seed(let draft, _, _): draft.id
         }
     }
 
@@ -108,7 +111,7 @@ struct EntryPaneHooks {
 /// An open editor for `sheet(item:)`, which keeps showing it while the sheet animates away.
 struct EditorItem: Identifiable {
     let editor: OpenEditor
-    var id: ObjectIdentifier { editor.id }
+    var id: UUID { editor.id }
     @MainActor func view(done: @escaping (String?) -> Void) -> some View { editor.view(done: done).id(id) }
 }
 

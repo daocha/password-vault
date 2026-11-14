@@ -20,7 +20,7 @@ import VaultCore
         let draft = try XCTUnwrap(recordDraft(pane))
         draft.form.name = "Bank (joint)"
         let narrow = pane.hooks(inPane: false).editorItem
-        XCTAssertEqual(narrow.wrappedValue?.id, ObjectIdentifier(draft), "a narrow screen shows the editor as a sheet over the details")
+        XCTAssertEqual(narrow.wrappedValue?.id, draft.id, "a narrow screen shows the editor as a sheet over the details")
 
         // Unfold: the sheet goes away (SwiftUI may write nil back), the pane shows the same draft.
         pane.wide = true
@@ -31,7 +31,7 @@ import VaultCore
 
         // Fold again: the same draft, with the typed name, returns as a sheet.
         pane.wide = false
-        XCTAssertEqual(pane.hooks(inPane: false).editorItem.wrappedValue?.id, ObjectIdentifier(draft))
+        XCTAssertEqual(pane.hooks(inPane: false).editorItem.wrappedValue?.id, draft.id)
         XCTAssertEqual(recordDraft(pane)?.form.name, "Bank (joint)")
     }
 
@@ -55,7 +55,7 @@ import VaultCore
         pane.narrowNewEditor.wrappedValue = nil
         XCTAssertTrue(recordDraft(pane) === draft)
         pane.wide = false
-        XCTAssertEqual(pane.narrowNewEditor.wrappedValue?.id, ObjectIdentifier(draft))
+        XCTAssertEqual(pane.narrowNewEditor.wrappedValue?.id, draft.id)
         pane.narrowNewEditor.wrappedValue = nil
         XCTAssertNil(pane.state.editor, "swiping a new entry away on a narrow screen discards it, as before")
     }
@@ -127,5 +127,17 @@ import VaultCore
         hooks.close()
         XCTAssertEqual(pane.state.presentation, .none)
         XCTAssertNil(EntryPaneHooks.editorItem(nil, ready: true).wrappedValue, "detail views opened elsewhere present no list editor")
+    }
+
+    func testEveryEditorGetsItsOwnIdentity() {
+        let pane = EntryPaneModel(), bank = login("Bank")
+        pane.open(bank.id)
+        var seen = Set<UUID>()
+        for _ in 0..<50 {
+            pane.edit(bank)
+            guard let id = pane.state.editor?.id else { return XCTFail("no editor") }
+            XCTAssertTrue(seen.insert(id).inserted, "a new editor must not reuse an earlier one's view state")
+            pane.editorDone(nil)
+        }
     }
 }

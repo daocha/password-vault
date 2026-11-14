@@ -44,7 +44,8 @@ struct RecordList: View {
         }
         .background(Color.aBackground)
         .onChange(of: model.records.map(\.id)) { _, ids in pane.state.keepOnly(Set(ids)) }
-        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil }, set: { if !$0 { pane.state.keepEditing() } })) {
+        // The buttons decide; the binding's setter does nothing, so Discard works whichever order SwiftUI runs the button and the dismissal in.
+        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil }, set: { _ in })) {
             Button("Discard", role: .destructive) { pane.state.discardChanges() }
             Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
         } message: { Text("The entry you are editing has changes that are not saved.") }

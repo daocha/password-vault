@@ -117,8 +117,12 @@ struct TotpDetail: View {
                 .sheet(item: $editing) { TotpEditor(record: $0) }
                 .sheet(item: EntryPaneHooks.editorItem(hooks, ready: canPresentEditor)) { item in item.view(done: hooks?.editorDone ?? { _ in }) }
                 // After a fold, the editor that was open in the side pane returns as a sheet over these details. UIKit cannot
-                // present it while this screen is still sliding in, so wait for that first.
-                .task { if hooks != nil { try? await Task.sleep(for: .milliseconds(500)); canPresentEditor = true } }
+                // present it while this screen is still sliding in, so wait for that first. Otherwise Edit opens it at once.
+                .task {
+                    guard let hooks else { return }
+                    if hooks.editorItem.wrappedValue != nil { try? await Task.sleep(for: .milliseconds(500)) }
+                    canPresentEditor = true
+                }
                 .alert("Delete this 2FA code?", isPresented: $deleting) {
                     Button("Delete", role: .destructive) {
                         let updated = model.records.filter { $0.id != recordID }
