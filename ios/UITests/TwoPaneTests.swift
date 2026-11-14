@@ -74,9 +74,13 @@ final class TwoPaneTests: XCTestCase {
     private func addLogin(_ name: String, in app: XCUIApplication) {
         let add = app.buttons["New entry"]
         XCTAssertTrue(waitUntilHittable(add), app.debugDescription)
-        add.tap()
+        // A menu tapped while the list is still settling (just after unlocking or a sheet closing) may not open: try again.
         let login = app.buttons["Login"]
-        XCTAssertTrue(login.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0..<4 {
+            add.tap()
+            if login.waitForExistence(timeout: 3) { break }
+        }
+        XCTAssertTrue(login.exists, app.debugDescription)
         login.tap()
         let field = app.textFields["Name"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), app.debugDescription)
