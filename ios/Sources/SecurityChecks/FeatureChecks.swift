@@ -457,3 +457,21 @@ func totpOrderChecks() throws {
     let code = Transfer.newCode()
     try check(try Transfer.open(Transfer.seal(saved, code: code), code: code).first?.legacy["totpOrder"] == "3", "a transfer keeps a 2FA code's position")
 }
+
+/// Unlocking derives the main and decoy keys side by side; both vaults still open, and a wrong password still costs exactly one attempt.
+func parallelUnlockChecks() throws {
+    let main = "A lengthy test passphrase 1!", decoyPassword = "Another decoy phrase 2?"
+    let engine = VaultEngine(storage: MemoryStorage())
+    _ = try engine.create(password: main)
+    var secret = VaultRecord(); secret.name = "Real bank"
+    try engine.save([secret]); engine.lock()
+    try check(try engine.unlock(password: main).map(\.name) == ["Real bank"], "main password opens the vault without a decoy")
+    try check(engine.lastUnlockTiming.map { $0.hashingMilliseconds > 0 && $0.hashingMilliseconds <= $0.totalMilliseconds } == true, "unlock records its hashing time")
+    try engine.createDecoy(password: main, decoyPassword: decoyPassword); engine.lock()
+    try check(try engine.unlock(password: decoyPassword).isEmpty && engine.isDecoy(), "decoy password still opens the decoy")
+    engine.lock()
+    try check(try engine.unlock(password: main).map(\.name) == ["Real bank"] && !engine.isDecoy(), "main password still opens the main vault")
+    engine.lock()
+    try rejects("wrong password") { _ = try engine.unlock(password: "Wrong passphrase 9!") }
+    try check(try engine.remainingAttempts() == 9, "a wrong password costs one attempt")
+}

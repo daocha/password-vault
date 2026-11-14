@@ -273,7 +273,11 @@ struct UnlockView: View {
                     Button(LocalizedStringKey(model.exists ? "Unlock vault" : "Create vault")) {
                         let value = password; password = ""; confirmation = ""
                         let exists = model.exists
-                        model.run { engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }
+                        model.run({ engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }, done: {
+                            #if DEBUG
+                            if exists, let timing = model.engine?.lastUnlockTiming { print("PassVault: \(timing)"); model.message = timing.description }
+                            #endif
+                        })
                     }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
                         if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { model.run { try $0.unlockBiometric() } } }

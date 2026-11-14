@@ -47,12 +47,36 @@ private data class DeviceState(var attempts: Int, var erased: Boolean, var salt:
 }
 class VaultChangedException : IllegalStateException("The vault changed in another window. Unlock it again.")
 
+/** How long the last password unlock took, and how much of that was Argon2id. The rest is Keystore, files and decryption. */
+class UnlockTiming(val totalMillis: Long, val hashingMillis: Long) {
+    override fun toString() = "Unlock took $totalMillis ms: password hashing $hashingMillis ms, Keystore and files ${totalMillis - hashingMillis} ms"
+}
+
+/**
+ * Runs [side] on its own thread while [main] runs on this one, so an unlock's two Argon2id derivations take about as long as one.
+ * Either may run short of memory while both run (each needs 64 MiB): the one that failed runs again alone, so a device with little
+ * memory is only slower. The other's key is zeroed if the pair still fails.
+ */
+internal fun bothKeys(main: () -> ByteArray?, side: () -> ByteArray?): Pair<ByteArray?, ByteArray?> {
+    val task = java.util.concurrent.FutureTask(side)
+    Thread(task, "PassVault-argon2").start()
+    val first = runCatching(main)
+    val second = try { Result.success(task.get()) } catch (e: java.util.concurrent.ExecutionException) { Result.failure(e.cause ?: e) }
+    val a = first.getOrElse { runCatching(main).getOrElse { e -> second.getOrNull()?.fill(0); throw e } }
+    val b = second.getOrElse { runCatching(side).getOrElse { e -> a?.fill(0); throw e } }
+    return a to b
+}
+
 class VaultEngine(private val storage: ProtectedStorage) {
     private var key: ByteArray? = null
     private var records = emptyList<VaultRecord>()
     /** Whether the open vault is the decoy one. Every operation acts on the open vault only. */
     private var activeDecoy = false
     private var loadedBlob: String? = null
+    /** Set by each password unlock, for the debug build's timing message. */
+    @Volatile var lastUnlockTiming: UnlockTiming? = null
+        private set
+    private var hashingMillis = 0L
     private val wrapAAD = "PassVault/key/v1".toByteArray()
     private val ownerAAD = "PassVault/decoy-owner/v1".toByteArray()
     private fun state(): DeviceState? {
@@ -116,16 +140,24 @@ class VaultEngine(private val storage: ProtectedStorage) {
         val checkMain = unlocking || !activeDecoy; val checkDecoy = unlocking || activeDecoy
         // Vaults made before passwords were normalized are keyed from the text exactly as typed. Accept that form once and re-wrap in the
         // normalized form below. Both forms count as one attempt.
-        var main: ByteArray? = null; var legacy = false
-        if (checkMain) for (raw in if (PasswordText.differs(password)) listOf(false, true) else listOf(false)) {
-            main = unwrap(password, value.salt, value.secret, value.wrapped, raw); if (main != null) { legacy = raw; break }
+        var legacy = false
+        fun mainKey(): ByteArray? {
+            if (checkMain) for (raw in if (PasswordText.differs(password)) listOf(false, true) else listOf(false)) {
+                unwrap(password, value.salt, value.secret, value.wrapped, raw)?.let { legacy = raw; return it }
+            }
+            return null
         }
-        var decoy: ByteArray? = null
-        if (checkDecoy) {
+        fun decoyKey(): ByteArray? {
+            if (!checkDecoy) return null
             val d = value.decoy
-            if (d != null) decoy = unwrap(password, d.salt, d.secret, d.wrapped)
-            else if (unlocking) VaultCrypto.passwordKey(password, VaultCrypto.random(16)).fill(0)
+            if (d != null) return unwrap(password, d.salt, d.secret, d.wrapped)
+            if (unlocking) VaultCrypto.passwordKey(password, VaultCrypto.random(16)).fill(0)
+            return null
         }
+        val started = android.os.SystemClock.elapsedRealtime()
+        // Unlocking always derives both keys (see above), so they run side by side; other checks derive only one.
+        val (main, decoy) = if (checkMain && checkDecoy) bothKeys(::mainKey, ::decoyKey) else mainKey() to decoyKey()
+        hashingMillis = android.os.SystemClock.elapsedRealtime() - started
         if (main != null) {
             decoy?.fill(0)
             value.attempts = 0; value.decoyChanges = 0
@@ -153,7 +185,11 @@ class VaultEngine(private val storage: ProtectedStorage) {
         try { val loaded = FileKeys.stamp(Records.decode(plain)); key?.fill(0); key = candidate.copyOf(); records = loaded; activeDecoy = decoy; loadedBlob = blob; return records }
         finally { plain.fill(0); candidate.fill(0) }
     }
-    fun unlock(password: String) = VaultAccess.serialized { lock(); authenticate(password, unlocking = true).let { load(it.key, it.decoy) } }
+    fun unlock(password: String) = VaultAccess.serialized {
+        val started = android.os.SystemClock.elapsedRealtime()
+        lock(); authenticate(password, unlocking = true).let { load(it.key, it.decoy) }
+            .also { lastUnlockTiming = UnlockTiming(android.os.SystemClock.elapsedRealtime() - started, hashingMillis) }
+    }
     fun biometricCipher(encrypt: Boolean): Cipher = VaultAccess.serialized { check(state() != null); return@serialized storage.biometricCipher(encrypt) }
     /** Biometrics hold the main vault's key, so they can only be set up from the main vault. */
     fun biometricKey(password: String): ByteArray = VaultAccess.serialized { check(key != null && !activeDecoy) { "Vault is locked." }; return@serialized authenticate(password).key }

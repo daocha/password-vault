@@ -217,6 +217,19 @@ class VaultStorageInstrumentedTest {
         assertThrows(IllegalStateException::class.java) { engine.create(password) }
     }
 
+    @Test fun unlockDerivesBothKeysSideBySideAndRecordsWhereTheTimeWent() {
+        engine.create(password); engine.save(listOf(record("real"))); engine.lock()
+        assertEquals(listOf("real"), engine.unlock(password).map { it.name })
+        val timing = checkNotNull(engine.lastUnlockTiming)
+        assertTrue(timing.toString(), timing.hashingMillis > 0 && timing.hashingMillis <= timing.totalMillis)
+        android.util.Log.i("PassVaultTest", timing.toString())
+        engine.createDecoy(password, "Another decoy phrase 2?"); engine.lock()
+        assertTrue(engine.unlock("Another decoy phrase 2?").isEmpty() && engine.isDecoy()); engine.lock()
+        assertEquals(listOf("real"), engine.unlock(password).map { it.name }); engine.lock()
+        assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") }
+        assertEquals(9, engine.remainingAttempts())
+    }
+
     @Test fun tenWrongAttemptsEraseEverythingIncludingKeys() {
         engine.create(password); engine.save(listOf(record("secret"))); engine.lock()
         repeat(9) { assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") } }
