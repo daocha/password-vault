@@ -186,35 +186,57 @@ and team are checked before export/upload. Xcode keeps the build number unchange
 
 Before uploading, register the release bundle ID in Apple Developer and create its iOS app record
 in App Store Connect. After processing, test with TestFlight, complete the listing, iPhone/iPad
-screenshots, privacy policy and App Privacy answers, age rating, price/availability and encryption
-questions, select the build and submit for App Review in App Store Connect. Uploading does not
+screenshots, privacy policy and App Privacy answers, age rating, price/availability (leave France out; see
+export compliance below), select the build and submit for App Review in App Store Connect. Uploading does not
 submit for review or release the app. App Store updates are distributed by Apple, while the Android
 GitHub APK retains its existing update flow.
 
-PassVault declares non-exempt encryption and links libsodium. Complete Apple’s encryption questionnaire and obtain any required documentation before review; do not flip the declaration to bypass it.
+### Export compliance
+
+The app's Info.plist sets `ITSAppUsesNonExemptEncryption` to `NO`, so App Store Connect asks no
+encryption questions for new builds. Apple defines `NO` as encryption that is "exempt from export
+compliance documentation requirements", not as no encryption. That holds for PassVault while both of
+these stay true:
+
+- **Only standard, published algorithms.** libsodium's XChaCha20-Poly1305, Argon2id, X25519,
+  BLAKE2b and sealed boxes (XSalsa20-Poly1305); the IETF ChaCha20 and scrypt used for age files; and
+  Salsa20, used only to read KeePass imports on iOS. XChaCha20, XSalsa20 and Salsa20 are not adopted
+  by a standards body, but they are published, so they are not "non-standard cryptography" under
+  15 CFR § 772.1, which also requires that an algorithm "have not otherwise been published". For
+  standard algorithms Apple asks for no US document; a CCATS is required only for proprietary ones.
+- **Not sold in France.** For standard algorithms not provided by iOS, the one document Apple asks for is
+  the French encryption declaration, and only for distribution in France. Leave France out of the App
+  Store availability.
+
+If either changes (an unpublished algorithm, or adding France), set the key back to `YES`, answer the
+questionnaire under App Information → App Encryption Documentation, and upload what it asks for
+before submitting.
+
+If App Store Connect shows the encryption questions for a build (one uploaded with `YES`), choose
+"Standard encryption algorithms instead of, or in addition to, using or accessing the encryption
+within Apple's operating system". Never choose the proprietary option: it asks for a CCATS that
+PassVault does not need.
+
+US export law needs no approval for this: the app is mass-market software that classifies itself as
+ECCN 5D992.c. Apple notes that an app with exempt encryption "might alternatively be required to submit
+a year-end self-classification report". BIS dropped that report for most mass-market items in 2021,
+but it costs nothing, so file it each year by 1 February for the previous year: one row (PassVault, ECCN
+5D992.c, the mass-market authorization type) in the format of
+[BIS's annual self-classification report](https://www.bis.gov/learn-support/encryption-controls/annual-self-classification-report),
+emailed to the addresses on that page. Nobody replies or approves it. This is not legal advice; ask an
+export-control lawyer if the app's encryption changes.
+
+References: [complying with encryption export regulations](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations),
+[Apple's documentation table](https://developer.apple.com/help/app-store-connect/reference/app-information/export-compliance-documentation-for-encryption/),
+[15 CFR § 772.1](https://www.ecfr.gov/current/title-15/subtitle-B/chapter-VII/subchapter-C/part-772/section-772.1),
+[BIS mass market](https://www.bis.gov/learn-support/encryption-controls/mass-market).
 
 ### App Store upload validation failures
-
-**Invalid Export Compliance Code:** In App Store Connect, open PassVault → App Information →
-App Encryption Documentation. Complete the questionnaire and, if required, submit documentation
-for Apple's review. Once Apple has approved the documentation and issued a code, create the
-gitignored `ios/Config/AppStore.local.xcconfig` with the assigned value:
-
-```xcconfig
-INFOPLIST_KEY_ITSEncryptionExportComplianceCode = YOUR_APPLE_APPROVED_CODE
-```
-
-The Release configuration includes this local file when present; Debug builds do not.
-Use the actual code for PassVault, not the document ID or an API key. An empty or incorrect
-code cannot resolve the rejection. This configuration does not change the app's declaration
-of non-exempt encryption.
-See Apple's [encryption documentation workflow](https://developer.apple.com/help/app-store-connect/manage-app-information/determine-and-upload-app-encryption-documentation/)
-and [compliance-code key](https://developer.apple.com/documentation/bundleresources/information-property-list/itsencryptionexportcompliancecode).
 
 **Missing supported orientations:** The generated app Info.plist declares all four orientations
 for iPhone and iPad, including the iPad-specific key, to support iPad multitasking.
 
-Both fixes require rebuilding the archive: `--upload-archive` exports the existing signed app
+Fixing it requires rebuilding the archive: `--upload-archive` exports the existing signed app
 and cannot insert missing metadata. Preserve the failed archive and export directory by moving
 them aside before rebuilding with `scripts/build-ios-app-store.sh`. Keep version `2026.11.3`
 if that is the App Store version you intend to upload. If Apple already accepted the build
@@ -222,7 +244,7 @@ number, increase `versionCode` through a PR first. Do not recreate the published
 or rerun the combined GitHub release to repair an iOS-only upload.
 
 After rebuilding, upload the new archive using `--upload-archive` as shown above. Confirm its
-app Info.plist contains `ITSEncryptionExportComplianceCode` with the approved value and
+app Info.plist contains `ITSAppUsesNonExemptEncryption` set to `NO` and
 `UISupportedInterfaceOrientations` / `UISupportedInterfaceOrientations~ipad` with all four
 orientations before retrying.
 

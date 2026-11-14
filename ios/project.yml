@@ -13,8 +13,6 @@ targets:
   PassVault:
     type: application
     platform: iOS
-    configFiles:
-      Release: Config/AppStore.xcconfig
     sources: [PassVault]
     dependencies:
       - package: VaultCore
@@ -29,7 +27,8 @@ targets:
         INFOPLIST_KEY_NSCameraUsageDescription: Scan the QR code a site shows when you turn on two-factor authentication. Images are read on this device only.
         INFOPLIST_KEY_UIFileSharingEnabled: NO
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: NO
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
+        # Standard, published algorithms only and no App Store sales in France: no export documentation (docs/RELEASING.md).
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
