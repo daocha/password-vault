@@ -108,6 +108,9 @@ public struct TotpForm: EditorForm, Sendable {
         digits = start?.digits ?? 6; period = start?.period ?? 30
         notes = record.fields.first { $0.kind == .note }?.value ?? ""; favorite = record.favorite
     }
+    /// Whether the setup key is shown when the editor opens. A new code's empty field is, for typing. A key already in the
+    /// form is not: a saved one's, and also one typed (and perhaps hidden) before a fold or unfold rebuilt the editor.
+    public func keyStartsVisible(isNewCode: Bool) -> Bool { isNewCode && key.isEmpty }
     /// Algorithm, digits or period differ from what most sites use.
     public var usesAdvancedSettings: Bool { algorithm != "SHA1" || digits != 6 || period != 30 }
 }
@@ -155,7 +158,8 @@ extension VaultRecord {
     /// An editor's save, applied to the entry as it is now (`self`). Only what the editor changed (`edited` compared with
     /// `base`, the entry when editing began) replaces the current values, so changes made meanwhile elsewhere are kept: on a
     /// wide screen the list stays usable beside an open editor (a group set for selected entries, a 2FA reorder, an edit from
-    /// Vault health). Fields count as one value: an editor that changed any field replaces them all.
+    /// Vault health). Where both changed the same value, the editor's wins; the save then records the replaced password in
+    /// its history as usual.
     public func applyingEdits(_ edited: VaultRecord, since base: VaultRecord) -> VaultRecord {
         var result = self
         if edited.name != base.name { result.name = edited.name }
@@ -164,11 +168,33 @@ extension VaultRecord {
         if edited.favorite != base.favorite { result.favorite = edited.favorite }
         if edited.type != base.type { result.type = edited.type }
         if edited.expires != base.expires { result.expires = edited.expires }
-        if edited.fields != base.fields { result.fields = edited.fields }
+        if edited.fields != base.fields { result.fields = Self.mergeFields(current: fields, edited: edited.fields, base: base.fields) }
         for key in Set(base.legacy.keys).union(edited.legacy.keys) where edited.legacy[key] != base.legacy[key] {
             result.legacy[key] = edited.legacy[key]
         }
         result.updatedAt = edited.updatedAt
         return result
+    }
+
+    /// Field by field, matched by id: a field the editor left alone keeps its current value (or stays deleted if it was
+    /// deleted elsewhere), one it changed or added takes the editor's value, one it removed goes. Fields added elsewhere
+    /// meanwhile are kept after the editor's. The editor's order wins. A changed field keeps its current password history,
+    /// which the editor never edits.
+    static func mergeFields(current: [VaultField], edited: [VaultField], base: [VaultField]) -> [VaultField] {
+        let before = Dictionary(base.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let now = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var merged = [VaultField]()
+        for field in edited {
+            if let original = before[field.id], original == field {
+                if let latest = now[field.id] { merged.append(latest) }
+            } else {
+                var changed = field
+                if let latest = now[field.id] { changed.history = latest.history }
+                merged.append(changed)
+            }
+        }
+        let known = Set(base.map(\.id)).union(edited.map(\.id))
+        merged += current.filter { !known.contains($0.id) }
+        return merged
     }
 }

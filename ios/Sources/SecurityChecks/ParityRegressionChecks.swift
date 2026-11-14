@@ -128,4 +128,11 @@ func entryPaneChecks() throws {
     var edited = base; edited.name = "Bank (joint)"
     let saved = meanwhile.applyingEdits(edited, since: base)
     try check(saved.name == "Bank (joint)" && saved.group == "Family" && saved.legacy["totpOrder"] == "1", "saving an editor keeps changes made beside it meanwhile")
+    var notesBase = VaultRecord(); notesBase.fields[1].value = "old password"
+    var passwordChanged = notesBase; passwordChanged.fields[1].value = "new password"
+    var notesEdited = notesBase; notesEdited.fields[2].value = "edited notes"
+    let merged = passwordChanged.applyingEdits(notesEdited, since: notesBase)
+    try check(merged.fields[1].value == "new password" && merged.fields[2].value == "edited notes", "editing notes never restores a password changed meanwhile")
+    var newCode = TotpForm(record: VaultRecord()); newCode.key = "JBSWY3DPEHPK3PXP"
+    try check(!newCode.keyStartsVisible(isNewCode: true), "a typed setup key stays hidden when the editor is rebuilt")
 }

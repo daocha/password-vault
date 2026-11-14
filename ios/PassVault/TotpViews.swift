@@ -262,8 +262,7 @@ struct TotpEditorForm: View {
 
     init(draft: EditorDraft<TotpForm>, original: VaultRecord, done: ((String?) -> Void)? = nil) {
         _draft = ObservedObject(wrappedValue: draft); self.original = original; self.done = done
-        // A new code's key starts visible; a saved one's stays hidden, also after a fold rebuilds the editor.
-        _keyShown = State(initialValue: original.totp == nil)
+        _keyShown = State(initialValue: draft.form.keyStartsVisible(isNewCode: original.totp == nil))
         _advanced = State(initialValue: draft.form.usesAdvancedSettings)
     }
     private var isNew: Bool { !model.records.contains { $0.id == original.id } }
@@ -411,7 +410,8 @@ struct TotpEditorForm: View {
         var record = original
         var fields = [VaultField]()
         var totpField = original.fields.first { $0.label == totpLabel } ?? VaultField(kind: .password, label: totpLabel)
-        totpField.value = candidate.uri
+        // An unchanged code keeps its stored text, so the save does not count it as edited (see applyingEdits).
+        if original.totp != candidate { totpField.value = candidate.uri }
         fields.append(totpField)
         let note = original.fields.first { $0.kind == .note }
         if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

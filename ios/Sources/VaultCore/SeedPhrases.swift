@@ -100,11 +100,19 @@ extension VaultRecord {
         result.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.name.isEmpty else { throw VaultError.invalid("Wallet name") }
         result.favorite = favorite; result.type = "seed"; result.updatedAt = VaultTimestamp.format()
-        result.fields = [.init(kind: .password, label: privateKey == nil ? seedPhraseLabel : privateKeyLabel,
-                               value: privateKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? words.joined(separator: " "))]
-        if privateKey == nil && !passphrase.isEmpty { result.fields.append(.init(kind: .password, label: seedPassphraseLabel, value: passphrase)) }
-        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.fields.append(.init(kind: .note, label: "Notes", value: notes)) }
         let firstNote = fields.first { $0.kind == .note }?.id
+        // Reuse the existing field (same id, history and label) where there is one, so an unchanged value stays the same
+        // field and a save that merges onto newer changes (applyingEdits) can tell what this edit really changed.
+        func field(_ existing: VaultField?, kind: FieldKind, label: String, value: String) -> VaultField {
+            guard var field = existing else { return .init(kind: kind, label: label, value: value) }
+            if field.value != value { field.value = value }
+            return field
+        }
+        let secretLabel = privateKey == nil ? seedPhraseLabel : privateKeyLabel
+        result.fields = [field(fields.first { $0.label == secretLabel }, kind: .password, label: secretLabel,
+                               value: privateKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? words.joined(separator: " "))]
+        if privateKey == nil && !passphrase.isEmpty { result.fields.append(field(fields.first { $0.label == seedPassphraseLabel }, kind: .password, label: seedPassphraseLabel, value: passphrase)) }
+        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.fields.append(field(fields.first { $0.id == firstNote }, kind: .note, label: "Notes", value: notes)) }
         result.fields += fields.filter { ![seedPhraseLabel, privateKeyLabel, seedPassphraseLabel].contains($0.label) && $0.id != firstNote }
         return result
     }

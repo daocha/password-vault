@@ -197,4 +197,59 @@ final class EntryPaneTests: XCTestCase {
         XCTAssertEqual(result.name, "Mail (work)")
         XCTAssertEqual(result.fields, current.fields)
     }
+
+    /// Codex review: editing only Notes while the password changed in Vault health must not bring the old password back.
+    func testEditingOneFieldKeepsAnotherFieldChangedMeanwhile() {
+        var base = VaultRecord(); base.fields[1].value = "old password"; base.fields[2].value = "notes"
+        var current = base; current.fields[1].value = "new password"
+        current.fields[1].history = [PasswordChange(value: "old password", changedAt: 1)]
+        var edited = base; edited.fields[2].value = "notes, edited"
+        let result = current.applyingEdits(edited, since: base)
+        XCTAssertEqual(result.fields[1].value, "new password")
+        XCTAssertEqual(result.fields[1].history?.count, 1)
+        XCTAssertEqual(result.fields[2].value, "notes, edited")
+        XCTAssertEqual(result.fields.map(\.id), base.fields.map(\.id))
+    }
+
+    func testFieldsAddedOrRemovedOnEitherSide() {
+        let base = VaultRecord()
+        let extra = VaultField(kind: .note, label: "Imported", value: "kept")
+        var current = base; current.fields.append(extra); current.fields.remove(at: 0)
+        var edited = base
+        let question = VaultField(kind: .question, label: "Security question", value: "blue")
+        edited.fields.append(question); edited.fields.remove(at: 2)
+        let result = current.applyingEdits(edited, since: base)
+        XCTAssertEqual(result.fields.map(\.id), [base.fields[1].id, question.id, extra.id],
+                       "deleted elsewhere stays deleted, removed in the editor goes, both sides' new fields stay")
+    }
+
+    func testBothChangingOneFieldKeepsTheEditorsValueAndTheNewestHistory() {
+        var base = VaultRecord(); base.fields[1].value = "one"
+        var current = base; current.fields[1].value = "two"; current.fields[1].history = [PasswordChange(value: "one", changedAt: 1)]
+        var edited = base; edited.fields[1].value = "three"
+        let result = current.applyingEdits(edited, since: base).recordingPasswordChanges(previous: current, at: Date(timeIntervalSince1970: 2))
+        XCTAssertEqual(result.fields[1].value, "three")
+        XCTAssertEqual(result.fields[1].historyNewestFirst.map(\.value), ["two", "one"], "no password is lost")
+    }
+
+    func testSeedNameEditKeepsItsFieldsAndOnesAddedMeanwhile() throws {
+        let words = Array(repeating: "abandon", count: 11) + ["about"]
+        var seed = VaultRecord(); seed.type = "seed"; seed.fields = []
+        let base = try seed.editingSeed(name: "Wallet", favorite: false, words: words, privateKey: nil, passphrase: "p", notes: "n")
+        let edited = try base.editingSeed(name: "Cold wallet", favorite: false, words: words, privateKey: nil, passphrase: "p", notes: "n")
+        XCTAssertEqual(edited.fields, base.fields, "an unchanged phrase, passphrase and note stay the same fields")
+        var current = base; current.fields.append(VaultField(kind: .note, label: "Imported", value: "kept"))
+        let result = current.applyingEdits(edited, since: base)
+        XCTAssertEqual(result.name, "Cold wallet")
+        XCTAssertEqual(result.fields, current.fields)
+    }
+
+    /// Codex review: a key typed into a new code and then hidden must stay hidden when a fold rebuilds the editor.
+    func testSetupKeyStaysHiddenWhenTheEditorIsRebuilt() {
+        var form = TotpForm(record: VaultRecord())
+        XCTAssertTrue(form.keyStartsVisible(isNewCode: true), "an empty new key field is shown for typing")
+        form.key = "JBSWY3DPEHPK3PXP"
+        XCTAssertFalse(form.keyStartsVisible(isNewCode: true))
+        XCTAssertFalse(form.keyStartsVisible(isNewCode: false))
+    }
 }
