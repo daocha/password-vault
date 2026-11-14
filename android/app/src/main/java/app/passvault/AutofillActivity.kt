@@ -88,7 +88,7 @@ class AutofillActivity : FragmentActivity() {
             try {
                 val status = withContext(vaultQueue) {
                     engine = VaultEngine(ProtectedStorage(this@AutofillActivity))
-                    engine.remainingAttempts() to engine.hasBiometric()
+                    VaultAccess.serialized { engine.remainingAttempts() to engine.hasBiometric() } // Keystore decrypts the state once
                 }
                 remaining = status.first; biometricEnabled = status.second; ready = true
                 if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) autoBiometrics()
