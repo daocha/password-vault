@@ -240,7 +240,8 @@ class VaultStorageInstrumentedTest {
             assertEquals("status checks in one transaction ask Keystore once", 1, storage.clock.reads)
             assertThrows(AuthenticationFailure::class.java) { engine.unlock("Wrong password 1!") }
             assertEquals("a write in the transaction is what later reads see", 9, engine.remainingAttempts())
-            assertEquals(1, storage.clock.reads)
+            // unlock() restarts the counter: the state it read came from this transaction, not from Keystore again.
+            assertEquals("the unlock asked Keystore for nothing more", 0, storage.clock.reads)
         }
         // A new transaction decrypts through Keystore again, so a file swapped in between is still caught.
         val reads = storage.clock.reads
