@@ -67,19 +67,27 @@ private func milliseconds(since start: UInt64) -> Int { Int((DispatchTime.now().
 /// Runs `main` and `side` at the same time, so an unlock's two Argon2id derivations take about as long as one. Either may run short of
 /// memory while both run (each needs 64 MiB): the one that failed runs again alone, so a device with little memory is only slower. The
 /// other's key is zeroed if the pair still fails.
-func bothKeys(_ main: () throws -> Data?, _ side: () throws -> Data?) throws -> (Data?, Data?) {
+public func bothKeys(_ main: () throws -> Data?, _ side: () throws -> Data?) throws -> (Data?, Data?) {
     var first: Result<Data?, Error> = .success(nil), second: Result<Data?, Error> = .success(nil)
     withoutActuallyEscaping(main) { main in withoutActuallyEscaping(side) { side in
         DispatchQueue.concurrentPerform(iterations: 2) { index in
             if index == 0 { first = Result { try main() } } else { second = Result { try side() } }
         }
     } }
-    func zero(_ data: Data?) { if var data { data.resetBytes(in: 0..<data.count) } }
-    let a: Data?
-    do { a = try first.get() } catch { do { a = try main() } catch { zero(try? second.get()); throw error } }
-    let b: Data?
-    do { b = try second.get() } catch { do { b = try side() } catch { zero(a); throw error } }
+    // Move each key out of its Result, so `a` and `b` hold the only reference: wiping a copy would leave the key itself in memory.
+    var a: Data?, b: Data?, mainFailed = false, sideFailed = false
+    switch first { case .success(let key): a = key; case .failure: mainFailed = true }
+    switch second { case .success(let key): b = key; case .failure: sideFailed = true }
+    first = .success(nil); second = .success(nil)
+    if mainFailed { do { a = try main() } catch { wipe(&b); throw error } }
+    if sideFailed { do { b = try side() } catch { wipe(&a); throw error } }
     return (a, b)
+}
+
+/// Zeroes the key's own bytes and drops it. The caller must hold the only reference; otherwise copy-on-write zeroes a copy instead.
+func wipe(_ key: inout Data?) {
+    let count = key?.count ?? 0
+    key?.resetBytes(in: 0..<count); key = nil
 }
 
 public final class VaultEngine: @unchecked Sendable {
@@ -208,15 +216,16 @@ public final class VaultEngine: @unchecked Sendable {
         }
         let started = DispatchTime.now().uptimeNanoseconds
         // Unlocking always derives both keys (see above), so they run side by side; other checks derive only one.
-        let (main, decoy) = checkMain && checkDecoy ? try bothKeys(mainKey, decoyKey) : (try mainKey(), try decoyKey())
+        var keys = checkMain && checkDecoy ? try bothKeys(mainKey, decoyKey) : (try mainKey(), try decoyKey())
         hashingMilliseconds = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
-        if let main {
+        if let main = keys.0 {
+            wipe(&keys.1) // the same password opened both: the main vault wins, as on Android
             value.attempts = 0; value.decoyChanges = nil
             if legacy { let wrapped = try wrap(password, dataKey: main); value.salt = wrapped.salt; value.secret = wrapped.secret; value.wrappedKey = wrapped.wrapped }
             try write(value)
             return (main, false)
         }
-        if let decoy { value.attempts = before; try write(value); return (decoy, true) }
+        if let decoy = keys.1 { value.attempts = before; try write(value); return (decoy, true) }
         lock()
         if value.attempts == 10 { try erase(value); throw VaultError.erased }
         throw VaultError.authentication

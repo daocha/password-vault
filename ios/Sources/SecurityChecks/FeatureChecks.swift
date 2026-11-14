@@ -479,3 +479,16 @@ func parallelUnlockChecks() throws {
     try rejects("wrong password") { _ = try engine.unlock(password: "Wrong passphrase 9!") }
     try check(try engine.remainingAttempts() == 9, "a wrong password costs one attempt")
 }
+
+/// A failed pair of derivations wipes the key that succeeded in place: zeroing a copy would leave the key itself in memory.
+func parallelKeyWipeChecks() throws {
+    struct OutOfMemory: Error {}
+    for mainFails in [true, false] {
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: 32, alignment: 1); defer { buffer.deallocate() }
+        memset(buffer, 0xAB, 32)
+        let key: () throws -> Data? = { Data(bytesNoCopy: buffer, count: 32, deallocator: .none) }
+        let failing: () throws -> Data? = { throw OutOfMemory() }
+        try rejects("a pair whose other derivation keeps failing") { _ = try mainFails ? bothKeys(failing, key) : bothKeys(key, failing) }
+        try check((0..<32).allSatisfy { buffer.load(fromByteOffset: $0, as: UInt8.self) == 0 }, "the derived key's own bytes are wiped when the pair fails (main fails: \(mainFails))")
+    }
+}

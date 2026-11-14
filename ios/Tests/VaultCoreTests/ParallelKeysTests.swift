@@ -28,6 +28,28 @@ final class ParallelKeysTests: XCTestCase {
         XCTAssertThrowsError(try bothKeys({ Data([9]) }, { throw OutOfMemory() }))
     }
 
+    /// The key that was derived is wiped in place, not a copy of it, when the other derivation keeps failing.
+    func testWhenThePairFailsTheOtherKeysOwnBytesAreWiped() {
+        for mainFails in [true, false] {
+            // The key's bytes live in a buffer the test owns, so the test can see whether they were zeroed.
+            let buffer = UnsafeMutableRawPointer.allocate(byteCount: 32, alignment: 1); defer { buffer.deallocate() }
+            memset(buffer, 0xAB, 32)
+            let key: () throws -> Data? = { Data(bytesNoCopy: buffer, count: 32, deallocator: .none) }
+            let failing: () throws -> Data? = { throw OutOfMemory() }
+            XCTAssertThrowsError(try mainFails ? bothKeys(failing, key) : bothKeys(key, failing))
+            XCTAssertTrue((0..<32).allSatisfy { buffer.load(fromByteOffset: $0, as: UInt8.self) == 0 }, "key bytes wiped (main fails: \(mainFails))")
+        }
+    }
+
+    func testWipeZeroesTheKeyItselfAndDropsIt() {
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: 32, alignment: 1); defer { buffer.deallocate() }
+        memset(buffer, 0xCD, 32)
+        var key: Data? = Data(bytesNoCopy: buffer, count: 32, deallocator: .none)
+        wipe(&key)
+        XCTAssertNil(key)
+        XCTAssertTrue((0..<32).allSatisfy { buffer.load(fromByteOffset: $0, as: UInt8.self) == 0 })
+    }
+
     func testUnlockRecordsWhereTheTimeWent() throws {
         XCTAssertEqual(UnlockTiming(totalMilliseconds: 1500, hashingMilliseconds: 1100, stateMilliseconds: 300, stateReads: 3, stateWrites: 2).description,
                        "Password unlock 1500 ms: password hashing 1100 ms, protected state 300 ms (3 reads, 2 writes, key in Keychain), vault file 100 ms")
