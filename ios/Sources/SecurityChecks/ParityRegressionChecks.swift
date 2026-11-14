@@ -80,3 +80,22 @@ func parityRegressionChecks() throws {
     try check(status.lastBackup == nil && decoyStatus.lastBackup == nil && status.snapshotAt == nil, "reset rejects late callbacks from both erased vaults")
     try check(status.intervalDays == 30 && status.snoozedUntil == nil && BackupReminder.due([edited], lastBackup: status.lastBackup, intervalDays: status.intervalDays, snoozedUntil: status.snoozedUntil), "new vault starts with a first-backup reminder and default preferences")
 }
+
+/// The message bar closes with OK or by itself after the same time as Android's snackbar, and a stale timer never hides a newer message.
+func statusMessageChecks() throws {
+    var status = StatusMessage()
+    let first = status.show("Unlock took 300 ms", error: false)
+    let again = status.show("Unlock took 300 ms", error: false)
+    status.expire(first)
+    try check(status.isShowing && !status.isError, "an earlier timer does not hide the same message shown again")
+    status.expire(again)
+    try check(!status.isShowing, "a message hides itself when its time is up")
+    let stale = status.show("Wrong password", error: true)
+    status.dismiss()
+    try check(!status.isShowing && !status.isError, "OK closes the message")
+    status.show("Camera access is needed", error: true); status.expire(stale)
+    try check(status.isShowing && status.isError, "a dismissed message's timer leaves the next message alone")
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let android = try String(contentsOf: root.appendingPathComponent("android/app/src/main/java/app/passvault/MainActivity.kt"), encoding: .utf8)
+    try check(android.contains("delay(\(Int(StatusMessage.displaySeconds * 1000)))"), "iOS messages stay up as long as Android's snackbar")
+}

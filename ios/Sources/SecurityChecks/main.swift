@@ -30,6 +30,7 @@ func rejects(_ label: String, _ action: () throws -> Void) throws {
 }
 do {
     try parityRegressionChecks()
+    try statusMessageChecks()
     try listParityChecks()
     try seedChecks()
     try fileKeyChecks()
