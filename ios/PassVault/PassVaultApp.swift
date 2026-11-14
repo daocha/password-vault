@@ -9,7 +9,11 @@ import AVFoundation
     @Published var unlocked = false
     @Published var exists = true
     @Published var busy = false
-    @Published var message = ""
+    /// The message over the vault: closes with OK or by itself, like Android's snackbar (see `StatusMessage`).
+    @Published private(set) var status = StatusMessage()
+    var message: String { status.text }
+    /// How long a message stays up; tests shorten it.
+    var messageSeconds = StatusMessage.displaySeconds
     /// Debug builds: the last unlock's timing, shown after unlocking and kept in Settings.
     @Published var unlockSummary = ""
     @Published var attempts = 10
@@ -43,7 +47,7 @@ import AVFoundation
             let engine = try suppliedEngine ?? VaultEngine(storage: KeychainStorage()); initialized = engine
             exists = try engine.exists(); attempts = try engine.remainingAttempts()
             biometricEnabled = (try? engine.biometricsEnabled()) ?? false
-        } catch { message = error.localizedDescription }
+        } catch { show(error.localizedDescription) }
         engine = initialized
         erased = (try? initialized?.isErased()) ?? false
         loadBackupStatus()
@@ -81,7 +85,7 @@ import AVFoundation
     }
     func run(_ work: @escaping @Sendable (VaultEngine) throws -> [VaultRecord]?, done: (() -> Void)? = nil) {
         guard !busy, let engine else { return }
-        busy = true; message = ""; let current = generation, locking = pendingLock
+        busy = true; dismissMessage(); let current = generation, locking = pendingLock
         Task {
             do {
                 let result = try await Task.detached { _ = await locking?.value; return try work(engine) }.value
@@ -96,7 +100,7 @@ import AVFoundation
                 biometricEnabled = (try? engine.biometricsEnabled()) ?? false
                 attempts = try engine.remainingAttempts(); done?()
             } catch {
-                message = error.localizedDescription
+                show(error.localizedDescription)
                 // Failed export/password verification also closes visible secret views.
                 lock(); attempts = (try? engine.remainingAttempts()) ?? 0
                 erased = (try? engine.isErased()) ?? false
@@ -122,13 +126,24 @@ import AVFoundation
         backgroundedAt = nil
         autoUnlockWithBiometrics()
     }
+    /// Shows `text` (a localization key or an error's own text) until OK or `messageSeconds` pass.
+    func show(_ text: String, error: Bool = true) {
+        let serial = status.show(text, error: error)
+        guard !text.isEmpty else { return }
+        let seconds = messageSeconds
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            self?.status.expire(serial)
+        }
+    }
+    func dismissMessage() { status.dismiss() }
     /// Debug builds: how long the unlock took and where (also kept in Settings → Last unlock). Release builds show nothing.
     /// The engine's own timing, plus everything until the vault is on screen (the status checks that follow the unlock).
     func showUnlockTiming(since started: UInt64) {
         #if DEBUG
         guard let timing = engine?.lastUnlockTiming else { return }
         unlockSummary = "\(timing); vault shown after \((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000) ms"
-        print("PassVault: \(unlockSummary)"); message = unlockSummary
+        print("PassVault: \(unlockSummary)"); show(unlockSummary, error: false)
         #endif
     }
     func autoUnlockWithBiometrics() {
@@ -159,9 +174,9 @@ import AVFoundation
         do {
             try engine.resetErasedVault()
             BackupStatus(defaults: backupPreferences).clear(); forgetDecoyBackups(); loadBackupStatus()
-            biometricEnabled = false; erased = false; exists = false; attempts = 10; message = "Create a new vault, then import your backup."
+            biometricEnabled = false; erased = false; exists = false; attempts = 10; show("Create a new vault, then import your backup.", error: false)
         }
-        catch { message = error.localizedDescription }
+        catch { show(error.localizedDescription) }
     }
 }
 
@@ -243,10 +258,26 @@ struct VaultRoot: View {
     var body: some View {
         Group { if model.unlocked { RecordList() } else { UnlockView() } }
             .safeAreaInset(edge: .bottom) {
-                if !model.message.isEmpty { Text(LocalizedStringKey(model.message)).font(.footnote).foregroundStyle(.red).padding().frame(maxWidth: .infinity).background(.regularMaterial) }
+                if model.status.isShowing { StatusBanner(status: model.status) { model.dismissMessage() } }
             }
             .overlay { if model.busy { ZStack { Color.black.opacity(0.15).ignoresSafeArea(); ProgressView("Securing your vault…").padding(28).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) } } }
             .disabled(model.busy)
+    }
+}
+
+/// The message bar: errors in red with a warning sign, other messages in the normal text color, and OK to close it.
+struct StatusBanner: View {
+    let status: StatusMessage
+    let dismiss: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            if status.isError { Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true) }
+            Text(LocalizedStringKey(status.text)).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+            Button("OK", action: dismiss).font(.footnote.weight(.semibold)).accessibilityIdentifier("status-dismiss")
+        }
+        .foregroundStyle(status.isError ? Color.red : Color.primary)
+        .padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity).background(.regularMaterial)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -451,7 +482,7 @@ struct TransferView: View {
                     settingsRow("Auto-lock", icon: "timer", summary: settings.autoLock.label) { open(.autoLock) }
                     #if DEBUG
                     // Debug builds only, not translated: where the last unlock's time went, to compare devices.
-                    if !model.unlockSummary.isEmpty { settingsRow("Last unlock (debug)", icon: "timer", summary: model.unlockSummary) { model.message = model.unlockSummary } }
+                    if !model.unlockSummary.isEmpty { settingsRow("Last unlock (debug)", icon: "timer", summary: model.unlockSummary) { model.show(model.unlockSummary, error: false) } }
                     #endif
                     // Without Face ID or Touch ID ready the switch is off and greyed out, saying why, instead of asking for the password first.
                     if !model.decoy {
@@ -511,10 +542,10 @@ struct TransferView: View {
                         Task {
                             do {
                                 let imported = try await Task.detached { try Importers.importPlain(data) }.value
-                                if model.unlocked { if imported.isEmpty { model.message = "The file contains no records." } else { pendingImport = imported } }
-                            } catch { model.message = error.localizedDescription }
+                                if model.unlocked { if imported.isEmpty { model.show("The file contains no records.") } else { pendingImport = imported } }
+                            } catch { model.show(error.localizedDescription) }
                         }
-                    } catch { model.message = error.localizedDescription }
+                    } catch { model.show(error.localizedDescription) }
                 }
                 .fullScreenCover(isPresented: $receiving) { TransferReceiveView { data in
                     // Present the code prompt once the scanner has finished closing; SwiftUI drops a sheet shown mid-dismissal.
@@ -615,7 +646,7 @@ struct TransferView: View {
                                 if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
                                 Button("Change decoy password") {
                                     let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
-                                    model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: { model.message = "Decoy password changed." })
+                                    model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: { model.show("Decoy password changed.", error: false) })
                                 }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
                             } else {
                                 Text("This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again.").font(.footnote)
@@ -628,7 +659,7 @@ struct TransferView: View {
                             if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
                             Button("Set up decoy vault") {
                                 let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
-                                model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.canResetDecoy = true; model.message = "Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it." })
+                                model.run({ try $0.createDecoy(password: current, decoyPassword: next); return nil }, done: { model.hasDecoy = true; model.canResetDecoy = true; model.show("Decoy vault set up. Lock PassVault and unlock with the decoy password to fill it.", error: false) })
                             }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
                         }
                     } header: { Text("Decoy vault") } footer: {
@@ -666,12 +697,12 @@ struct TransferView: View {
             .navigationTitle(LocalizedStringKey(panel.title)).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { self.panel = nil }.disabled(model.busy).accessibilityIdentifier("settings.panel.done") } }
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
-                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.message = "Decoy vault removed." }) }
+                    Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.show("Decoy vault removed.", error: false) }) }
                 }
                 .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { [exported = document?.exported] result in
                     document = nil
                     switch result {
-                    case .failure(let error): model.message = error.localizedDescription
+                    case .failure(let error): model.show(error.localizedDescription)
                     case .success: if let exported { model.recordBackup(exported) }
                     }
                 }
@@ -699,15 +730,15 @@ struct TransferView: View {
                 let sealed = try await Task.detached { try engine.exportTransfer(password: pass) }.value
                 // Shown from the vault list, so it can come back after a lock; this sheet closes.
                 if model.unlocked { model.sending = TransferPayload(code: sealed.code, data: sealed.data, decoy: model.decoy); dismiss() }
-            } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
+            } catch { model.show(error.localizedDescription); model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
         }
     }
     private func receive() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: receiving = true
-        case .notDetermined: AVCaptureDevice.requestAccess(for: .video) { granted in Task { @MainActor in if granted { receiving = true } else { model.message = "Camera access is needed to scan. Allow it in Settings, or use a transfer file." } } }
-        default: model.message = "Camera access is needed to scan. Allow it in Settings, or use a transfer file."
+        case .notDetermined: AVCaptureDevice.requestAccess(for: .video) { granted in Task { @MainActor in if granted { receiving = true } else { model.show("Camera access is needed to scan. Allow it in Settings, or use a transfer file.") } } }
+        default: model.show("Camera access is needed to scan. Allow it in Settings, or use a transfer file.")
         }
     }
     private func export() {
@@ -718,7 +749,7 @@ struct TransferView: View {
             do {
                 let exported = try await Task.detached { try engine.prepareExport(password: pass, csv: isCSV, instance: { BackupStatus(defaults: defaults, decoy: $0).instance }) }.value
                 if model.unlocked { document = ExportDocument(data: exported.data, exported: exported); exporting = true }
-            } catch { model.message = error.localizedDescription; model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
+            } catch { model.show(error.localizedDescription); model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
         }
     }

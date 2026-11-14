@@ -220,4 +220,38 @@ final class ModelTestStorage: VaultStorage {
         engine.lock()
         XCTAssertThrowsError(try engine.unlockBiometric())
     }
+
+    func testMessagesCloseWithOKAndHideThemselves() async throws {
+        let model = VaultModel(engine: VaultEngine(storage: ModelTestStorage()))
+        model.show("Decoy vault removed.", error: false)
+        XCTAssertEqual(model.message, "Decoy vault removed.")
+        XCTAssertFalse(model.status.isError)
+        model.dismissMessage()
+        XCTAssertEqual(model.message, "")
+
+        model.messageSeconds = 0.05
+        model.show("Wrong password")
+        XCTAssertTrue(model.status.isError)
+        let deadline = Date().addingTimeInterval(10)
+        while model.status.isShowing && Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(model.status.isShowing, "the message did not hide itself")
+    }
+
+    func testUnlockTimingCanBeDismissedAndHidesItself() async throws {
+        let storage = ModelTestStorage(), engine = VaultEngine(storage: storage)
+        _ = try engine.create(password: password)
+        engine.lock()
+        let model = VaultModel(engine: engine)
+        model.messageSeconds = 0.05
+        let started = DispatchTime.now().uptimeNanoseconds
+        model.run({ try $0.unlock(password: self.password) }, done: { model.showUnlockTiming(since: started) })
+        await waitForWork(model)
+        #if DEBUG
+        XCTAssertFalse(model.unlockSummary.isEmpty)
+        #endif
+        let deadline = Date().addingTimeInterval(10)
+        while model.status.isShowing && Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(model.status.isShowing, "the unlock timing stayed on screen")
+        XCTAssertTrue(model.unlocked)
+    }
 }
