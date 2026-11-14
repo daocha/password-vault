@@ -478,15 +478,23 @@ func parallelUnlockChecks() throws {
     var secret = VaultRecord(); secret.name = "Real bank"
     try engine.save([secret]); engine.lock()
     try check(try engine.unlock(password: main).map(\.name) == ["Real bank"], "main password opens the vault without a decoy")
+    #if DEBUG
     try check(engine.lastUnlockTiming.map { !$0.biometric && $0.hashingMilliseconds > 0 && $0.hashingMilliseconds + $0.stateMilliseconds <= $0.totalMilliseconds } == true, "unlock records its hashing time")
     try check(engine.lastUnlockTiming.map { $0.stateWrites == 2 && $0.stateReads >= 1 } == true, "unlock counts its protected-state reads and writes")
+    #else
+    try check(engine.lastUnlockTiming == nil, "release builds keep no unlock timing")
+    #endif
     try engine.createDecoy(password: main, decoyPassword: decoyPassword); engine.lock()
     try check(try engine.unlock(password: decoyPassword).isEmpty && engine.isDecoy(), "decoy password still opens the decoy")
     engine.lock()
     try check(try engine.unlock(password: main).map(\.name) == ["Real bank"] && !engine.isDecoy(), "main password still opens the main vault")
     try engine.enableBiometrics(password: main); engine.lock()
     try check(try engine.unlockBiometric().map(\.name) == ["Real bank"], "biometrics open the real vault")
+    #if DEBUG
     try check(engine.lastUnlockTiming.map { $0.biometric && $0.hashingMilliseconds == 0 && $0.stateReads >= 1 } == true, "biometric unlock records its own timing")
+    #else
+    try check(engine.lastUnlockTiming == nil, "release builds keep no unlock timing")
+    #endif
     engine.lock()
     try rejects("wrong password") { _ = try engine.unlock(password: "Wrong passphrase 9!") }
     try check(try engine.remainingAttempts() == 9, "a wrong password costs one attempt")

@@ -97,7 +97,7 @@ public final class VaultEngine: @unchecked Sendable {
     private var records = [VaultRecord]()
     /// Whether the open vault is the decoy one. Every operation acts on the open vault only.
     private var activeDecoy = false
-    /// Set by each password or biometric unlock, for the debug build's timing message and Settings row. Read under the engine's lock: the app reads it on the main thread.
+    /// Set by each password or biometric unlock in debug builds only (release builds leave it nil), for the timing message and Settings row. Read under the engine's lock: the app reads it on the main thread.
     private var unlockTiming: UnlockTiming?
     public var lastUnlockTiming: UnlockTiming? { serialized { unlockTiming } }
     private var hashingMilliseconds = 0
@@ -250,7 +250,10 @@ public final class VaultEngine: @unchecked Sendable {
         var timing = stateClock
         timing.biometric = biometric; timing.totalMilliseconds = milliseconds(since: started)
         timing.hashingMilliseconds = biometric ? 0 : hashingMilliseconds; timing.biometricMilliseconds = biometricMilliseconds
+        // Release builds keep nothing, as on Android: only debug builds show the timing.
+        #if DEBUG
         unlockTiming = timing
+        #endif
     }
     /// Biometrics always open the main vault. The key is released only by the Secure Enclave after a biometric match, which proves the owner is
     /// present, so like the main password it clears failed password attempts and the decoy's password-change allowance.
