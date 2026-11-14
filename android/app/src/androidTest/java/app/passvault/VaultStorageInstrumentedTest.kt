@@ -217,6 +217,38 @@ class VaultStorageInstrumentedTest {
         assertThrows(IllegalStateException::class.java) { engine.create(password) }
     }
 
+    @Test fun aCreateThatCannotSaveItsStateLeavesNothingBehind() {
+        // A directory where AtomicFile writes the new state makes that write fail after the vault file was written, as Keystore did on
+        // a tablet opened with face unlock. Earlier builds kept the vault file, and every later attempt said "Protected state is missing".
+        val blocker = File(directory, "state.new").apply { mkdirs() }
+        assertThrows(Exception::class.java) { engine.create(password) }
+        assertTrue(blobs().isEmpty()); assertTrue(stateAliases().isEmpty()); assertFalse(stateFile().exists())
+        assertFalse(engine.exists()); assertFalse(engine.isErased()); assertFalse(engine.isUnlocked())
+        blocker.delete()
+        engine.create(password)
+        assertTrue(engine.exists()); assertEquals(1, blobs().size)
+    }
+
+    @Test fun vaultFilesWithoutTheirStateCanBeResetLikeAnErasedVault() {
+        engine.create(password); engine.lock()
+        // What a failed create left behind before this was fixed: the vault file, but no state.
+        stateFile().delete(); File(directory, "state.bak").delete()
+        fresh()
+        assertThrows(IllegalStateException::class.java) { engine.exists() }
+        assertThrows(IllegalStateException::class.java) { engine.unlock(password) }
+        assertTrue(engine.isErased())
+        engine.resetErasedVault()
+        assertTrue(blobs().isEmpty()); assertFalse(engine.isErased()); assertFalse(engine.exists())
+        engine.create(password)
+        assertTrue(engine.exists())
+    }
+
+    @Test fun keystoreRefusingALockedDeviceKeyIsReportedAsDeviceLocked() {
+        val refused = assertThrows(DeviceLockedException::class.java) { needsUnlockedDevice { throw android.security.keystore.UserNotAuthenticatedException() } }
+        assertTrue(refused.cause is android.security.keystore.UserNotAuthenticatedException)
+        assertEquals(7, needsUnlockedDevice { 7 })
+    }
+
     @Test fun unlockDerivesBothKeysSideBySideAndRecordsWhereTheTimeWent() {
         engine.create(password); engine.save(listOf(record("real"))); engine.lock()
         assertEquals(listOf("real"), engine.unlock(password).map { it.name })

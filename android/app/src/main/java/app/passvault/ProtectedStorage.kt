@@ -5,6 +5,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.KeyInfo
+import android.security.keystore.UserNotAuthenticatedException
 import android.util.AtomicFile
 import java.io.File
 import java.nio.ByteBuffer
@@ -31,6 +32,33 @@ internal object StateFormat {
     fun aad(header: ByteArray): ByteArray = "PassVault/state/v2".toByteArray() + header
 }
 
+/**
+ * Keystore refused a key that only works while the device is unlocked, though the screen is on. The PIN, pattern, password and a strong
+ * (Class 3) biometric always release those keys. Whether face unlock or Smart Lock also does depends on the device: Samsung's face unlock
+ * does, the Lenovo Y700 Gen 4's does not (its face unlock is not a biometric Android knows about).
+ */
+class DeviceLockedException(cause: Throwable? = null) : IllegalStateException(
+    "Android is keeping PassVault's keys locked. Lock the screen, unlock it with your PIN, pattern or password, then try again.", cause)
+
+/** Runs Keystore work on a key that needs an unlocked device, reporting a refusal as [DeviceLockedException]. */
+internal inline fun <T> needsUnlockedDevice(action: () -> T): T =
+    try { action() } catch (e: UserNotAuthenticatedException) { throw DeviceLockedException(e) }
+
+/**
+ * Startup work that Keystore refused with [DeviceLockedException]. The activity runs it again when it returns to the foreground, by which
+ * time the user may have unlocked the device in a way Keystore counts.
+ */
+internal class LockedRetry {
+    private var pending = false
+    /** Records a failed attempt: only a [DeviceLockedException] asks for another. */
+    fun failed(e: Exception) { pending = e is DeviceLockedException }
+    /** Whether to run the work again now: true once per refusal. */
+    fun take() = pending.also { pending = false }
+}
+
+/** Creates [directory] if needed. Another thread creating it at the same moment is not a failure (`mkdirs` then returns false). */
+internal fun ensureDirectory(directory: File): File = directory.apply { check(mkdirs() || isDirectory) { "Could not create $path." } }
+
 class ProtectedStorage(private val context: Context) {
     companion object {
         private const val DIRECTORY = "passvault"
@@ -43,7 +71,8 @@ class ProtectedStorage(private val context: Context) {
             !File(d, "erased").exists() && (File(d, "state").exists() || File(d, "state.bak").exists())
         }
     }
-    private val directory = File(context.noBackupFilesDir, DIRECTORY).apply { check(exists() || mkdirs()) }
+    // MainActivity opens the engine and file recovery on two threads at once, so on first launch both may create the directory.
+    private val directory = ensureDirectory(File(context.noBackupFilesDir, DIRECTORY))
     private val keystore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val legacyStateAlias = "passvault-state-v1"
     private val stateAliasPrefix = "passvault-state-g"
@@ -100,9 +129,11 @@ class ProtectedStorage(private val context: Context) {
         if (!file.exists() && !File(directory, "file-recovery.bak").exists()) return@serialized null
         val bytes = read(file, 256 * 1024 + 28); require(bytes.size >= 28)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, secretKey(recoveryAlias) ?: missingKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-        cipher.updateAAD("PassVault/file-recovery/v1".toByteArray())
-        cipher.doFinal(bytes.copyOfRange(12, bytes.size))
+        needsUnlockedDevice {
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(recoveryAlias) ?: missingKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+            cipher.updateAAD("PassVault/file-recovery/v1".toByteArray())
+            cipher.doFinal(bytes.copyOfRange(12, bytes.size))
+        }
     }
     fun writeFileRecovery(bytes: ByteArray): Unit = VaultAccess.serialized {
         require(bytes.size <= 256 * 1024)
@@ -111,9 +142,9 @@ class ProtectedStorage(private val context: Context) {
             check(!file.exists() && !File(directory, "file-recovery.bak").exists()) { "Recovery key is missing." }
             generate(recoveryAlias, false)
         }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key)
-        cipher.updateAAD("PassVault/file-recovery/v1".toByteArray())
-        write(file, cipher.iv + cipher.doFinal(bytes), requireSync = true)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val sealed = needsUnlockedDevice { cipher.init(Cipher.ENCRYPT_MODE, key); cipher.updateAAD("PassVault/file-recovery/v1".toByteArray()); cipher.iv + cipher.doFinal(bytes) }
+        write(file, sealed, requireSync = true)
     }
     /** Debug timing: time spent reading and writing the protected state (Keystore and its file), and how often. */
     class StateClock { var millis = 0L; var reads = 0; var writes = 0 }
@@ -151,16 +182,18 @@ class ProtectedStorage(private val context: Context) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val generation = StateFormat.generation(bytes)
         val key = if (generation > 0) secretKey(stateAlias(generation)) else null
-        if (key != null) {
+        if (key != null) return@serialized needsUnlockedDevice {
             val header = bytes.copyOfRange(0, StateFormat.HEADER)
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(StateFormat.HEADER, StateFormat.HEADER + StateFormat.IV)))
             cipher.updateAAD(StateFormat.aad(header))
-            return@serialized cipher.doFinal(bytes.copyOfRange(StateFormat.HEADER + StateFormat.IV, bytes.size))
+            cipher.doFinal(bytes.copyOfRange(StateFormat.HEADER + StateFormat.IV, bytes.size))
         }
         // A file from before generations. A newer file whose key is gone (a restored old copy) has no legacy key to fall back on and is refused.
-        cipher.init(Cipher.DECRYPT_MODE, secretKey(legacyStateAlias) ?: missingKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-        cipher.updateAAD("PassVault/state/v1".toByteArray())
-        return@serialized cipher.doFinal(bytes.copyOfRange(12, bytes.size))
+        needsUnlockedDevice {
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(legacyStateAlias) ?: missingKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+            cipher.updateAAD("PassVault/state/v1".toByteArray())
+            cipher.doFinal(bytes.copyOfRange(12, bytes.size))
+        }
     }
     /**
      * With [ratchet] (the default) the state moves to a new Keystore key and every older key is deleted once the file is committed,
@@ -187,12 +220,20 @@ class ProtectedStorage(private val context: Context) {
             key = generate(stateAlias(generation), false)
         }
         val header = StateFormat.header(generation)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key)
-        cipher.updateAAD(StateFormat.aad(header))
-        check(cipher.iv.size == StateFormat.IV)
-        write(File(directory, "state"), header + cipher.iv + cipher.doFinal(bytes))
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        // A refused write leaves the current file and its key as they were; a key minted for it is replaced by the next write.
+        val sealed = needsUnlockedDevice {
+            cipher.init(Cipher.ENCRYPT_MODE, key); cipher.updateAAD(StateFormat.aad(header))
+            check(cipher.iv.size == StateFormat.IV)
+            cipher.iv + cipher.doFinal(bytes)
+        }
+        write(File(directory, "state"), header + sealed)
         deleteStateKeys(keep = generation)
     }
+    /** Vault files without their state: a create interrupted before its state was saved. Nothing can open them. */
+    fun orphaned() = VaultAccess.serialized { !File(directory, "erased").exists() && !stateFileExists() && hasBlobs() }
+    /** Undoes [initializeKey] and the first vault file after a create that could not save its state. */
+    fun abandonCreate(): Unit = VaultAccess.serialized { check(!stateFileExists()); removeBlobs(emptySet()); deleteStateKeys() }
     // Initialize the OS key before writing the first encrypted vault blob.
     fun initializeKey(): Unit = VaultAccess.serialized {
         VaultAccess.cachedState = null

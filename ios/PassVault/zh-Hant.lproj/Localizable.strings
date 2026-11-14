@@ -127,6 +127,8 @@
 "Encrypted exports use your app password. Keep it safe; there is no recovery service." = "加密匯出使用 App 密碼。請妥善保管，密碼無法復原。";
 "English" = "English";
 "Enroll Face ID or Touch ID in Settings first." = "請先在系統設定中設定 Face ID 或 Touch ID。";
+"Not available: this device has no Face ID or Touch ID" = "無法使用：此裝置沒有 Face ID 或 Touch ID";
+"Face ID or Touch ID is unavailable right now. Check Settings." = "Face ID 或 Touch ID 暫時無法使用，請檢查系統設定。";
 "Enter 12 or 24 words (%1$lld so far)." = "請輸入 12 或 24 個單字（目前 %1$lld 個）。";
 "Enter 12 or 24 words (%lld so far)." = "請輸入 12 或 24 個單字（目前 %lld 個）。";
 "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds." = "請輸入資料庫密碼。如果它還使用金鑰檔案，也請選擇該檔案。開啟可能需要幾秒鐘。";

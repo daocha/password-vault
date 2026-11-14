@@ -30,16 +30,32 @@ final class LocalizationTests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(biometrics.isHittable, app.debugDescription)
-        // SwiftUI can expose the whole labelled row as a Switch. Its centre is the label,
-        // which does not toggle on every runtime. Hit the native control on the right.
-        biometrics.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        // A simulator has no Face ID enrolled unless one is set up in Features > Face ID: the switch is then greyed out and says why,
+        // instead of asking for the password and failing afterwards.
+        if !biometrics.isEnabled {
+            // SwiftUI may merge the row's texts into the switch's label.
+            let reason = "Enroll Face ID or Touch ID in Settings first."
+            XCTAssertTrue(biometrics.label.contains(reason) || app.staticTexts[reason].exists, app.debugDescription)
+        } else {
+            // SwiftUI can expose the whole labelled row as a Switch. Its centre is the label,
+            // which does not toggle on every runtime. Hit the native control on the right.
+            biometrics.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+            XCTAssertTrue(app.buttons["Enable Face ID / Touch ID"].waitForExistence(timeout: 10), app.debugDescription)
+            app.buttons["settings.panel.done"].tap()
+        }
+        // Every panel that asks for the app password focuses it. Type through the app without tapping the field: this requires
+        // automatic keyboard focus. A connected simulator hardware keyboard can hide the onscreen Keyboard element.
+        let changePassword = app.buttons["Change app password"].firstMatch
+        for _ in 0..<3 {
+            if changePassword.isHittable { break }
+            app.swipeUp()
+        }
+        changePassword.tap()
         let currentPassword = app.secureTextFields["Current app password"]
         XCTAssertTrue(currentPassword.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(currentPassword.isHittable)
-        // Type through the app without tapping the field: this requires automatic keyboard focus.
-        // A connected simulator hardware keyboard can hide the onscreen Keyboard element.
         app.typeText("test")
-        XCTAssertTrue(app.buttons["Enable Face ID / Touch ID"].isEnabled, "The biometric password prompt must accept typing without a tap or swipe")
+        XCTAssertEqual((currentPassword.value as? String)?.count, 4, "The password prompt must accept typing without a tap or swipe")
         app.buttons["settings.panel.done"].tap()
         selectLanguage("zh-Hans", in: app)
         openSettings(app)

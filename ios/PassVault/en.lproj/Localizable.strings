@@ -127,6 +127,8 @@
 "Encrypted exports use your app password. Keep it safe; there is no recovery service." = "Encrypted exports use your app password. Keep it safe; there is no recovery service.";
 "English" = "English";
 "Enroll Face ID or Touch ID in Settings first." = "Enroll Face ID or Touch ID in Settings first.";
+"Not available: this device has no Face ID or Touch ID" = "Not available: this device has no Face ID or Touch ID";
+"Face ID or Touch ID is unavailable right now. Check Settings." = "Face ID or Touch ID is unavailable right now. Check Settings.";
 "Enter 12 or 24 words (%1$lld so far)." = "Enter 12 or 24 words (%1$lld so far).";
 "Enter 12 or 24 words (%lld so far)." = "Enter 12 or 24 words (%lld so far).";
 "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds." = "Enter the database password. If it also uses a key file, choose it too. Opening it can take a few seconds.";

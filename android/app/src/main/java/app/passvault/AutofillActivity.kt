@@ -93,7 +93,7 @@ class AutofillActivity : FragmentActivity() {
                 remaining = status.first; biometricEnabled = status.second; ready = true
                 if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) autoBiometrics()
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) { message = e.message ?: getString(R.string.main_storage_unavailable) }
+            catch (e: Exception) { message = if (e is DeviceLockedException) getString(R.string.main_device_locked) else e.message ?: getString(R.string.main_storage_unavailable) }
         }
         biometricPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
@@ -152,7 +152,7 @@ class AutofillActivity : FragmentActivity() {
                     runCatching { engine.remainingAttempts() }.getOrDefault(0) to runCatching { engine.isErased() }.getOrDefault(false)
                 }
                 remaining = status.first; val erased = status.second
-                message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else e.message ?: getString(R.string.main_operation_failed)
+                message = if (e is AuthenticationFailure && !erased) getString(R.string.main_incorrect_password, remaining) else if (e is DeviceLockedException) getString(R.string.main_device_locked) else e.message ?: getString(R.string.main_operation_failed)
             } finally { busy = false }
         }
     }

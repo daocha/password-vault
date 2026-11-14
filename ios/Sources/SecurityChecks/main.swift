@@ -274,6 +274,7 @@ do {
     try transferChecks()
     try reviewFixChecks()
     try totpOrderChecks()
+    try biometricSupportChecks()
     try parallelUnlockChecks()
     try parallelKeyWipeChecks()
     if let path = ProcessInfo.processInfo.environment["PASSVAULT_TEST_CSV"] {
