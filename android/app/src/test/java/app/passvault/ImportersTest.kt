@@ -86,6 +86,12 @@ class ImportersTest {
         assertEquals("Big Bank", card.value("bank")); assertEquals(1, card.fields.count { it.value == "999" })
         assertTrue(records.none { it.name == "Old" }); assertEquals("keep me", records.single { it.name == "Note" }.value("Notes"))
     }
+    @Test fun onePuxSkipsUnusedAttachmentContentsLikeIos() {
+        val zip = java.io.File("../../fixtures/exports/skipped-attachment.1pux").readBytes()
+        val records = Importers.importPlain(zip)
+        assertEquals(setOf("Mail", "Card", "Note"), records.filter { it.type != RecordType.totp }.map { it.name }.toSet())
+        assertEquals("test-only-10", records.single { it.name == "Mail" && it.type == RecordType.login }.fields[1].value)
+    }
     @Test fun onePuxKeepsEveryUrlAndCardYearsOutsideThisCentury() {
         val data = """{"accounts":[{"vaults":[{"attrs":{"name":"Private"},"items":[
             {"categoryUuid":"001","overview":{"title":"Shop","url":"https://shop.example","urls":[{"url":"https://shop.example"},{"url":"https://checkout.example"},{"url":" "}]},"details":{"password":"test-only-12"}},

@@ -258,6 +258,10 @@ func onePuxChecks() throws {
     try check(card.cardSummary == "Mastercard •••• 0004" && value(card, cardExpiryLabel) == "1227" && value(card, cardCodeLabel) == "999" && value(card, "bank") == "Big Bank"
               && card.fields.filter { $0.value == "999" }.count == 1, "1PUX card")
     try check(!records.contains { $0.name == "Old" } && value(records.first { $0.name == "Note" }!, "Notes") == "keep me", "1PUX trashed and archived items")
+    let skipped = try Importers.importPlain(Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent("skipped-attachment.1pux")))
+    try check(skipped.map(\.name) == records.map(\.name)
+              && skipped.first { $0.name == "Mail" && $0.isLogin }?.fields[1].value == "test-only-10",
+              "1PUX skips unrelated attachment contents without decompression, shared with Android")
 }
 
 /// Decoy vault: a second password opens a separate vault; neither can see or reset the other.

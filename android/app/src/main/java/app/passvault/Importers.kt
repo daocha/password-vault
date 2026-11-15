@@ -233,18 +233,3 @@ internal object OnePux {
         return Records.validate(out)
     }
 }
-
-/** Reads one stored or deflated file from a zip archive, refusing anything that would inflate past the vault size limit. */
-internal object ZipReader {
-    fun entry(zip: ByteArray, name: String): ByteArray? {
-        java.util.zip.ZipInputStream(zip.inputStream()).use { input ->
-            while (true) {
-                val entry = input.nextEntry ?: return null
-                if (entry.name != name) continue
-                val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
-                while (true) { val n = input.read(buffer); if (n < 0) break; require(out.size() + n <= Records.MAX_BYTES) { "The export is too large." }; out.write(buffer, 0, n) }
-                return out.toByteArray()
-            }
-        }
-    }
-}
