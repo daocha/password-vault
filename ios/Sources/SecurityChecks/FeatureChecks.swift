@@ -280,6 +280,13 @@ func onePuxChecks() throws {
     let comment = Array("PK\u{5}\u{6}".utf8) + Array(repeating: UInt8(ascii: "x"), count: 30)
     var commented = zip + comment; commented[end + 20] = UInt8(comment.count)
     try check(try Importers.importPlain(Data(commented)).map(\.name) == records.map(\.name), "1PUX end record found past a signature inside its comment")
+    // The local header must agree with the directory, as Android requires.
+    let local = u16(zip, central + 42) | u16(zip, central + 44) << 16
+    try check(refused({ $0[local + 6] |= 1 }, "The zip file is damaged."), "1PUX local header marked encrypted refused")
+    try check(refused({ $0[local + 30] = UInt8(ascii: "E") }, "The zip file is damaged."), "1PUX local header with another name refused")
+    try check(refused({ $0[local + 14] ^= 1 }, "The zip file is damaged."), "1PUX local header with another CRC refused")
+    let described = try Importers.importPlain(Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent("data-descriptor.1pux")))
+    try check(described.map(\.name) == records.map(\.name), "1PUX with data descriptors, shared with Android")
 }
 
 /// Decoy vault: a second password opens a separate vault; neither can see or reset the other.

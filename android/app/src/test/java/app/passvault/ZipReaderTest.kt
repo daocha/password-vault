@@ -118,4 +118,36 @@ class ZipReaderTest {
         refused(zip.copyOf(20), ZipReader.DAMAGED)
         refused(zip.copyOf().also { it[end(zip) + 4] = 1 }, ZipReader.DAMAGED)
     }
+
+    // The local header (and data descriptor) must agree with the central directory, as in iOS's ZipReaderTests.
+    private fun local(z: ByteArray) = u32(z, central(z) + 42)
+    private fun dataStart(z: ByteArray) = local(z) + 30 + u16(z, local(z) + 26) + u16(z, local(z) + 28)
+    private fun ByteArray.xor(o: Int, bits: Int) = copyOf().also { it[o] = (it[o].toInt() xor bits).toByte() }
+
+    @Test fun aLocalHeaderThatDisagreesWithTheDirectoryIsDamaged() {
+        val zip = fixture("sample.1pux"); val l = local(zip)
+        refused(zip.xor(l + 6, 1), ZipReader.DAMAGED) // encrypted
+        refused(zip.copyOf().also { it[l + 30] = 'E'.code.toByte() }, ZipReader.DAMAGED) // renamed
+        refused(zip.xor(l + 14, 1), ZipReader.DAMAGED) // CRC
+        refused(zip.copyOf().also { it[l + 8] = 0; it[l + 9] = 0 }, ZipReader.DAMAGED) // stored
+        refused(zip.copyOf().also { put32(it, l + 18, u32(zip, l + 18) + 1) }, ZipReader.DAMAGED) // compressed size
+        refused(zip.xor(l + 6, 8), ZipReader.DAMAGED) // a descriptor the directory does not have
+    }
+
+    @Test fun aStreamEndingBeforeItsCompressedSizeIsDamaged() {
+        val zip = fixture("sample.1pux"); val c = central(zip); val l = local(zip)
+        // Both headers claim one more byte than the DEFLATE stream uses: the next header's first byte.
+        put32(zip, c + 20, u32(zip, c + 20) + 1); put32(zip, l + 18, u32(zip, l + 18) + 1)
+        refused(zip, ZipReader.DAMAGED)
+    }
+
+    @Test fun dataDescriptorsAreReadAndMustAgreeWithTheDirectory() {
+        val zip = fixture("data-descriptor.1pux"); val c = central(zip); val l = local(zip)
+        assertEquals(8, u16(zip, c + 8) and 8)
+        assertArrayEquals(ZipReader.entry(fixture("sample.1pux"), "export.data"), ZipReader.entry(zip, "export.data"))
+        val descriptor = dataStart(zip) + u32(zip, c + 20)
+        assertEquals(0x08074b50, u32(zip, descriptor))
+        for (field in listOf(4, 8, 12)) refused(zip.xor(descriptor + field, 1), ZipReader.DAMAGED) // CRC, compressed size, size
+        refused(zip.xor(l + 6, 8), ZipReader.DAMAGED) // the local header no longer announces the descriptor
+    }
 }

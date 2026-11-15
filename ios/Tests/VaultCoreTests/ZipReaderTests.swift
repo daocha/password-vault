@@ -77,4 +77,47 @@ final class ZipReaderTests: XCTestCase {
         var disks = zip; disks[end(zip) + 4] = 1
         assertRefused(disks, ZipReader.damagedMessage)
     }
+
+    // The local header (and data descriptor) must agree with the central directory. Android's reader refuses each of these
+    // the same way; iOS used to read the directory's copy and ignore the local one.
+    private func local(_ z: [UInt8]) -> Int { u32(z, central(z) + 42) }
+    private func dataStart(_ z: [UInt8]) -> Int { local(z) + 30 + u16(z, local(z) + 26) + u16(z, local(z) + 28) }
+    private func put16(_ z: inout [UInt8], _ o: Int, _ v: Int) { z[o] = UInt8(v & 0xFF); z[o + 1] = UInt8(v >> 8) }
+
+    func testALocalHeaderThatDisagreesWithTheDirectoryIsDamaged() throws {
+        let zip = try fixture("sample.1pux"), l = local(zip)
+        var encrypted = zip; encrypted[l + 6] |= 1
+        assertRefused(encrypted, ZipReader.damagedMessage)
+        var renamed = zip; renamed[l + 30] = UInt8(ascii: "E")
+        assertRefused(renamed, ZipReader.damagedMessage)
+        var crc = zip; crc[l + 14] ^= 1
+        assertRefused(crc, ZipReader.damagedMessage)
+        var stored = zip; put16(&stored, l + 8, 0)
+        assertRefused(stored, ZipReader.damagedMessage)
+        var compressed = zip; put32(&compressed, l + 18, u32(zip, l + 18) + 1)
+        assertRefused(compressed, ZipReader.damagedMessage)
+        var descriptor = zip; descriptor[l + 6] |= 8 // a descriptor the directory does not have
+        assertRefused(descriptor, ZipReader.damagedMessage)
+    }
+
+    func testAStreamEndingBeforeItsCompressedSizeIsDamaged() throws {
+        var zip = try fixture("sample.1pux"); let c = central(zip), l = local(zip)
+        // Both headers claim one more byte than the DEFLATE stream uses: the next header's first byte.
+        put32(&zip, c + 20, u32(zip, c + 20) + 1); put32(&zip, l + 18, u32(zip, l + 18) + 1)
+        assertRefused(zip, ZipReader.damagedMessage)
+    }
+
+    func testDataDescriptorsAreReadAndMustAgreeWithTheDirectory() throws {
+        let zip = try fixture("data-descriptor.1pux"), c = central(zip), l = local(zip)
+        XCTAssertEqual(u16(zip, c + 8) & 8, 8)
+        XCTAssertEqual(try ZipReader.entry(zip, name: "export.data"), try ZipReader.entry(try fixture("sample.1pux"), name: "export.data"))
+        let descriptor = dataStart(zip) + u32(zip, c + 20)
+        XCTAssertEqual(u32(zip, descriptor), 0x08074B50)
+        for field in [4, 8, 12] { // CRC, compressed size, size
+            var changed = zip; changed[descriptor + field] ^= 1
+            assertRefused(changed, ZipReader.damagedMessage)
+        }
+        var noFlag = zip; noFlag[l + 6] &= ~8 // the local header no longer announces the descriptor
+        assertRefused(noFlag, ZipReader.damagedMessage)
+    }
 }

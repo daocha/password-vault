@@ -1,4 +1,5 @@
 import Foundation
+import zlib
 
 /// Builds PassVault records from what other password managers export, the same way for every format (like Android's `ImportBuilder`).
 enum ImportBuilder {
@@ -280,7 +281,8 @@ enum OnePux {
 
 /// Reads one stored or deflated file from a zip archive through its central directory, without inflating unrelated
 /// attachments. Checks and messages match Android's `ZipReader`: the end record's comment length, every offset against the
-/// directory, the size limit, the decompressed size and the CRC.
+/// directory, a local header (or data descriptor) that agrees with the directory, the size limit, a DEFLATE stream that
+/// fills exactly its compressed size, the decompressed size and the CRC.
 enum ZipReader {
     static let damagedMessage = "The zip file is damaged."
     static let tooLargeMessage = "The export is too large."
@@ -312,20 +314,52 @@ enum ZipReader {
             guard flags & 1 == 0, method == 0 || method == 8 else { throw VaultError.invalid(unsupportedMessage) }
             guard size <= Records.maxBytes else { throw VaultError.invalid(tooLargeMessage) }
             try valid(u32(local) == 0x04034B50)
-            let start = local + 30 + u16(local + 26) + u16(local + 28)
+            let localNameLength = u16(local + 26)
+            let start = local + 30 + localNameLength + u16(local + 28)
             try valid(start + compressed <= directory)
-            let body = Array(z[start..<start + compressed])
-            let data: [UInt8]
-            if method == 0 { data = body }
-            else {
-                do { data = try Inflate.raw(body, limit: Records.maxBytes) }
-                catch VaultError.invalid("The file is too large.") { throw VaultError.invalid(tooLargeMessage) }
-                catch { throw VaultError.invalid(damagedMessage) }
+            // The local header must describe the same entry as the directory, so a reader trusting either copy sees the same
+            // file. Its CRC and sizes, or with flag 8 the data descriptor after the data, must match the directory's.
+            try valid(u16(local + 6) & 9 == flags & 9 && u16(local + 8) == method
+                      && z[local + 30..<local + 30 + localNameLength].elementsEqual(z[pos + 46..<pos + 46 + nameLength]))
+            try valid(method == 8 || (flags & 8 == 0 && compressed == size))
+            if flags & 8 == 0 {
+                try valid(u32(local + 14) == crc && u32(local + 18) == compressed && u32(local + 22) == size)
+            } else {
+                var descriptor = start + compressed
+                if descriptor + 4 <= directory && u32(descriptor) == 0x08074B50 { descriptor += 4 } // the signature is optional
+                try valid(descriptor + 12 <= directory && u32(descriptor) == crc && u32(descriptor + 4) == compressed && u32(descriptor + 8) == size)
             }
+            let body = Array(z[start..<start + compressed])
+            let data = method == 0 ? body : try inflate(body)
             try valid(data.count == size && CRC32.checksum(data) == crc)
             return data
         }
         return nil
+    }
+    /// Raw DEFLATE through zlib, which (unlike the Compression framework) reports input left over after the stream ends:
+    /// the stream must fill exactly the entry's compressed size, as Android's Inflater requires. Output is bounded.
+    static func inflate(_ input: [UInt8]) throws -> [UInt8] {
+        var stream = z_stream()
+        guard inflateInit2_(&stream, -15, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { throw VaultError.invalid(damagedMessage) }
+        defer { inflateEnd(&stream) }
+        var source = input, out = [UInt8](), buffer = [UInt8](repeating: 0, count: 65536)
+        return try source.withUnsafeMutableBufferPointer { src in
+            stream.next_in = src.baseAddress; stream.avail_in = uInt(src.count)
+            while true {
+                let status = buffer.withUnsafeMutableBufferPointer { dst -> Int32 in
+                    stream.next_out = dst.baseAddress; stream.avail_out = uInt(dst.count)
+                    return zlib.inflate(&stream, Z_NO_FLUSH)
+                }
+                out += buffer.prefix(buffer.count - Int(stream.avail_out))
+                guard out.count <= Records.maxBytes else { throw VaultError.invalid(tooLargeMessage) }
+                if status == Z_STREAM_END {
+                    guard stream.avail_in == 0 else { throw VaultError.invalid(damagedMessage) }
+                    return out
+                }
+                // Z_BUF_ERROR: the input ran out before the stream ended.
+                guard status == Z_OK else { throw VaultError.invalid(damagedMessage) }
+            }
+        }
     }
 }
 

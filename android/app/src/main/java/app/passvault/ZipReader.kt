@@ -6,8 +6,9 @@ import java.util.zip.ZipInputStream
 
 /**
  * Selects a ZIP entry through its central directory, without inflating unrelated attachments. Checks and messages match
- * iOS's `ZipReader`: the end record's comment length, every offset against the directory, the size limit, the
- * decompressed size and the CRC.
+ * iOS's `ZipReader`: the end record's comment length, every offset against the directory, a local header (or data
+ * descriptor) that agrees with the directory, the size limit, a DEFLATE stream that fills exactly its compressed size,
+ * the decompressed size and the CRC.
  */
 internal object ZipReader {
     const val DAMAGED = "The zip file is damaged."
@@ -45,11 +46,23 @@ internal object ZipReader {
                 require(size <= Records.MAX_BYTES) { TOO_LARGE }
                 val offset = local.toInt()
                 valid(u32(offset) == 0x04034b50L)
-                val body = local + 30 + u16(offset + 26) + u16(offset + 28)
+                val localNameLength = u16(offset + 26)
+                val body = local + 30 + localNameLength + u16(offset + 28)
                 valid(body + compressed <= directory)
-                // Let the standard reader validate the selected local header, DEFLATE stream,
-                // data descriptor and CRC. Never advance it to a second entry: nextEntry
-                // would inflate skipped contents without applying our output limit.
+                // The local header must describe the same entry as the directory, so a reader trusting either copy sees the
+                // same file. Its CRC and sizes, or with flag 8 the data descriptor after the data, must match the directory's.
+                // Checked here, as on iOS, rather than left to ZipInputStream, which compares them only with the data.
+                valid((u16(offset + 6) and 9) == (flags and 9) && u16(offset + 8) == method &&
+                    zip.copyOfRange(offset + 30, offset + 30 + localNameLength).contentEquals(zip.copyOfRange(position + 46, position + 46 + nameLength)))
+                valid(method == 8 || ((flags and 8) == 0 && compressed == size))
+                if ((flags and 8) == 0) valid(u32(offset + 14) == crc && u32(offset + 18) == compressed && u32(offset + 22) == size)
+                else {
+                    var descriptor = body + compressed
+                    if (descriptor + 4 <= directory && u32(descriptor.toInt()) == 0x08074b50L) descriptor += 4 // the signature is optional
+                    valid(descriptor + 12 <= directory && u32(descriptor.toInt()) == crc && u32(descriptor.toInt() + 4) == compressed && u32(descriptor.toInt() + 8) == size)
+                }
+                // The standard reader inflates the selected entry and checks that its stream ends at the compressed size.
+                // Never advance it to a second entry: nextEntry would inflate skipped contents without our output limit.
                 val out = ByteArrayOutputStream()
                 try {
                     ZipInputStream(ByteArrayInputStream(zip, offset, directory.toInt() - offset)).use { input ->
