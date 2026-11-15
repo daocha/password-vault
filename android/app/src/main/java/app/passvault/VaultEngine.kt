@@ -313,7 +313,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
             }
         }
         value.decoy?.let { d -> if (!activeDecoy) unwrap(new, d.salt, d.secret, d.wrapped)?.let { it.fill(0); throw IllegalArgumentException("Choose a password different from your decoy vault's.") } }
-        val previous = liveBlobs(value); val blob = UUID.randomUUID().toString()
+        val blob = UUID.randomUUID().toString()
         val dataKey = VaultCrypto.random(32); val plain = Records.encode(records)
         try {
             storage.writeBlob(blob, VaultCrypto.seal(plain, dataKey, blob.toByteArray()))
@@ -329,7 +329,10 @@ class VaultEngine(private val storage: ProtectedStorage) {
                 value.salt = wrapped.salt; value.secret = wrapped.secret; value.wrapped = wrapped.wrapped; value.blob = blob
             }
             storage.writeState(value.encode())
-        } catch (e: Exception) { dataKey.fill(0); runCatching { storage.removeBlobs(previous) }; throw e }
+        // A state write may have renamed successfully before reporting a durability failure.
+        // Keep ciphertext on failure: the on-disk state may already reference it. A later
+        // successful transaction removes unreferenced blobs with the usual liveBlobs cleanup.
+        } catch (e: Exception) { dataKey.fill(0); throw e }
         finally { plain.fill(0) }
         key?.fill(0); key = dataKey; loadedBlob = blob
         storage.removeBlobs(liveBlobs(value))
@@ -347,7 +350,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
             storage.writeBlob(blob, VaultCrypto.seal(Records.encode(emptyList()), dataKey, blob.toByteArray()))
             val recovery = DecoyRecovery(owner, VaultCrypto.seal(ownerSecret, key!!, ownerAAD), VaultCrypto.sealTo(dataKey, owner))
             value.decoy = DecoySlot(wrapped.salt, wrapped.secret, wrapped.wrapped, blob, recovery); value.decoyChanges = 0
-            try { storage.writeState(value.encode()) } catch (e: Exception) { runCatching { storage.removeBlobs(setOf(value.blob)) }; throw e }
+            storage.writeState(value.encode())
         } finally { dataKey.fill(0); ownerSecret.fill(0) }
     }
     /**
@@ -364,15 +367,14 @@ class VaultEngine(private val storage: ProtectedStorage) {
         val ownerSecret = VaultCrypto.open(recovery.ownerSecret, key!!, ownerAAD)
         val oldKey = try { VaultCrypto.openSealed(recovery.key, recovery.owner, ownerSecret) } finally { ownerSecret.fill(0) }
         val plain = try { VaultCrypto.open(storage.readBlob(decoy.blob), oldKey, decoy.blob.toByteArray()) } finally { oldKey.fill(0) }
-        val previous = liveBlobs(value); val blob = UUID.randomUUID().toString(); val dataKey = VaultCrypto.random(32)
+        val blob = UUID.randomUUID().toString(); val dataKey = VaultCrypto.random(32)
         try {
             storage.writeBlob(blob, VaultCrypto.seal(plain, dataKey, blob.toByteArray()))
             val wrapped = wrap(decoyPassword, dataKey)
             value.decoy = DecoySlot(wrapped.salt, wrapped.secret, wrapped.wrapped, blob, DecoyRecovery(recovery.owner, recovery.ownerSecret, VaultCrypto.sealTo(dataKey, recovery.owner)))
             value.decoyChanges = 0
             storage.writeState(value.encode())
-        } catch (e: Exception) { runCatching { storage.removeBlobs(previous) }; throw e }
-        finally { plain.fill(0); dataKey.fill(0) }
+        } finally { plain.fill(0); dataKey.fill(0) }
         storage.removeBlobs(liveBlobs(value))
     }
     /** Deletes the decoy vault and everything in it. Only from the main vault, with its password. */

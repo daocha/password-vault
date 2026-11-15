@@ -89,7 +89,15 @@ import AVFoundation
         Task {
             do {
                 let result = try await Task.detached { _ = await locking?.value; return try work(engine) }.value
-                guard generation == current else { engine.lock(); busy = false; return }
+                guard generation == current else {
+                    engine.lock()
+                    // Creation may have committed while we left the app. Keep its result off screen,
+                    // but refresh the locked screen so it does not offer to create a second vault.
+                    exists = (try? engine.exists()) ?? exists
+                    attempts = (try? engine.remainingAttempts()) ?? attempts
+                    erased = (try? engine.isErased()) ?? erased
+                    busy = false; return
+                }
                 if let result {
                     records = result; unlocked = true; exists = true
                     // Each vault keeps its own backup history, so the decoy shows only its own.
@@ -111,7 +119,9 @@ import AVFoundation
     /// The app left the screen: lock now, or note the time so a later return can lock once the chosen delay has passed.
     func didEnterBackground() {
         biometricAutoPrompted = false
-        guard unlocked else { return }
+        // A password or biometric unlock can still be running. Invalidate it even though
+        // there is no visible session yet, as Android does when its activity stops.
+        guard unlocked else { if busy { lock() }; return }
         switch AppSettings.shared.autoLock.delay {
         case 0?: lock()
         case nil: break // Only locking the device does it.

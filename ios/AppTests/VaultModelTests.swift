@@ -81,6 +81,70 @@ final class ModelTestStorage: VaultStorage {
         XCTAssertFalse(model.busy, "Vault operation timed out")
     }
 
+    func testBackgroundDiscardsPendingPasswordAndBiometricUnlocksForEveryDelay() async throws {
+        let original = AppSettings.shared.autoLock
+        defer { AppSettings.shared.autoLock = original }
+        for option in AutoLock.allCases {
+            for biometric in [false, true] {
+                let engine = VaultEngine(storage: ModelTestStorage())
+                _ = try engine.create(password: password)
+                if biometric { try engine.enableBiometrics(password: password) }
+                engine.lock()
+                let model = VaultModel(engine: engine)
+                AppSettings.shared.autoLock = option
+                let started = expectation(description: "authentication started"), release = DispatchSemaphore(value: 0)
+                let pass = password
+                var accepted = false
+                model.run({ engine in
+                    started.fulfill()
+                    guard release.wait(timeout: .now() + 30) == .success else { throw VaultError.locked }
+                    return try biometric ? engine.unlockBiometric() : engine.unlock(password: pass)
+                }, done: { accepted = true })
+                await fulfillment(of: [started], timeout: 10)
+                model.didEnterBackground()
+                // Even a quick foreground return must not revive the discarded authentication.
+                // Prevent automatic biometrics from starting a separate, fresh authentication.
+                model.biometricEnabled = false
+                model.didBecomeActive()
+                release.signal()
+                await waitForWork(model)
+                XCTAssertFalse(model.unlocked, "\(option): biometric=\(biometric)")
+                XCTAssertTrue(model.records.isEmpty)
+                XCTAssertFalse(accepted)
+                XCTAssertThrowsError(try engine.export(password: pass, csv: true))
+                // Invalidation does not damage the vault or consume extra attempts.
+                XCTAssertEqual(model.attempts, 10)
+                model.run { try $0.unlock(password: pass) }
+                await waitForWork(model)
+                XCTAssertTrue(model.unlocked)
+                model.lock()
+            }
+        }
+    }
+
+    func testCreationFinishingAfterBackgroundRefreshesTheLockedScreen() async throws {
+        let model = VaultModel(engine: VaultEngine(storage: ModelTestStorage()))
+        XCTAssertFalse(model.exists)
+        let started = expectation(description: "creation started"), release = DispatchSemaphore(value: 0)
+        let pass = password
+        model.run { engine in
+            started.fulfill()
+            guard release.wait(timeout: .now() + 30) == .success else { throw VaultError.locked }
+            return try engine.create(password: pass)
+        }
+        await fulfillment(of: [started], timeout: 10)
+        model.didEnterBackground()
+        release.signal()
+        await waitForWork(model)
+        XCTAssertFalse(model.unlocked)
+        XCTAssertTrue(model.exists)
+        XCTAssertEqual(model.attempts, 10)
+        model.run { try $0.unlock(password: pass) }
+        await waitForWork(model)
+        XCTAssertTrue(model.unlocked)
+        model.lock()
+    }
+
     func testDeviceLockOverridesEveryBackgroundDelayAndDiscardsTransfer() throws {
         let original = AppSettings.shared.autoLock
         defer { AppSettings.shared.autoLock = original }

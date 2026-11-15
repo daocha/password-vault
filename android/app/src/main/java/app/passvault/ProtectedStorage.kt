@@ -8,6 +8,7 @@ import android.security.keystore.KeyInfo
 import android.security.keystore.UserNotAuthenticatedException
 import android.util.AtomicFile
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -59,7 +60,11 @@ internal class LockedRetry {
 /** Creates [directory] if needed. Another thread creating it at the same moment is not a failure (`mkdirs` then returns false). */
 internal fun ensureDirectory(directory: File): File = directory.apply { check(mkdirs() || isDirectory) { "Could not create $path." } }
 
-class ProtectedStorage(private val context: Context) {
+class ProtectedStorage internal constructor(
+    private val context: Context,
+    private val finishAtomicWrite: (AtomicFile, FileOutputStream) -> Unit,
+) {
+    constructor(context: Context) : this(context, { atomic, stream -> atomic.finishWrite(stream) })
     companion object {
         private const val DIRECTORY = "passvault"
         /**
@@ -101,18 +106,17 @@ class ProtectedStorage(private val context: Context) {
         val kept = keep?.let(::stateAlias)
         java.util.Collections.list(keystore.aliases()).filter { (it == legacyStateAlias || it.startsWith(stateAliasPrefix)) && it != kept }.forEach { keystore.deleteEntry(it) }
     }
-    private fun write(file: File, bytes: ByteArray, requireSync: Boolean = false) {
+    private fun write(file: File, bytes: ByteArray) {
         val atomic = AtomicFile(file); val stream = atomic.startWrite()
         try {
             stream.write(bytes)
-            // AtomicFile logs a failed sync without reporting it. External plaintext must never precede a failed journal sync.
-            if (requireSync) stream.fd.sync()
-            atomic.finishWrite(stream)
-            if (requireSync) {
-                check(!File(file.path + ".new").exists() && read(file, bytes.size).contentEquals(bytes)) { "Recovery journal was not committed." }
-                val parent = android.system.Os.open(file.parentFile!!.path, android.system.OsConstants.O_RDONLY, 0)
-                try { android.system.Os.fsync(parent) } finally { android.system.Os.close(parent) }
-            }
+            // AtomicFile only logs sync/rename failures. Verify every protected write before
+            // deleting an older key/blob, or accepting a journal that guards external plaintext.
+            stream.fd.sync()
+            finishAtomicWrite(atomic, stream)
+            check(!File(file.path + ".new").exists() && read(file, bytes.size).contentEquals(bytes)) { "Protected file was not committed." }
+            val parent = android.system.Os.open(file.parentFile!!.path, android.system.OsConstants.O_RDONLY, 0)
+            try { android.system.Os.fsync(parent) } finally { android.system.Os.close(parent) }
         } catch (e: Exception) { atomic.failWrite(stream); throw e }
     }
     private fun read(file: File, max: Int): ByteArray {
@@ -144,7 +148,7 @@ class ProtectedStorage(private val context: Context) {
         }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val sealed = needsUnlockedDevice { cipher.init(Cipher.ENCRYPT_MODE, key); cipher.updateAAD("PassVault/file-recovery/v1".toByteArray()); cipher.iv + cipher.doFinal(bytes) }
-        write(file, sealed, requireSync = true)
+        write(file, sealed)
     }
     /** Debug timing: time spent reading and writing the protected state (Keystore and its file), and how often. */
     class StateClock { var millis = 0L; var reads = 0; var writes = 0 }
