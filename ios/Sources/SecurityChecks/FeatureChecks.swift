@@ -262,6 +262,31 @@ func onePuxChecks() throws {
     try check(skipped.map(\.name) == records.map(\.name)
               && skipped.first { $0.name == "Mail" && $0.isLogin }?.fields[1].value == "test-only-10",
               "1PUX skips unrelated attachment contents without decompression, shared with Android")
+    // Damaged archives, as in Android's ZipReaderTest: the same refusal and message on both platforms.
+    let zip = Array(try Data(contentsOf: url))
+    func u16(_ z: [UInt8], _ o: Int) -> Int { Int(z[o]) | Int(z[o + 1]) << 8 }
+    let end = zip.count - 22
+    var central = u16(zip, end + 16) | u16(zip, end + 18) << 16
+    while String(decoding: zip[central + 46..<central + 46 + u16(zip, central + 28)], as: UTF8.self) != "export.data" {
+        central += 46 + u16(zip, central + 28) + u16(zip, central + 30) + u16(zip, central + 32)
+    }
+    func refused(_ change: (inout [UInt8]) -> Void, _ message: String) -> Bool {
+        var z = zip; change(&z)
+        do { _ = try Importers.importPlain(Data(z)); return false } catch { return error.localizedDescription == message }
+    }
+    try check(refused({ $0[central + 16] ^= 1 }, "The zip file is damaged."), "1PUX wrong CRC refused")
+    try check(refused({ $0[central + 24] = 1; $0[central + 25] = 0; $0[central + 26] = 0; $0[central + 27] = 1 } /* 16 MiB + 1 */, "The export is too large."), "1PUX declared size over the limit refused")
+    try check(refused({ $0[central + 8] |= 1 }, "The zip file uses a compression PassVault does not support."), "1PUX encrypted entry refused")
+    let comment = Array("PK\u{5}\u{6}".utf8) + Array(repeating: UInt8(ascii: "x"), count: 30)
+    var commented = zip + comment; commented[end + 20] = UInt8(comment.count)
+    try check(try Importers.importPlain(Data(commented)).map(\.name) == records.map(\.name), "1PUX end record found past a signature inside its comment")
+    // The local header must agree with the directory, as Android requires.
+    let local = u16(zip, central + 42) | u16(zip, central + 44) << 16
+    try check(refused({ $0[local + 6] |= 1 }, "The zip file is damaged."), "1PUX local header marked encrypted refused")
+    try check(refused({ $0[local + 30] = UInt8(ascii: "E") }, "The zip file is damaged."), "1PUX local header with another name refused")
+    try check(refused({ $0[local + 14] ^= 1 }, "The zip file is damaged."), "1PUX local header with another CRC refused")
+    let described = try Importers.importPlain(Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent("data-descriptor.1pux")))
+    try check(described.map(\.name) == records.map(\.name), "1PUX with data descriptors, shared with Android")
 }
 
 /// Decoy vault: a second password opens a separate vault; neither can see or reset the other.
