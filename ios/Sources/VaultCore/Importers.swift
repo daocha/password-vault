@@ -278,32 +278,63 @@ enum OnePux {
     }
 }
 
-/// Reads one stored or deflated file from a zip archive (via its central directory), refusing anything past the vault size limit.
+/// Reads one stored or deflated file from a zip archive through its central directory, without inflating unrelated
+/// attachments. Checks and messages match Android's `ZipReader`: the end record's comment length, every offset against the
+/// directory, the size limit, the decompressed size and the CRC.
 enum ZipReader {
+    static let damagedMessage = "The zip file is damaged."
+    static let tooLargeMessage = "The export is too large."
+    static let unsupportedMessage = "The zip file uses a compression PassVault does not support."
     static func entry(_ z: [UInt8], name: String) throws -> [UInt8]? {
         func u16(_ o: Int) -> Int { Int(z[o]) | Int(z[o + 1]) << 8 }
         func u32(_ o: Int) -> Int { u16(o) | u16(o + 2) << 16 }
-        let damaged = VaultError.invalid("The zip file is damaged.")
-        // End of central directory: the last "PK\5\6" record (it may be followed by a comment of up to 64 KiB).
-        guard z.count >= 22, let end = stride(from: z.count - 22, through: max(0, z.count - 22 - 65535), by: -1).first(where: { z[$0] == 0x50 && z[$0 + 1] == 0x4B && z[$0 + 2] == 5 && z[$0 + 3] == 6 }) else { throw damaged }
-        var pos = u32(end + 16)
+        func valid(_ condition: Bool) throws { guard condition else { throw VaultError.invalid(damagedMessage) } }
+        try valid(z.count >= 22)
+        // End of central directory, possibly followed by a comment of up to 64 KiB. The comment length must reach the end
+        // of the file, so a signature inside the comment cannot be mistaken for the record itself.
+        guard let end = stride(from: z.count - 22, through: max(0, z.count - 22 - 65535), by: -1).first(where: {
+            u32($0) == 0x06054B50 && $0 + 22 + u16($0 + 20) == z.count
+        }) else { throw VaultError.invalid(damagedMessage) }
+        try valid(u16(end + 4) == 0 && u16(end + 6) == 0 && u16(end + 8) == u16(end + 10))
+        let directory = u32(end + 16), directoryEnd = directory + u32(end + 12)
+        try valid(directory <= end && directoryEnd <= end)
+        var pos = directory
         for _ in 0..<u16(end + 10) {
-            guard pos + 46 <= z.count, u32(pos) == 0x02014B50 else { throw damaged }
-            let method = u16(pos + 10), compressed = u32(pos + 20), size = u32(pos + 24), nameLength = u16(pos + 28), extraLength = u16(pos + 30), commentLength = u16(pos + 32), local = u32(pos + 42)
-            guard pos + 46 + nameLength <= z.count else { throw damaged }
+            try valid(pos + 46 <= directoryEnd && u32(pos) == 0x02014B50)
+            let nameLength = u16(pos + 28)
+            let next = pos + 46 + nameLength + u16(pos + 30) + u16(pos + 32)
+            try valid(next <= directoryEnd)
             let entryName = String(decoding: z[pos + 46..<pos + 46 + nameLength], as: UTF8.self)
-            pos += 46 + nameLength + extraLength + commentLength
+            defer { pos = next }
             guard entryName == name else { continue }
-            guard size <= Records.maxBytes, local + 30 <= z.count, u32(local) == 0x04034B50 else { throw damaged }
+            let flags = u16(pos + 8), method = u16(pos + 10), crc = u32(pos + 16), compressed = u32(pos + 20), size = u32(pos + 24), local = u32(pos + 42)
+            try valid(u16(pos + 34) == 0 && local + 30 <= directory)
+            guard flags & 1 == 0, method == 0 || method == 8 else { throw VaultError.invalid(unsupportedMessage) }
+            guard size <= Records.maxBytes else { throw VaultError.invalid(tooLargeMessage) }
+            try valid(u32(local) == 0x04034B50)
             let start = local + 30 + u16(local + 26) + u16(local + 28)
-            guard start + compressed <= z.count else { throw damaged }
+            try valid(start + compressed <= directory)
             let body = Array(z[start..<start + compressed])
-            switch method {
-            case 0: return body
-            case 8: return try Inflate.raw(body, limit: Records.maxBytes)
-            default: throw VaultError.invalid("The zip file uses a compression PassVault does not support.")
+            let data: [UInt8]
+            if method == 0 { data = body }
+            else {
+                do { data = try Inflate.raw(body, limit: Records.maxBytes) }
+                catch VaultError.invalid("The file is too large.") { throw VaultError.invalid(tooLargeMessage) }
+                catch { throw VaultError.invalid(damagedMessage) }
             }
+            try valid(data.count == size && CRC32.checksum(data) == crc)
+            return data
         }
         return nil
+    }
+}
+
+/// The CRC-32 that zip uses (IEEE 802.3, reflected).
+enum CRC32 {
+    private static let table: [UInt32] = (0..<256).map { n in
+        (0..<8).reduce(UInt32(n)) { c, _ in c & 1 == 1 ? 0xEDB88320 ^ (c >> 1) : c >> 1 }
+    }
+    static func checksum(_ bytes: [UInt8]) -> Int {
+        Int(~bytes.reduce(UInt32.max) { c, b in table[Int((c ^ UInt32(b)) & 0xFF)] ^ (c >> 8) })
     }
 }
