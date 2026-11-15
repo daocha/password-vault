@@ -36,8 +36,9 @@ private struct SeedInput: UIViewRepresentable {
         view.accessibilityLabel = localized(title)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: SeedTextView, context: Context) -> CGSize? {
+        // Take the whole width offered, not just the text's: an empty field would otherwise be zero wide and impossible to tap.
         let width = proposal.width ?? 240
-        return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     final class Coordinator: NSObject, UITextViewDelegate {
@@ -90,6 +91,9 @@ struct SeedDetail: View {
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) private var dismiss
     let recordID: String
+    /// Set when the vault list opened this entry (see EntryPaneHooks).
+    var hooks: EntryPaneHooks? = nil
+    @State private var canPresentEditor = false
     @State private var shown = false
     @State private var passphraseShown = false
     @State private var editing = false
@@ -156,7 +160,7 @@ struct SeedDetail: View {
                 .background(Color.aBackground)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") }
+                    ToolbarItem(placement: .topBarLeading) { Button { close() } label: { Image(systemName: hooks?.inPane == true ? "xmark" : "chevron.left") }.accessibilityLabel(Text(LocalizedStringKey(hooks?.inPane == true ? "Close" : "Back"))) }
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button {
                             var updated = model.records
@@ -165,54 +169,71 @@ struct SeedDetail: View {
                             model.run { try $0.save(snapshot); return snapshot }
                         } label: { Image(systemName: record.favorite ? "star.fill" : "star").foregroundStyle(record.favorite ? Color.favoriteStar : Color.primary) }
                             .accessibilityLabel(record.favorite ? "Remove from favorites" : "Add to favorites")
-                        Button { shown = false; passphraseShown = false; editing = true } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
+                        Button { shown = false; passphraseShown = false; if let hooks { hooks.edit(record) } else { editing = true } } label: { Image(systemName: "pencil") }.accessibilityLabel("Edit")
                         Menu {
                             Button(role: .destructive) { deleting = true } label: { Label(LocalizedStringKey(record.privateKey == nil ? "Delete seed phrase" : "Delete private key"), systemImage: "trash") }
                         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More")
                     }
                 }
                 .sheet(isPresented: $editing) { SeedEditor(initial: record, isNew: false) }
+                .sheet(item: EntryPaneHooks.editorItem(hooks, ready: canPresentEditor)) { item in item.view(done: hooks?.editorDone ?? { _ in }) }
+                // After a fold, the editor that was open in the side pane returns as a sheet over these details. UIKit cannot
+                // present it while this screen is still sliding in, so wait for that first. Otherwise Edit opens it at once.
+                .task {
+                    guard let hooks else { return }
+                    if hooks.editorItem.wrappedValue != nil { try? await Task.sleep(for: .milliseconds(500)) }
+                    canPresentEditor = true
+                }
                 .alert(LocalizedStringKey(record.privateKey == nil ? "Delete this seed phrase?" : "Delete this private key?"), isPresented: $deleting) {
                     Button("Delete", role: .destructive) {
                         let updated = model.records.filter { $0.id != recordID }
-                        model.run({ try $0.save(updated); return updated }, done: { dismiss() })
+                        model.run({ try $0.save(updated); return updated }, done: { close() })
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { Text("Without another backup, this wallet cannot be recovered.") }
             }
         }
     }
+
+    /// Back, Close or a finished delete: the vault list's open-entry state when it opened this, otherwise this screen's own dismiss.
+    private func close() { if let hooks { hooks.close() } else { dismiss() } }
 }
 
 struct SeedEditor: View {
-    @EnvironmentObject var model: VaultModel
-    @Environment(\.dismiss) private var dismiss
+    @StateObject private var draft: EditorDraft<SeedForm>
     let initial: VaultRecord
     let isNew: Bool
-    @State private var name: String
-    @State private var favorite: Bool
-    @State private var mode: String
-    @State private var typed: String
-    @State private var key: String
-    @State private var passphrase: String
-    @State private var notes: String
-    @State private var generated = [String]()
-    @State private var count = 12
-    @State private var acknowledged: Bool
+    init(initial: VaultRecord, isNew: Bool) {
+        self.initial = initial; self.isNew = isNew
+        _draft = StateObject(wrappedValue: EditorDraft(SeedForm(record: initial, isNew: isNew)))
+    }
+    var body: some View { SeedEditorForm(draft: draft, initial: initial, isNew: isNew) }
+}
+
+/// The editor itself. Its fields, including a freshly generated phrase, live in `draft`, which the vault list keeps while
+/// the screen changes width, so a fold never swaps the words someone is writing down.
+struct SeedEditorForm: View {
+    @EnvironmentObject var model: VaultModel
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var draft: EditorDraft<SeedForm>
+    let initial: VaultRecord
+    let isNew: Bool
+    /// Set when the vault list shows this editor: gets the saved entry's id, or nil when discarded. Otherwise the editor dismisses itself.
+    var done: ((String?) -> Void)? = nil
+    private var name: String { get { draft.form.name } nonmutating set { draft.form.name = newValue } }
+    private var favorite: Bool { get { draft.form.favorite } nonmutating set { draft.form.favorite = newValue } }
+    private var mode: String { get { draft.form.mode } nonmutating set { draft.form.mode = newValue } }
+    private var typed: String { get { draft.form.typed } nonmutating set { draft.form.typed = newValue } }
+    private var key: String { get { draft.form.key } nonmutating set { draft.form.key = newValue } }
+    private var passphrase: String { get { draft.form.passphrase } nonmutating set { draft.form.passphrase = newValue } }
+    private var notes: String { get { draft.form.notes } nonmutating set { draft.form.notes = newValue } }
+    private var generated: [String] { get { draft.form.generated } nonmutating set { draft.form.generated = newValue } }
+    private var count: Int { get { draft.form.count } nonmutating set { draft.form.count = newValue } }
+    private var acknowledged: Bool { get { draft.form.acknowledged } nonmutating set { draft.form.acknowledged = newValue } }
     @State private var keyShown = false
     @State private var passphraseShown = false
     @State private var generationError = ""
     @State private var cursorAtEnd = true
-    init(initial: VaultRecord, isNew: Bool) {
-        self.initial = initial; self.isNew = isNew
-        _name = State(initialValue: initial.name); _favorite = State(initialValue: initial.favorite)
-        _mode = State(initialValue: initial.privateKey != nil ? "key" : isNew ? "generate" : "enter")
-        _typed = State(initialValue: initial.seedWords.joined(separator: " ")); _key = State(initialValue: initial.privateKey ?? "")
-        _count = State(initialValue: Bip39.wordCounts.contains(initial.seedWords.count) ? initial.seedWords.count : 12)
-        _passphrase = State(initialValue: initial.fields.first { $0.label == seedPassphraseLabel }?.value ?? "")
-        _notes = State(initialValue: initial.fields.first { $0.kind == .note }?.value ?? "")
-        _acknowledged = State(initialValue: !isNew)
-    }
     private var words: [String] { mode == "generate" ? generated : Bip39.split(typed) }
     private var suggestions: [String] {
         guard cursorAtEnd, let last = typed.last, !last.isWhitespace, let prefix = Bip39.split(typed).last else { return [] }
@@ -255,14 +276,14 @@ struct SeedEditor: View {
             ScrollView {
                 VStack(spacing: 12) {
                     SeedWarning()
-                    outlined(localized("Wallet name"), icon: "wallet.bifold", filled: !name.isEmpty) { SeedInput(title: "Wallet name", text: $name) }
-                    Picker("Mode", selection: $mode) {
+                    outlined(localized("Wallet name"), icon: "wallet.bifold", filled: !name.isEmpty) { SeedInput(title: "Wallet name", text: $draft.form.name) }
+                    Picker("Mode", selection: $draft.form.mode) {
                         Text("Generate").tag("generate"); Text("Enter words").tag("enter"); Text("Private key").tag("key")
                     }.pickerStyle(.segmented)
                     if mode == "key" {
                         VStack(alignment: .leading, spacing: 4) {
                             outlined(localized("Private key"), filled: !key.isEmpty) {
-                                HStack { SeedInput(title: "Private key", text: $key, secure: !keyShown).frame(maxWidth: .infinity); eye(keyShown) { keyShown.toggle() } }
+                                HStack { SeedInput(title: "Private key", text: $draft.form.key, secure: !keyShown).frame(maxWidth: .infinity); eye(keyShown) { keyShown.toggle() } }
                             }
                             Text(LocalizedStringKey(key.isEmpty ? "Hex, WIF or another single-string key" : problem ?? WalletPrivateKey.format(key))).font(.caption)
                                 .foregroundStyle(!key.isEmpty && problem != nil ? Color.red : Color.secondary).padding(.horizontal, 12)
@@ -271,7 +292,7 @@ struct SeedEditor: View {
                         SurfaceCard {
                             VStack(spacing: 12) {
                                 HStack {
-                                    Picker("Word count", selection: $count) { ForEach(Bip39.wordCounts, id: \.self) { Text("\($0) words").tag($0) } }.pickerStyle(.segmented)
+                                    Picker("Word count", selection: $draft.form.count) { ForEach(Bip39.wordCounts, id: \.self) { Text("\($0) words").tag($0) } }.pickerStyle(.segmented)
                                     Button { generate() } label: { Image(systemName: "arrow.clockwise").frame(width: 44, height: 44).contentShape(Rectangle()) }
                                         .buttonStyle(.plain).accessibilityLabel("Generate another phrase")
                                 }
@@ -289,7 +310,7 @@ struct SeedEditor: View {
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
                             outlined(localized("Seed words, separated by spaces"), filled: !typed.isEmpty) {
-                                SeedInput(title: "Seed words, separated by spaces", text: $typed, cursorChanged: { cursorAtEnd = $0 }).frame(minHeight: 72)
+                                SeedInput(title: "Seed words, separated by spaces", text: $draft.form.typed, cursorChanged: { cursorAtEnd = $0 }).frame(minHeight: 72)
                             }
                             Text(words.isEmpty ? localized("12 or 24 words") : problem ?? localizedFormat("Valid BIP-39 phrase · %lld words", words.count)).font(.caption)
                                 .foregroundStyle(words.isEmpty ? Color.secondary : problem == nil ? Color.green : words.count == 12 || words.count == 24 ? Color.red : Color.secondary).padding(.horizontal, 12)
@@ -312,19 +333,19 @@ struct SeedEditor: View {
                     if mode != "key" {
                         VStack(alignment: .leading, spacing: 4) {
                             outlined(localized("BIP-39 passphrase (optional)"), filled: !passphrase.isEmpty) {
-                                HStack { SeedInput(title: "BIP-39 passphrase (optional)", text: $passphrase, secure: !passphraseShown).frame(maxWidth: .infinity); eye(passphraseShown) { passphraseShown.toggle() } }
+                                HStack { SeedInput(title: "BIP-39 passphrase (optional)", text: $draft.form.passphrase, secure: !passphraseShown).frame(maxWidth: .infinity); eye(passphraseShown) { passphraseShown.toggle() } }
                             }
                             Text("The optional “25th word”. Leave empty if your wallet doesn't use one.").font(.caption).foregroundStyle(Color.aOnSurfaceVariant).padding(.horizontal, 12)
                         }
                     }
-                    outlined(localized("Notes (optional)"), filled: !notes.isEmpty) { SeedInput(title: "Notes (optional)", text: $notes).frame(minHeight: 44) }
+                    outlined(localized("Notes (optional)"), filled: !notes.isEmpty) { SeedInput(title: "Notes (optional)", text: $draft.form.notes).frame(minHeight: 44) }
                 }.padding(.horizontal, 16).padding(.bottom, 32)
             }
             .background(Color.aBackground)
             .navigationTitle(LocalizedStringKey(mode == "key" ? (isNew ? "New private key" : "Edit private key") : isNew ? "New seed phrase" : "Edit seed phrase"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
+                ToolbarItem(placement: .cancellationAction) { Button { close(nil) } label: { Image(systemName: "xmark") }.accessibilityLabel("Discard changes") }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { favorite.toggle() } label: { Image(systemName: favorite ? "star.fill" : "star").foregroundStyle(favorite ? Color.favoriteStar : Color.primary) }
                         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
@@ -351,9 +372,12 @@ struct SeedEditor: View {
         do {
             let record = try initial.editingSeed(name: name, favorite: favorite, words: words, privateKey: mode == "key" ? key : nil, passphrase: passphrase, notes: notes)
             var updated = model.records
-            if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = record } else { updated.append(record) }
+            // Only this editor's changes: the entry may have changed elsewhere since editing began.
+            if let index = updated.firstIndex(where: { $0.id == record.id }) { updated[index] = updated[index].applyingEdits(record, since: initial) } else { updated.append(record) }
             let snapshot = updated
-            model.run({ try $0.save(snapshot); return snapshot }, done: { dismiss() })
+            let saved = record.id
+            model.run({ try $0.save(snapshot); return snapshot }, done: { close(saved) })
         } catch { generationError = error.localizedDescription }
     }
+    private func close(_ saved: String?) { if let done { done(saved) } else { dismiss() } }
 }

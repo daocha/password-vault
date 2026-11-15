@@ -99,3 +99,40 @@ func statusMessageChecks() throws {
     let android = try String(contentsOf: root.appendingPathComponent("android/app/src/main/java/app/passvault/MainActivity.kt"), encoding: .utf8)
     try check(android.contains("delay(\(Int(StatusMessage.displaySeconds * 1000)))"), "iOS messages stay up as long as Android's snackbar")
 }
+
+/// The entry the list has open, beside it on a wide screen or over it on a narrow one. The state does not depend on the
+/// width, so a fold keeps it, and unsaved edits are never dropped by tapping another entry.
+func entryPaneChecks() throws {
+    var pane = EntryPane<String>()
+    pane.request(.open("a"), unsavedChanges: false); pane.edit("draft")
+    try check(pane.presentation == .detailAndEditor("a"), "editing keeps the entry's details underneath")
+    try check(!pane.request(.open("b"), unsavedChanges: true) && pane.editor == "draft" && pane.presentation == .detailAndEditor("a"), "another entry waits while edits are unsaved")
+    pane.keepEditing()
+    try check(pane.pending == nil && pane.editor == "draft", "keep editing leaves the draft alone")
+    pane.request(.open("b"), unsavedChanges: true); pane.discardChanges()
+    try check(pane.presentation == .detail("b") && pane.editor == nil, "discard opens the other entry")
+    pane.request(.create("new"), unsavedChanges: false); pane.saved("n", showDetails: true)
+    try check(pane.presentation == .detail("n"), "a saved new entry opens beside the list")
+    pane.request(.create("new"), unsavedChanges: false); pane.saved("m", showDetails: false)
+    try check(pane.presentation == .none, "a narrow screen returns to the list after saving a new entry")
+    pane.request(.open("x"), unsavedChanges: false); pane.keepOnly([])
+    try check(pane.presentation == .none, "a deleted entry's details close")
+    var seed = VaultRecord(); seed.type = "seed"; seed.fields = []
+    let blank = SeedForm(record: seed, isNew: true)
+    var generated = blank; generated.generated = Array(repeating: "abandon", count: 12)
+    try check(!generated.hasChanges(from: blank), "an unconfirmed generated phrase is not unsaved work")
+    generated.acknowledged = true
+    try check(generated.hasChanges(from: blank), "a confirmed generated phrase is unsaved work")
+    var base = VaultRecord(); base.name = "Bank"; base.group = "Personal"
+    var meanwhile = base; meanwhile.group = "Family"; meanwhile.legacy["totpOrder"] = "1"
+    var edited = base; edited.name = "Bank (joint)"
+    let saved = meanwhile.applyingEdits(edited, since: base)
+    try check(saved.name == "Bank (joint)" && saved.group == "Family" && saved.legacy["totpOrder"] == "1", "saving an editor keeps changes made beside it meanwhile")
+    var notesBase = VaultRecord(); notesBase.fields[1].value = "old password"
+    var passwordChanged = notesBase; passwordChanged.fields[1].value = "new password"
+    var notesEdited = notesBase; notesEdited.fields[2].value = "edited notes"
+    let merged = passwordChanged.applyingEdits(notesEdited, since: notesBase)
+    try check(merged.fields[1].value == "new password" && merged.fields[2].value == "edited notes", "editing notes never restores a password changed meanwhile")
+    var newCode = TotpForm(record: VaultRecord()); newCode.key = "JBSWY3DPEHPK3PXP"
+    try check(!newCode.keyStartsVisible(isNewCode: true), "a typed setup key stays hidden when the editor is rebuilt")
+}

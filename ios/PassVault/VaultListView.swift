@@ -10,12 +10,12 @@ struct RecordList: View {
     @State private var folder: String?
     @State private var kind: String?
     @State private var tab: VaultTab = .passwords
-    @State private var editing: VaultRecord?
-    @State private var viewing: VaultRecord?
-    @State private var viewingTotp: VaultRecord?
-    @State private var editingTotp: VaultRecord?
-    @State private var viewingSeed: VaultRecord?
-    @State private var editingSeed: VaultRecord?
+    /// The entry open beside the list (wide screens) or over it (narrow screens). It outlives width changes, so folding
+    /// or unfolding the phone keeps the entry and any unsaved edits; it goes away with the list when the vault locks.
+    @StateObject private var pane = EntryPaneModel()
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// An unfolded foldable iPhone or an iPad: details and editors open in a pane beside the list instead of over it.
+    private var wide: Bool { sizeClass == .regular }
     @State private var pendingDeletion: Set<String>?
     @State private var reordering = false
     @State private var transfer = false
@@ -32,7 +32,26 @@ struct RecordList: View {
         let snapshot = VaultListSnapshot(records: model.records, filter: filter)
         let visibleSelected = snapshot.selection(from: selected)
         let selecting = !visibleSelected.isEmpty
-        return NavigationStack {
+        // Before any sheet reacts to a new width (see EntryPaneModel.wide).
+        pane.wide = wide
+        return HStack(spacing: 0) {
+            listColumn(snapshot, visibleSelected: visibleSelected, selecting: selecting)
+                .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
+            if wide {
+                Divider().ignoresSafeArea()
+                EntryPaneView(pane: pane)
+            }
+        }
+        .background(Color.aBackground)
+        .onChange(of: model.records.map(\.id)) { _, ids in pane.state.keepOnly(Set(ids)) }
+        // The buttons decide; the binding's setter does nothing, so Discard works whichever order SwiftUI runs the button and the dismissal in.
+        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil }, set: { _ in })) {
+            Button("Discard", role: .destructive) { pane.state.discardChanges() }
+            Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
+        } message: { Text("The entry you are editing has changes that are not saved.") }
+    }
+    private func listColumn(_ snapshot: VaultListSnapshot, visibleSelected: Set<String>, selecting: Bool) -> some View {
+        NavigationStack {
             VStack(spacing: 0) {
                 if selecting { selectionBar(snapshot, selected: visibleSelected) } else { vaultToolbar }
                 listControls(snapshot)
@@ -44,6 +63,7 @@ struct RecordList: View {
                     if snapshot.total == 0 { emptyState.listRowBackground(Color.clear) }
                     ForEach(snapshot.visible) { record in
                         let isSelected = visibleSelected.contains(record.id)
+                        let isOpen = wide && !selecting && pane.state.viewing == record.id
                         let selection = RowSelection(selecting: selecting, isSelected: isSelected) { toggle(record) }
                         Group {
                             if record.isTotp { TotpRow(record: record, selection: selection) }
@@ -52,13 +72,13 @@ struct RecordList: View {
                         .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, record.showsExpiryBadge ? 32 : 12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(isSelected ? Color.accentColor.opacity(0.18) : Color.aCard, in: RoundedRectangle(cornerRadius: 16))
+                        // The entry shown in the side pane.
+                        .overlay { if isOpen { RoundedRectangle(cornerRadius: 16).stroke(Color.accentColor, lineWidth: 2) } }
+                        .accessibilityAddTraits(isOpen ? .isSelected : [])
                         .overlay(alignment: .bottomTrailing) { ExpiryBadge(record: record).padding(.trailing, 12).padding(.bottom, 8) }
                         .contentShape(RoundedRectangle(cornerRadius: 16))
                         .onTapGesture {
-                            if selecting { toggle(record) }
-                            else if record.isTotp { viewingTotp = record }
-                            else if record.isSeed { viewingSeed = record }
-                            else { viewing = record }
+                            if selecting { toggle(record) } else { pane.open(record.id) }
                         }
                         .accessibilityElement(children: .contain)
                         .accessibilityAddTraits(.isButton)
@@ -89,9 +109,11 @@ struct RecordList: View {
             .sensoryFeedback(.selection, trigger: selected)
             .onChange(of: snapshot.folders) { _, names in if let folder, !names.contains(folder) { self.folder = nil } }
             .onChange(of: snapshot.kinds) { _, names in if let kind, !names.contains(kind) { self.kind = nil } }
-            .sheet(item: $editing) { RecordEditor(record: $0) }
-            .fullScreenCover(item: $viewing) { RecordDetail(recordID: $0.id) }
-            .fullScreenCover(item: $viewingTotp) { TotpDetail(recordID: $0.id) }
+            // Narrow screens: the open entry full screen, a new entry's editor as a sheet, as before the side pane existed.
+            .fullScreenCover(item: narrowDetail) { item in
+                if let record = model.records.first(where: { $0.id == item.id }) { OpenEntryDetail(pane: pane, record: record, inPane: false) }
+            }
+            .sheet(item: pane.narrowNewEditor) { item in item.view(done: { pane.editorDone($0) }) }
             .sheet(isPresented: $grouping) { GroupAssignSheet(records: model.records, ids: visibleSelected) { selected = [] } }
             .confirmationDialog(deleteTitle(visibleSelected), isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
@@ -99,9 +121,6 @@ struct RecordList: View {
                     selected = []; saveDeletion(ids)
                 }
             } message: { Text(deletionMessage(visibleSelected)) }
-            .sheet(item: $editingTotp) { TotpEditor(record: $0) }
-            .fullScreenCover(item: $viewingSeed) { SeedDetail(recordID: $0.id) }
-            .sheet(item: $editingSeed) { SeedEditor(initial: $0, isNew: true) }
             .sheet(isPresented: $reordering) { TotpReorderView(codes: model.records.filter(\.isTotp).sorted(by: TotpOrder.less)) }
             .confirmationDialog("Delete this entry?", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }), titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { let ids = pendingDeletion ?? []; pendingDeletion = nil; saveDeletion(ids) }
@@ -110,6 +129,17 @@ struct RecordList: View {
             .sheet(item: $healthTarget) { HealthView(focus: $0.focus) }
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
+    }
+    /// The open entry's details, presented over the list on a narrow screen. Closing them closes the entry; a change to a
+    /// wide screen also takes them away, but keeps the entry open for the side pane.
+    private var narrowDetail: Binding<OpenEntryItem?> {
+        Binding(get: {
+            guard !wide else { return nil }
+            switch pane.state.presentation {
+            case .detail(let id), .detailAndEditor(let id): return OpenEntryItem(id: id)
+            case .none, .newEditor: return nil
+            }
+        }, set: { item in if item == nil && !pane.wide { pane.state.close() } })
     }
     private func listControls(_ snapshot: VaultListSnapshot) -> some View {
         return VStack(spacing: 8) {
@@ -285,20 +315,20 @@ struct RecordList: View {
         Group {
             if tab == .seed {
                 Button {
-                    var record = VaultRecord(); record.type = "seed"; record.fields = []; editingSeed = record
+                    var record = VaultRecord(); record.type = "seed"; record.fields = []; pane.create(record)
                 } label: { Label("New seed phrase", systemImage: "plus") }
             } else if showTotp {
                 Button {
-                    var record = VaultRecord(); record.type = "totp"; record.fields = []; editingTotp = record
+                    var record = VaultRecord(); record.type = "totp"; record.fields = []; pane.create(record)
                 } label: {
                     Label("Add 2FA code", systemImage: "qrcode.viewfinder")
                 }
             } else {
                 // Login, Payment card, Secure note from top to bottom; fixed order keeps iOS from flipping it when the menu opens upward.
                 Menu {
-                    Button("Login", systemImage: "key") { editing = VaultRecord() }
-                    Button("Payment card", systemImage: "creditcard") { editing = VaultRecord.new(type: "card") }
-                    Button("Secure note", systemImage: "note.text") { editing = VaultRecord.new(type: "note") }
+                    Button("Login", systemImage: "key") { pane.create(VaultRecord()) }
+                    Button("Payment card", systemImage: "creditcard") { pane.create(VaultRecord.new(type: "card")) }
+                    Button("Secure note", systemImage: "note.text") { pane.create(VaultRecord.new(type: "note")) }
                 } label: {
                     Label("New entry", systemImage: "plus")
                 }.menuOrder(.fixed)
