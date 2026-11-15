@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -62,6 +63,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
@@ -644,9 +647,14 @@ class MainActivity : FragmentActivity() {
                         if (busy) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background.copy(alpha = .92f)) { Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { CircularProgressIndicator(); Spacer(Modifier.height(16.dp)); Text(stringResource(R.string.main_securing)) } }
                         if (message.isNotEmpty()) {
                             val shown = message
-                            LaunchedEffect(shown) { delay(6000); if (message == shown) { message = ""; messageError = false } }
+                            val accessibility = LocalAccessibilityManager.current
+                            LaunchedEffect(shown) {
+                                delay(messageTimeoutMillis(accessibility, messageError))
+                                if (message == shown) { message = ""; messageError = false }
+                            }
                             val error = messageError
-                            Snackbar(Modifier.align(Alignment.TopCenter).padding(16.dp), containerColor = if (error) MaterialTheme.colorScheme.errorContainer else SnackbarDefaults.color, contentColor = if (error) MaterialTheme.colorScheme.onErrorContainer else SnackbarDefaults.contentColor,
+                            // TalkBack reads the message out as soon as it appears.
+                            Snackbar(Modifier.align(Alignment.TopCenter).padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }, containerColor = if (error) MaterialTheme.colorScheme.errorContainer else SnackbarDefaults.color, contentColor = if (error) MaterialTheme.colorScheme.onErrorContainer else SnackbarDefaults.contentColor,
                                 dismissAction = { TextButton(onClick = { message = ""; messageError = false }) { Text(stringResource(R.string.main_ok), color = if (error) MaterialTheme.colorScheme.onErrorContainer else SnackbarDefaults.actionColor) } }) {
                                 Row(verticalAlignment = Alignment.CenterVertically) { if (error) Icon(Icons.Default.Warning, null, Modifier.padding(end = 12.dp)); Text(shown) }
                             }

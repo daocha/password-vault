@@ -126,10 +126,14 @@ import AVFoundation
         backgroundedAt = nil
         autoUnlockWithBiometrics()
     }
-    /// Shows `text` (a localization key or an error's own text) until OK or `messageSeconds` pass.
+    /// Whether VoiceOver or Switch Control is on: messages then stay until OK. Tests replace it.
+    var assistiveTechnology: () -> Bool = { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
+    /// Shows `text` (a localization key or an error's own text) until OK or `messageSeconds` pass. VoiceOver reads it out.
     func show(_ text: String, error: Bool = true) {
         let serial = status.show(text, error: error)
         guard !text.isEmpty else { return }
+        UIAccessibility.post(notification: .announcement, argument: localized(text))
+        guard StatusMessage.displayTime(assistiveTechnology: assistiveTechnology()) != nil else { return }
         let seconds = messageSeconds
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
