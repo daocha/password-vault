@@ -52,6 +52,89 @@ class VaultStorageInstrumentedTest {
     @Before fun setUp() { wipe(); fresh() }
     @After fun tearDown() { wipe() }
 
+    @Test fun aSilentlyFailedStateRenameKeepsThePreviousKeyAndVaultReadable() {
+        failedStateCommitKeepsVaultReadable(leavePendingFile = true)
+    }
+
+    @Test fun aDiscardedStateWriteIsDetectedEvenWithoutAPendingFile() {
+        failedStateCommitKeepsVaultReadable(leavePendingFile = false)
+    }
+
+    private fun failedStateCommitKeepsVaultReadable(leavePendingFile: Boolean) {
+        engine.create(password); engine.save(listOf(record("keep me"))); engine.lock()
+        val previous = stateFile().readBytes(); val aliases = stateAliases()
+        val failing = VaultEngine(ProtectedStorage(context) { atomic, stream ->
+            // Model AtomicFile returning without publishing its replacement. Neither mode throws.
+            if (leavePendingFile) stream.close() else atomic.failWrite(stream)
+        })
+        assertThrows(IllegalStateException::class.java) { failing.unlock(password) }
+        assertArrayEquals(previous, stateFile().readBytes())
+        assertTrue("previous state key must survive", stateAliases().containsAll(aliases))
+        assertFalse(File(directory, "state.new").exists())
+        fresh()
+        assertEquals(10, engine.remainingAttempts())
+        assertEquals(listOf("keep me"), engine.unlock(password).map { it.name })
+    }
+
+    @Test fun aSilentlyFailedBlobCommitCannotPublishStateOrDeleteThePreviousBlob() {
+        engine.create(password); engine.save(listOf(record("keep me"))); engine.lock()
+        var fail = false
+        val failing = VaultEngine(ProtectedStorage(context) { atomic, stream ->
+            if (fail && atomic.baseFile.name.endsWith(".vault")) stream.close() else atomic.finishWrite(stream)
+        })
+        failing.unlock(password)
+        val previous = stateFile().readBytes(); val aliases = stateAliases(); val previousBlobs = blobs().map { it.name }
+        fail = true
+        assertThrows(IllegalStateException::class.java) { failing.save(listOf(record("replacement"))) }
+        assertArrayEquals(previous, stateFile().readBytes())
+        assertEquals(aliases, stateAliases())
+        assertEquals(previousBlobs, blobs().map { it.name })
+        failing.lock(); fresh()
+        assertEquals(listOf("keep me"), engine.unlock(password).map { it.name })
+    }
+
+    @Test fun aFailureAfterStateRenameKeepsNewCiphertextForPasswordAndDecoyChanges() {
+        val decoyPassword = "Another decoy phrase 2?"
+        val changedPassword = "Another long passphrase 2@"
+        for (operation in listOf("password", "create decoy", "reset decoy")) {
+            wipe(); fresh()
+            engine.create(password); engine.save(listOf(record("real entry")))
+            if (operation == "reset decoy") {
+                engine.createDecoy(password, decoyPassword); engine.lock(); engine.unlock(decoyPassword)
+                engine.save(listOf(record("decoy entry"))); engine.lock(); engine.unlock(password)
+            }
+            engine.lock()
+            var writesUntilFailure = 0
+            val failing = VaultEngine(ProtectedStorage(context) { atomic, stream ->
+                atomic.finishWrite(stream)
+                if (atomic.baseFile.name == "state" && writesUntilFailure > 0 && --writesUntilFailure == 0) {
+                    // A post-rename directory sync can fail: the caller must retain both possible snapshots.
+                    throw java.io.IOException("Injected failure after state rename")
+                }
+            })
+            failing.unlock(password)
+            writesUntilFailure = 3 // authentication reservation, counter reset, then the changed state
+            assertThrows(java.io.IOException::class.java) {
+                when (operation) {
+                    "password" -> failing.changePassword(password, changedPassword)
+                    "create decoy" -> failing.createDecoy(password, decoyPassword)
+                    else -> failing.resetDecoyPassword(password, changedPassword)
+                }
+            }
+            assertEquals(0, writesUntilFailure)
+            failing.lock(); fresh()
+            val mainPassword = if (operation == "password") changedPassword else password
+            assertEquals(operation, listOf("real entry"), engine.unlock(mainPassword).map { it.name })
+            if (operation != "password") {
+                engine.lock()
+                val next = if (operation == "create decoy") decoyPassword else changedPassword
+                val expected = if (operation == "create decoy") emptyList<String>() else listOf("decoy entry")
+                assertEquals(operation, expected, engine.unlock(next).map { it.name })
+            }
+            engine.lock()
+        }
+    }
+
     @Test fun importReplacesByIdAndFullReplacementDeletesTheRest() {
         val a = record("a"); val b = record("b"); val c = record("c")
         engine.create(password); engine.save(listOf(a, b, c))
