@@ -20,6 +20,13 @@ struct RecordList: View {
     private var wide: Bool { EntryPaneLayout.showsSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
     /// A phone in landscape: the tabs sit above the side pane, leaving the short list column its rows.
     private var tabsBeside: Bool { EntryPaneLayout.tabsInSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
+    /// Vault health takes the list's place beside the pane: a wide screen in landscape (see EntryPaneLayout.healthBesidePane).
+    private func healthBeside(landscape: Bool) -> Bool {
+        EntryPaneLayout.healthBesidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact, landscape: landscape)
+    }
+    /// An unfolded foldable iPhone (wide, with a status bar): the logo and the list's buttons go in the navigation bar,
+    /// which iOS lays out in the status bar's row as it does the pane's, instead of a header below that row.
+    private var headerInBar: Bool { wide && heightClass != .compact && UIDevice.current.userInterfaceIdiom == .phone }
     @State private var pendingDeletion: Set<String>?
     @State private var reordering = false
     @State private var transfer = false
@@ -33,19 +40,31 @@ struct RecordList: View {
     private var showTotp: Bool { tab == .totp }
     private var filter: VaultListFilter { VaultListFilter(tab: tab, query: query, favorites: favorites, folder: folder, kind: kind) }
     var body: some View {
+        GeometryReader { window in content(landscape: window.size.width > window.size.height) }
+    }
+    private func content(landscape: Bool) -> some View {
         let snapshot = VaultListSnapshot(records: model.records, filter: filter)
+        let healthInline = healthTarget != nil && healthBeside(landscape: landscape)
         let visibleSelected = snapshot.selection(from: selected)
         let selecting = !visibleSelected.isEmpty
-        // Before any sheet reacts to a new width (see EntryPaneModel.wide).
+        // Before any sheet reacts to a new width or orientation (see EntryPaneModel.wide).
         pane.wide = wide
+        pane.healthSheet = healthTarget != nil && !healthInline
         return HStack(spacing: 0) {
-            listColumn(snapshot, visibleSelected: visibleSelected, selecting: selecting)
-                .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
+            Group {
+                if healthInline, let target = healthTarget {
+                    HealthView(focus: target.focus, pane: pane, beside: true, close: { healthTarget = nil })
+                } else {
+                    listColumn(snapshot, visibleSelected: visibleSelected, selecting: selecting)
+                }
+            }
+            .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
             if wide {
                 Divider().ignoresSafeArea()
                 VStack(spacing: 0) {
-                    if tabsBeside { tabBar.padding(.horizontal, 16).padding(.vertical, 8) }
-                    EntryPaneView(pane: pane)
+                    if tabsBeside && !healthInline { tabBar.padding(.horizontal, 16).padding(.vertical, 8) }
+                    if healthInline { EntryPaneView(pane: pane, hint: "Choose an entry from the report to see it here.") }
+                    else { EntryPaneView(pane: pane) }
                 }
             }
         }
@@ -60,7 +79,7 @@ struct RecordList: View {
     private func listColumn(_ snapshot: VaultListSnapshot, visibleSelected: Set<String>, selecting: Bool) -> some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if selecting { selectionBar(snapshot, selected: visibleSelected) } else { vaultToolbar }
+                if selecting { selectionBar(snapshot, selected: visibleSelected) } else if !headerInBar { vaultToolbar }
                 listControls(snapshot)
                 VStack(alignment: .leading, spacing: 8) {
                     if !selecting { notices }
@@ -109,7 +128,14 @@ struct RecordList: View {
                         .buttonBorderShape(.roundedRectangle(radius: 16)).controlSize(.large).padding(16)
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .toolbar(headerInBar && !selecting ? .visible : .hidden, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if headerInBar && !selecting {
+                    ToolbarItem(placement: .topBarLeading) { WordMark().font(.title2.bold()).lineLimit(1).fixedSize().accessibilityLabel("PassVault") }
+                    ToolbarItemGroup(placement: .topBarTrailing) { headerButtons }
+                }
+            }
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
             .onChange(of: tab) { _, _ in query = ""; folder = nil; kind = nil; selected = [] }
             .onChange(of: snapshot.ids) { _, _ in selected = snapshot.selection(from: selected) }
@@ -133,7 +159,7 @@ struct RecordList: View {
                 Button("Delete", role: .destructive) { let ids = pendingDeletion ?? []; pendingDeletion = nil; saveDeletion(ids) }
             } message: { Text(deletionMessage(pendingDeletion ?? [])) }
             .sheet(isPresented: $transfer) { TransferView() }
-            .sheet(item: $healthTarget) { HealthView(focus: $0.focus) }
+            .sheet(item: healthSheet) { HealthView(focus: $0.focus, pane: pane, close: { healthTarget = nil }) }
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
     }
@@ -141,12 +167,18 @@ struct RecordList: View {
     /// wide screen also takes them away, but keeps the entry open for the side pane.
     private var narrowDetail: Binding<OpenEntryItem?> {
         Binding(get: {
-            guard !wide else { return nil }
+            // Over Vault health's sheet the report shows the entry instead.
+            guard !wide, !pane.healthSheet else { return nil }
             switch pane.state.presentation {
             case .detail(let id), .detailAndEditor(let id): return OpenEntryItem(id: id)
             case .none, .newEditor: return nil
             }
-        }, set: { item in if item == nil && !pane.wide { pane.state.close() } })
+        }, set: { item in if item == nil && !pane.wide && !pane.healthSheet { pane.state.close() } })
+    }
+    /// Vault health over the list, upright. In landscape on a wide screen it sits in the list's place instead; turning the
+    /// device takes the sheet away without closing the report.
+    private var healthSheet: Binding<HealthTarget?> {
+        Binding(get: { pane.healthSheet ? healthTarget : nil }, set: { item in if item == nil && pane.healthSheet { healthTarget = nil } })
     }
     private func listControls(_ snapshot: VaultListSnapshot) -> some View {
         return VStack(spacing: 8) {
@@ -287,6 +319,14 @@ struct RecordList: View {
         model.run { try $0.save(updated); return updated }
     }
     /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
+    /// The list's buttons in the navigation bar (an unfolded foldable iPhone). Same actions and names as `vaultToolbar`.
+    @ViewBuilder private var headerButtons: some View {
+        Button { searchOpen.toggle() } label: { Label("Search", systemImage: "magnifyingglass").foregroundStyle(query.isEmpty ? Color.primary : Color.accentColor) }
+        Button { healthTarget = HealthTarget(focus: nil) } label: { Label("Vault health", systemImage: "checkmark.shield") }
+        Button { model.lock() } label: { Label("Lock vault", systemImage: "lock") }
+        Button { transfer = true } label: { Label("Settings", systemImage: "gearshape") }.accessibilityIdentifier("vault.settings")
+    }
+
     private var vaultToolbar: some View {
         HStack(spacing: 8) {
             WordMark().font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.8)

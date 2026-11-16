@@ -33,6 +33,16 @@ class EntrySplitTest {
         assertFalse("a short window too narrow to split", EntrySplit.tabsBeside(411, 400))
     }
 
+    @Test fun vaultHealthSitsBesideTheEntryOnlyInLandscape() {
+        assertTrue("a phone in landscape", EntrySplit.healthBeside(915, 411))
+        assertTrue("a tablet in landscape", EntrySplit.healthBeside(1280, 800))
+        assertTrue("an unfolded foldable in landscape", EntrySplit.healthBeside(841, 673))
+        assertFalse("an unfolded foldable held upright opens it as before", EntrySplit.healthBeside(673, 841))
+        assertFalse("a tablet held upright opens it as before", EntrySplit.healthBeside(800, 1280))
+        assertFalse("a phone held upright", EntrySplit.healthBeside(411, 915))
+        assertFalse("a landscape window too narrow to split", EntrySplit.healthBeside(540, 300))
+    }
+
     @Test fun theListTakesUnderHalfTheWidthWithinLimits() {
         assertEquals(280f, EntrySplit.listWidthDp(560f), 0f)
         assertEquals(.45f * 800, EntrySplit.listWidthDp(800f), .01f)

@@ -53,6 +53,12 @@ internal object EntrySplit {
     const val SHORT_DP = 480
     fun isShort(heightDp: Int) = heightDp < SHORT_DP
     fun isShort(configuration: android.content.res.Configuration) = isShort(configuration.screenHeightDp)
+    /**
+     * Whether Vault health's report takes the list's place beside the entry it opens: only in landscape (a phone, an
+     * unfolded foldable or a tablet turned sideways). Upright it fills the window, as before. Matches iOS's healthBesidePane.
+     */
+    fun healthBeside(widthDp: Int, heightDp: Int) = isWide(widthDp, heightDp) && widthDp > heightDp
+    fun healthBeside(configuration: android.content.res.Configuration) = healthBeside(configuration.screenWidthDp, configuration.screenHeightDp)
     /** Whether the tabs go above the entry beside the list rather than above the list. Matches iOS's tabsInSidePane. */
     fun tabsBeside(widthDp: Int, heightDp: Int) = isWide(widthDp, heightDp) && isShort(heightDp)
 

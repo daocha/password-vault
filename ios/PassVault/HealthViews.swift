@@ -27,55 +27,24 @@ extension Color {
 /// The vault health report, laid out like Android: a privacy note, the score, then one rounded card per group with its icon, count and a
 /// short explanation, left-aligned. Everything is computed from the unlocked records in memory; nothing is sent anywhere.
 /// Every group starts collapsed; `focus` opens one group and scrolls to it (the expiry banner opens "expiring").
+///
+/// Upright it opens over the vault list and shows an entry over itself. In landscape on a wide screen (`beside`) it takes the
+/// list's place, beside the entry pane, and entries open in that pane. Either way the entry lives in the list's open-entry
+/// model, so turning the device moves it (and any unsaved edits) between the two.
 struct HealthView: View {
     var focus: String? = nil
     @EnvironmentObject var model: VaultModel
-    @Environment(\.dismiss) var dismiss
-    /// The entry opened from the report: beside it on a wide screen (an iPad, an iPhone in landscape), over it on a narrow
-    /// one. The same open-entry state as the vault list, so turning the phone keeps the entry and any unsaved edits.
-    @StateObject private var pane = EntryPaneModel()
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.verticalSizeClass) private var heightClass
-    private var wide: Bool { EntryPaneLayout.showsSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
+    @ObservedObject var pane: EntryPaneModel
+    var beside = false
+    let close: () -> Void
     /// Groups (and "shared by" sets of reused passwords, "reused:<field id>") the person has flipped from their starting state.
     /// A group is open when it is the focused one XOR flipped, so the focused group is open from the first frame with no state to set up.
     @State private var flipped: Set<String> = []
     private func isOpen(_ key: String) -> Bool { (key == focus) != flipped.contains(key) }
 
     var body: some View {
-        // Before any cover reacts to a new width (see EntryPaneModel.wide).
-        pane.wide = wide
-        return HStack(spacing: 0) {
-            reportColumn.frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
-            if wide {
-                Divider().ignoresSafeArea()
-                EntryPaneView(pane: pane, hint: "Choose an entry from the report to see it here.")
-            }
-        }
-        .background(Color.aBackground)
-        .onChange(of: model.records.map(\.id)) { _, ids in pane.state.keepOnly(Set(ids)) }
-        // The buttons decide, as in the vault list.
-        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil }, set: { _ in })) {
-            Button("Discard", role: .destructive) { pane.state.discardChanges() }
-            Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
-        } message: { Text("The entry you are editing has changes that are not saved.") }
-    }
-
-    /// The open entry's details over the report on a narrow screen. Closing them closes the entry; a change to a wide
-    /// screen takes them away but keeps the entry open for the side pane.
-    private var narrowDetail: Binding<OpenEntryItem?> {
-        Binding(get: {
-            guard !wide else { return nil }
-            switch pane.state.presentation {
-            case .detail(let id), .detailAndEditor(let id): return OpenEntryItem(id: id)
-            case .none, .newEditor: return nil
-            }
-        }, set: { item in if item == nil && !pane.wide { pane.state.close() } })
-    }
-
-    private var reportColumn: some View {
         let report = VaultHealth.check(model.records)
-        return NavigationStack { ScrollViewReader { proxy in
+        NavigationStack { ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 12) {
                     privacyNote
@@ -116,8 +85,8 @@ struct HealthView: View {
             }
             .background(Color.aBackground)
             .navigationTitle("Vault health").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
-            .fullScreenCover(item: narrowDetail) { item in
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button { close() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
+            .fullScreenCover(item: openOverReport) { item in
                 if let record = model.records.first(where: { $0.id == item.id }) { OpenEntryDetail(pane: pane, record: record, inPane: false) }
             }
             .onAppear {
@@ -125,6 +94,18 @@ struct HealthView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { withAnimation { proxy.scrollTo(focus, anchor: .top) } }
             }
         } }
+    }
+
+    /// Upright, the open entry's details over the report. Closing them closes the entry; turning the device to landscape
+    /// takes them away but keeps the entry open for the pane beside the report.
+    private var openOverReport: Binding<OpenEntryItem?> {
+        Binding(get: {
+            guard pane.healthSheet else { return nil }
+            switch pane.state.presentation {
+            case .detail(let id), .detailAndEditor(let id): return OpenEntryItem(id: id)
+            case .none, .newEditor: return nil
+            }
+        }, set: { item in if item == nil && pane.healthSheet { pane.state.close() } })
     }
 
     private var privacyNote: some View {
@@ -207,7 +188,7 @@ struct HealthView: View {
     }
 
     private func issue(_ record: VaultRecord, _ detail: String) -> some View {
-        let shownBeside = wide && pane.state.viewing == record.id
+        let shownBeside = beside && pane.state.viewing == record.id
         return Button { pane.open(record.id) } label: {
             HStack(spacing: 12) {
                 RecordAvatar(record: record, size: 36)
@@ -218,7 +199,7 @@ struct HealthView: View {
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Color.aOnSurfaceVariant)
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
-            // The entry shown in the side pane.
+            // The entry shown in the pane beside the report.
             .background(shownBeside ? Color.accentColor.opacity(0.18) : Color.clear)
             .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityAddTraits(shownBeside ? .isSelected : [])

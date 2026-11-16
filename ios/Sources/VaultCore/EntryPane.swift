@@ -7,9 +7,15 @@ public enum EntryPaneLayout {
     /// phones in landscape. A narrow window shows the open entry full screen, as an iPhone held upright does.
     public static func showsSidePane(regularWidth: Bool, compactHeight: Bool) -> Bool { regularWidth || compactHeight }
     /// A phone turned sideways has little height for the list, so the Passwords, Seed phrases and 2FA tabs move to the top
-    /// of the side pane. An iPad (never compact height) keeps them above the list. Android does the same below 480 dp.
+    /// of the side pane. An iPad or an unfolded foldable iPhone (never compact height) keeps them above the list. Android
+    /// does the same below 480 dp tall.
     public static func tabsInSidePane(regularWidth: Bool, compactHeight: Bool) -> Bool {
         showsSidePane(regularWidth: regularWidth, compactHeight: compactHeight) && compactHeight
+    }
+    /// Vault health takes the list's place beside the entry pane only in landscape (an iPhone, an unfolded foldable or an
+    /// iPad turned sideways). Upright it opens over the list, as before. Android follows the same rule.
+    public static func healthBesidePane(regularWidth: Bool, compactHeight: Bool, landscape: Bool) -> Bool {
+        showsSidePane(regularWidth: regularWidth, compactHeight: compactHeight) && landscape
     }
 }
 

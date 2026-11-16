@@ -55,6 +55,12 @@ import VaultCore
 @MainActor final class EntryPaneModel: ObservableObject {
     @Published var state = EntryPane<OpenEditor>()
     var wide = false
+    /// Vault health is open over the list (upright), so the entry it opens shows over the report, narrow-style, even
+    /// where the list has a side pane (an iPad or an unfolded foldable held upright). Updated with `wide`.
+    var healthSheet = false
+    /// The open entry and its editor show in the pane beside the list (or the report), not over it.
+    var besideList: Bool { wide && !healthSheet }
+    init(healthSheet: Bool = false) { self.healthSheet = healthSheet }
 
     var hasUnsavedChanges: Bool { state.editor?.hasChanges ?? false }
     func open(_ id: String) { state.request(.open(id), unsavedChanges: hasUnsavedChanges) }
@@ -72,10 +78,12 @@ import VaultCore
             edit: { [weak self] in self?.edit($0) },
             // Narrow screens only: the editor opens as a sheet over the details. A wide screen shows it in the pane instead.
             editorItem: Binding(get: { [weak self] in
-                guard let self, !self.wide, case .detailAndEditor = self.state.presentation, let editor = self.state.editor else { return nil }
+                // Details in the pane never present the editor themselves: beside the list it shows in the pane, and
+                // behind Vault health's sheet the details over the report present it.
+                guard let self, !inPane, !self.besideList, case .detailAndEditor = self.state.presentation, let editor = self.state.editor else { return nil }
                 return EditorItem(editor: editor)
             }, set: { [weak self] item in
-                guard let self, item == nil, !self.wide else { return }
+                guard let self, !inPane, item == nil, !self.besideList else { return }
                 self.state.closeEditor()
             }),
             editorDone: { [weak self] in self?.editorDone($0) })
@@ -83,10 +91,10 @@ import VaultCore
     /// A new entry's editor, as a sheet over a narrow list. Swiping it away discards it, as before.
     var narrowNewEditor: Binding<EditorItem?> {
         Binding(get: { [weak self] in
-            guard let self, !self.wide, self.state.presentation == .newEditor, let editor = self.state.editor else { return nil }
+            guard let self, !self.besideList, self.state.presentation == .newEditor, let editor = self.state.editor else { return nil }
             return EditorItem(editor: editor)
         }, set: { [weak self] item in
-            guard let self, item == nil, !self.wide else { return }
+            guard let self, item == nil, !self.besideList else { return }
             self.state.closeEditor()
         })
     }
@@ -138,7 +146,8 @@ struct EntryPaneView: View {
     var hint: LocalizedStringKey = "Choose an entry from the list, or add a new one."
     var body: some View {
         Group {
-            if let editor = pane.state.editor {
+            // Behind Vault health's sheet the editor is shown over the report instead; one editor per draft.
+            if let editor = pane.state.editor, !pane.healthSheet {
                 editor.view(done: { pane.editorDone($0) }).id(editor.id)
             } else if let id = pane.state.viewing, let record = model.records.first(where: { $0.id == id }) {
                 OpenEntryDetail(pane: pane, record: record, inPane: true)

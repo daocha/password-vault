@@ -5,8 +5,16 @@ final class EntryPaneTests: XCTestCase {
     func testOnlyAPhoneInLandscapeMovesTheTabsAboveThePane() {
         XCTAssertTrue(EntryPaneLayout.tabsInSidePane(regularWidth: false, compactHeight: true), "any iPhone in landscape")
         XCTAssertTrue(EntryPaneLayout.tabsInSidePane(regularWidth: true, compactHeight: true), "a large iPhone in landscape")
-        XCTAssertFalse(EntryPaneLayout.tabsInSidePane(regularWidth: true, compactHeight: false), "an iPad has the height to keep them above the list")
+        XCTAssertFalse(EntryPaneLayout.tabsInSidePane(regularWidth: true, compactHeight: false), "an iPad or an unfolded foldable iPhone keeps them above the list")
         XCTAssertFalse(EntryPaneLayout.tabsInSidePane(regularWidth: false, compactHeight: false), "an upright iPhone has no pane")
+    }
+
+    func testVaultHealthSitsBesideThePaneOnlyInLandscape() {
+        XCTAssertTrue(EntryPaneLayout.healthBesidePane(regularWidth: false, compactHeight: true, landscape: true), "an iPhone in landscape")
+        XCTAssertTrue(EntryPaneLayout.healthBesidePane(regularWidth: true, compactHeight: false, landscape: true), "an iPad or unfolded foldable in landscape")
+        XCTAssertFalse(EntryPaneLayout.healthBesidePane(regularWidth: true, compactHeight: false, landscape: false), "an iPad or unfolded foldable held upright opens it as before")
+        XCTAssertFalse(EntryPaneLayout.healthBesidePane(regularWidth: false, compactHeight: false, landscape: false), "an upright iPhone")
+        XCTAssertFalse(EntryPaneLayout.healthBesidePane(regularWidth: false, compactHeight: false, landscape: true), "a window too narrow to split")
     }
 
     func testThePaneSitsBesideTheListOnWideWindowsAndPhonesTurnedSideways() {

@@ -162,7 +162,7 @@ class MainActivity : FragmentActivity() {
         val app = applicationContext
         languageResources = app.createConfigurationContext(languageConfiguration(app.resources.configuration, language)).resources
     }
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); windowWide = EntrySplit.isWide(newConfig); windowShort = EntrySplit.isShort(newConfig); if (languageResources != null) applyLanguage() }
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); windowWide = EntrySplit.isWide(newConfig); windowShort = EntrySplit.isShort(newConfig); windowHealthBeside = EntrySplit.healthBeside(newConfig); if (languageResources != null) applyLanguage() }
     private var biometricEnabled by mutableStateOf(false)
     /** Whether PassVault is the device's autofill service; read again whenever the app comes back. */
     private var autofillEnabled by mutableStateOf(false)
@@ -239,8 +239,10 @@ class MainActivity : FragmentActivity() {
     private val tabsBeside get() = split && windowShort
     /** The list and the open entry are side by side. Settings, Vault health and file encryption still take the whole window. */
     private val split get() = windowWide && !health && !fileCrypt && !settings
-    /** Vault health's report with the entry it opens beside it, as the list has, on the same windows. */
-    private val healthSplit get() = windowWide && health
+    /** A wide window in landscape: Vault health's report sits beside the entry it opens (see [EntrySplit.healthBeside]). */
+    private var windowHealthBeside by mutableStateOf(false)
+    /** Vault health's report with the entry it opens beside it, in landscape. Upright it fills the window, as before. */
+    private val healthSplit get() = windowHealthBeside && health
     /** Something (the list or the health report) with the open entry beside it. */
     private val sideBySide get() = split || healthSplit
     /** Opens an entry's details from the list. Never over an open editor: the list is out of reach beside one, and this guards it too. */
@@ -588,7 +590,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        windowWide = EntrySplit.isWide(super.getResources().configuration); windowShort = EntrySplit.isShort(super.getResources().configuration)
+        windowWide = EntrySplit.isWide(super.getResources().configuration); windowShort = EntrySplit.isShort(super.getResources().configuration); windowHealthBeside = EntrySplit.healthBeside(super.getResources().configuration)
         // Allow screenshots only in the debug APK; keep release and emulator QA screens protected.
         if (BuildConfig.BUILD_TYPE != "debug") window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         // Keep autofill services and content capture (screen-context features) from reading or saving what is typed here.
@@ -646,7 +648,7 @@ class MainActivity : FragmentActivity() {
                                 !unlocked -> UnlockScreen()
                                 sending != null -> sending?.let { t -> TransferSendScreen(t.frames, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
                                 receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
-                                record == null && health && !windowWide -> HealthReport()
+                                record == null && health && !windowHealthBeside -> HealthReport()
                                 record == null && !health && fileCrypt -> { val keys = fileKeys
                                     FileEncryptionScreen(keys, remember(keys, lastBackup, backedUpKeys) { FileKeys.needsBackup(keys, lastBackup, backedUpKeys) }, onBack = { fileCrypt = false }, onCreateKey = ::createFileKey, onImportKey = ::importFileKey,
                                         working = fileFlow || fileWorking,

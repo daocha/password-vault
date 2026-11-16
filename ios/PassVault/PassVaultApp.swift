@@ -476,6 +476,8 @@ struct TransferView: View {
     @State private var confirmNew = ""
     @State private var panel: VaultSettingsPanel?
     @State private var health = false
+    /// Vault health opened from Settings keeps to its sheet: its entries open over the report, whatever the width.
+    @StateObject private var healthPane = EntryPaneModel(healthSheet: true)
     @State private var biometrics = BiometricAvailability.current()
     @Environment(\.scenePhase) private var phase
     var body: some View {
@@ -548,7 +550,7 @@ struct TransferView: View {
                 .sheet(item: $panel, onDismiss: clearPasswords) { panel in
                     settingsDialog(panel)
                 }
-                .sheet(isPresented: $health) { HealthView(focus: nil) }
+                .sheet(isPresented: $health, onDismiss: { healthPane.state.close() }) { HealthView(focus: nil, pane: healthPane, close: { health = false }) }
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
                     do {
                         let data = try readPicked(result.get())

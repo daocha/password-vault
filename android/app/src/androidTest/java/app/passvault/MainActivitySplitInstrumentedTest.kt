@@ -16,7 +16,11 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -76,8 +80,14 @@ class MainActivitySplitInstrumentedTest {
 
     /** The details' close button in the pane beside the list. */
     private val paneClose get() = rule.onNode(hasContentDescription(text(R.string.main_close)) and hasAnyAncestor(hasTestTag(SPLIT_PANE)))
+    /**
+     * Opens an entry from the list (or the health report) by its row's click action. CI's emulator is a 320×640 phone: in
+     * landscape the list shows little more than one row, and a tap at the row's centre can land on the New entry button.
+     */
     private fun open(scenario: ActivityScenario<MainActivity>, name: String) {
-        rule.onNodeWithText(name).performScrollTo().performClick()
+        // The vertical list (the filter chips scroll sideways).
+        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange) and hasAnyAncestor(hasTestTag(SPLIT_LIST))).performScrollToNode(hasText(name))
+        rule.onNode(hasText(name) and hasAnyAncestor(hasTestTag(SPLIT_LIST))).performSemanticsAction(SemanticsActions.OnClick)
         rule.waitForIdle()
         scenario.onActivity { assertEquals(name, (get(it, "Viewing") as VaultRecord?)?.name) }
     }
@@ -151,8 +161,7 @@ class MainActivitySplitInstrumentedTest {
             scenario.onActivity { set(it, "HealthOpen", Set::class.java, setOf(HealthSection.weak.name)); set(it, "Health", Boolean::class.javaPrimitiveType!!, true) }
             rule.waitForIdle()
             rule.onNodeWithText(text(R.string.main_no_entry_selected_health)).assertExists()
-            rule.onNode(hasText("Weak site") and hasAnyAncestor(hasTestTag(SPLIT_LIST))).performScrollTo().performClick()
-            rule.waitForIdle()
+            open(scenario, "Weak site")
             paneClose.assertExists()
             rule.onNodeWithText(text(R.string.health_title)).assertExists() // The report stays beside it.
 
