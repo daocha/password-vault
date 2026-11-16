@@ -14,8 +14,10 @@ struct RecordList: View {
     /// or unfolding the phone keeps the entry and any unsaved edits; it goes away with the list when the vault locks.
     @StateObject private var pane = EntryPaneModel()
     @Environment(\.horizontalSizeClass) private var sizeClass
-    /// An unfolded foldable iPhone or an iPad: details and editors open in a pane beside the list instead of over it.
-    private var wide: Bool { sizeClass == .regular }
+    @Environment(\.verticalSizeClass) private var heightClass
+    /// An iPad, an unfolded foldable iPhone, or an iPhone in landscape: details and editors open in a pane beside the list
+    /// instead of over it. Turning the phone moves the open entry and any unsaved edits between the pane and full screen.
+    private var wide: Bool { EntryPaneLayout.showsSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
     @State private var pendingDeletion: Set<String>?
     @State private var reordering = false
     @State private var transfer = false

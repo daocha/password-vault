@@ -2,6 +2,13 @@ import XCTest
 @testable import VaultCore
 
 final class EntryPaneTests: XCTestCase {
+    func testThePaneSitsBesideTheListOnWideWindowsAndPhonesTurnedSideways() {
+        XCTAssertTrue(EntryPaneLayout.showsSidePane(regularWidth: true, compactHeight: false), "an iPad or an unfolded foldable iPhone")
+        XCTAssertTrue(EntryPaneLayout.showsSidePane(regularWidth: true, compactHeight: true), "a large iPhone in landscape")
+        XCTAssertTrue(EntryPaneLayout.showsSidePane(regularWidth: false, compactHeight: true), "any iPhone in landscape")
+        XCTAssertFalse(EntryPaneLayout.showsSidePane(regularWidth: false, compactHeight: false), "an iPhone held upright keeps the full-screen details")
+    }
+
     func testOpeningAnEntryShowsItsDetails() {
         var pane = EntryPane<String>()
         XCTAssertEqual(pane.presentation, .none)

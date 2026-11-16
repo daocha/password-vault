@@ -1,7 +1,15 @@
 import Foundation
 
+/// Whether the vault list shows its open entry in a pane beside it ("wide") or over it ("narrow").
+public enum EntryPaneLayout {
+    /// Wide: a window iOS reports as regular width (an iPad, an unfolded foldable iPhone, a large iPhone in landscape), or
+    /// one of compact height (any iPhone turned sideways). Android uses the same split for tablets, unfolded foldables and
+    /// phones in landscape. A narrow window shows the open entry full screen, as an iPhone held upright does.
+    public static func showsSidePane(regularWidth: Bool, compactHeight: Bool) -> Bool { regularWidth || compactHeight }
+}
+
 /// The entry the vault list has open: its details, an editor for it, or an editor for a new entry.
-/// On a wide screen (an unfolded foldable iPhone, an iPad) it is shown in a pane beside the list. On a narrow screen the same
+/// On a wide screen (an unfolded foldable iPhone, an iPad, an iPhone in landscape) it is shown in a pane beside the list. On a narrow screen the same
 /// state is presented over the list as before: details full screen, an editor as a sheet. The state is kept when the
 /// screen changes width, so folding or unfolding the phone keeps the open entry and any unsaved edits.
 /// `Editor` is whatever the app keeps an editor's draft in.

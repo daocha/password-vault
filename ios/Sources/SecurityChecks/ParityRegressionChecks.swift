@@ -107,6 +107,9 @@ func statusMessageChecks() throws {
 /// The entry the list has open, beside it on a wide screen or over it on a narrow one. The state does not depend on the
 /// width, so a fold keeps it, and unsaved edits are never dropped by tapping another entry.
 func entryPaneChecks() throws {
+    try check(EntryPaneLayout.showsSidePane(regularWidth: false, compactHeight: true) && EntryPaneLayout.showsSidePane(regularWidth: true, compactHeight: false),
+              "an iPhone in landscape splits like an iPad")
+    try check(!EntryPaneLayout.showsSidePane(regularWidth: false, compactHeight: false), "an upright iPhone keeps the full-screen details")
     var pane = EntryPane<String>()
     pane.request(.open("a"), unsavedChanges: false); pane.edit("draft")
     try check(pane.presentation == .detailAndEditor("a"), "editing keeps the entry's details underneath")
