@@ -1,6 +1,5 @@
 # Shared Android build and signing functions, sourced by the scripts in this folder.
-# This file, build-android-*.sh, release-github.sh, rotate-signing-key.sh and tests/test_release_workflow.py are the
-# same in PassVault and AquaRestore; everything project-specific is in release-settings.sh (see docs/RELEASING.md).
+# Everything project-specific is in release-settings.sh (see docs/RELEASING.md).
 #
 # Optional environment (<P> is env_prefix from release-settings.sh, e.g. PASSVAULT):
 #   <P>_KEYSTORE            keystore path         (default: default_keystore)

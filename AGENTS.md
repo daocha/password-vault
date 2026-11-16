@@ -43,7 +43,7 @@ under `~/Library`. Run Gradle directly with a portable toolchain kept in one fol
 with the maintainer's other Android projects:
 
 ```bash
-T=/private/tmp/aquarestore-tools
+T=/private/tmp/android-tools
 export JAVA_HOME=$(echo $T/jdk-17*/Contents/Home) ANDROID_HOME=$T/android-sdk GRADLE_USER_HOME=$T/gradle-home
 cd android && ./gradlew --console=plain :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
@@ -74,5 +74,5 @@ file, commit message or pull request.
 
 Releases come from `scripts/release-github.sh`, and Play bundles from `scripts/build-android-play.sh` (see
 `docs/RELEASING.md`). Release signing comes only from the environment; never commit a keystore, password or signing
-config. The release scripts are shared with AquaRestore: keep them identical there, and put anything
-project-specific in `scripts/release-settings.sh`.
+config. Settings specific to PassVault (app name, keys, permissions, release notes, device tests) are in
+`scripts/release-settings.sh`.

@@ -7,7 +7,12 @@
 # --app-store also builds an iOS archive/IPA and uploads to App Store Connect after the GitHub release succeeds.
 # Uses the current branch and origin GitHub repository. Requires committed sources to publish, and asks before
 # publishing when run in a terminal. New version names automatically increment versionCode unless explicitly provided.
+# With public_release_repo set in release-settings.sh, origin must be the private source repository: the tag and a
+#   release with the versioned APK and checksums go there, then the same files plus the fixed-name APK
+#   (latest_apk_asset) are published as a release of the public repository, tagged on its default branch.
 # Signing configuration: see _signing-common.sh.
+# All tests run first, before anything is signed: Android unit tests, release lint and connected tests, and with
+#   --app-store the configured Apple tests. --skip-tests bypasses them all.
 set +x
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -30,7 +35,7 @@ while [ "$#" -gt 0 ]; do
     --skip-tests) skip_tests=1; shift ;;
     --play) play=1; shift ;;
     --app-store) app_store=1; shift ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) die "Unknown option: $1" ;;
   esac
 done
@@ -59,6 +64,19 @@ if [ "$dry_run" = 0 ]; then
   repo="${repo%.git}"
   [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die 'Cannot parse the origin repository.'
   gh api "repos/$repo" --silent || die "Cannot access $repo."
+  if [ -n "${public_release_repo:-}" ]; then
+    [[ "$public_release_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die 'public_release_repo must look like owner/name.'
+    declare -F public_release_notes >/dev/null || die 'Define public_release_notes in release-settings.sh for the public release.'
+    # Source is pushed to origin, so origin must never be the public repository (for example a clone that still
+    # uses the URL the private repository had before it was renamed).
+    [ "$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$public_release_repo" | tr '[:upper:]' '[:lower:]')" ] \
+      || die "origin is the public release repository $public_release_repo. Point origin at the private source repository."
+    [ "$(gh api "repos/$repo" --jq .private)" = true ] \
+      || die "origin ($repo) is not private; with public_release_repo set, source is pushed only to a private repository."
+    public_branch="$(gh api "repos/$public_release_repo" --jq .default_branch)" || die "Cannot access $public_release_repo."
+    [ -n "$public_branch" ] && gh api "repos/$public_release_repo/branches/$public_branch" --silent \
+      || die "$public_release_repo has no commit on its default branch yet; add one (a README) first."
+  fi
 fi
 if [ -z "$requested_version" ] && [ -t 0 ] && [ "$dry_run" = 0 ]; then
   read -r -p "Version to release [current: $version, code $code]: " requested_version
@@ -107,10 +125,12 @@ tag="v$version"
 git check-ref-format "refs/tags/$tag" >/dev/null || die "Invalid version tag: $tag"
 if [ "$dry_run" = 0 ]; then
   if git show-ref --verify --quiet "refs/tags/$tag"; then die "Local tag $tag already exists. Choose a new version."; fi
-  remote_refs="$(gh api "repos/$repo/git/matching-refs/tags/$tag" --jq '.[].ref')"
-  while IFS= read -r ref; do
-    [ "$ref" != "refs/tags/$tag" ] || die "Remote tag $tag already exists. Existing releases are never overwritten."
-  done <<< "$remote_refs"
+  for tag_repo in "$repo" ${public_release_repo:+"$public_release_repo"}; do
+    remote_refs="$(gh api "repos/$tag_repo/git/matching-refs/tags/$tag" --jq '.[].ref')"
+    while IFS= read -r ref; do
+      [ "$ref" != "refs/tags/$tag" ] || die "Remote tag $tag already exists in $tag_repo. Existing releases are never overwritten."
+    done <<< "$remote_refs"
+  done
 fi
 # Version metadata is part of the tagged source; no unrecorded -P overrides.
 if [ "$version" != "$current_version" ] || [ "$code" != "$current_code" ]; then
@@ -124,23 +144,34 @@ if [ "$version" != "$current_version" ] || [ "$code" != "$current_code" ]; then
 fi
 built_head="$(git rev-parse HEAD)"
 expected_diff="$(git diff --binary HEAD -- | sha256 | awk '{print $1}')"
-# --play signs twice with the same key: ask for the password once, here, instead of in each build.
-trap forget_passwords EXIT
-if [ "$play" = 1 ] && [ -t 0 ]; then find_toolchain; ensure_keystore; fi
+# Open the key once, here, before the long test run: a wrong password fails at once, and --play signs twice.
+latest_dir=''; public_notes=''
+release_cleanup() {
+  forget_passwords
+  [ -z "$latest_dir" ] || rm -rf "$latest_dir"
+  [ -z "$public_notes" ] || rm -f "$public_notes"
+}
+trap release_cleanup EXIT
+if [ -t 0 ]; then find_toolchain; ensure_keystore; fi
+if [ "$skip_tests" = 0 ]; then
+  # Every test runs before anything is signed or archived, and no test process receives the signing passwords.
+  (
+    forget_passwords
+    if [ "$play" = 1 ]; then "$here/test-android-release.sh" --play; else "$here/test-android-release.sh"; fi
+    [ "$app_store" = 0 ] || "$here/build-ios-app-store.sh" --tests-only
+  )
+fi
 printf 'Building %s %s (%s)%s\n' "$app_name" "$version" "$code" "$([ "$dry_run" = 1 ] && printf ' — local dry run' || true)"
-if [ "$skip_tests" = 1 ]; then "$here/build-android-release.sh" --skip-tests
-else "$here/build-android-release.sh"; fi
+# Tests already ran above (or were skipped on request), so the builds skip them.
+"$here/build-android-release.sh" --skip-tests
 [ -f "$apk" ] && [ -f "$sums" ] || die 'Missing release artifacts.'
 if [ "$play" = 1 ]; then
-  # Tests and release Lint already ran for the APK; the Play script still lints its own variant unless skipped.
-  if [ "$skip_tests" = 1 ]; then "$here/build-android-play.sh" --skip-tests
-  else "$here/build-android-play.sh"; fi
+  "$here/build-android-play.sh" --skip-tests
   [ -f "$aab" ] || die 'Missing Play bundle.'
 fi
 forget_passwords
 if [ "$app_store" = 1 ]; then
-  if [ "$skip_tests" = 1 ]; then "$here/build-ios-app-store.sh" --skip-tests
-  else "$here/build-ios-app-store.sh"; fi
+  "$here/build-ios-app-store.sh" --skip-tests
   ipa="$store_output/$ios_scheme.ipa"
   [ -d "$archive" ] && [ -f "$ipa" ] || die 'Missing App Store archive or IPA.'
 fi
@@ -155,6 +186,7 @@ if [ -t 0 ]; then
   printf '\nAbout to publish %s%s from branch %s:\n' "$tag" "$([ "$draft" = 1 ] && printf ' (draft)' || true)" "$branch"
   ls -l "$apk" "$sums"
   [ "$app_store" = 0 ] || printf 'The iOS archive will also be uploaded to App Store Connect (no review submission).\n'
+  [ -z "${public_release_repo:-}" ] || printf 'The APK will also be published as a release of the public %s.\n' "$public_release_repo"
   read -r -p 'Commit the version, tag, push and publish now? [y/N] ' yn
   [ "$yn" = y ] || [ "$yn" = Y ] || die 'Aborted. Nothing was committed or pushed; version edits, if any, remain for review.'
 fi
@@ -169,17 +201,18 @@ if ! git push --atomic origin "HEAD:refs/heads/$branch" "refs/tags/$tag"; then
   git tag -d "$tag" >/dev/null
   die "Push refused; nothing was pushed or published, and the local tag $tag was removed. If $branch is protected, merge the version commit through a pull request, then run this again from the merged branch with the same --version."
 fi
+notes_supplied=0
 if [ -z "$notes_file" ]; then
   notes_file="$root/dist/$app_name-$version-notes.md"
   default_release_notes "$version" "$code" "$commit" > "$notes_file"
-fi
+else notes_supplied=1; fi
 release_files=("$apk" "$sums")
 # Optional, from release-settings.sh: the same APK under a fixed name, so a releases/latest/download link stays valid.
-latest_dir=''
+# It belongs where the public downloads from: the public repository when there is one.
 if [ -n "${latest_apk_asset:-}" ]; then
   latest_dir="$(mktemp -d "$root/dist/.latest-apk.XXXXXX")"
   cp "$apk" "$latest_dir/$latest_apk_asset"
-  release_files+=("$latest_dir/$latest_apk_asset")
+  [ -n "${public_release_repo:-}" ] || release_files+=("$latest_dir/$latest_apk_asset")
 fi
 release_args=(release create "$tag" "${release_files[@]}" --repo "$repo" --verify-tag --draft
   --title "$app_name $version" --notes-file "$notes_file")
@@ -187,7 +220,6 @@ release_args=(release create "$tag" "${release_files[@]}" --repo "$repo" --verif
 # Upload into a draft first. A failed upload must not expose an incomplete public release.
 uploaded=1
 gh "${release_args[@]}" || uploaded=0
-[ -z "$latest_dir" ] || rm -rf "$latest_dir"
 if [ "$uploaded" = 0 ]; then
   die "Tag was pushed; upload failed. Inspect 'gh release view $tag --repo $repo' for a draft before retrying."
 fi
@@ -195,6 +227,35 @@ if [ "$draft" = 0 ]; then
   gh release edit "$tag" --repo "$repo" --draft=false || die 'Assets uploaded, but publishing failed. The release remains a draft.'
 fi
 printf '\nRelease: %s\n' "$(gh release view "$tag" --repo "$repo" --json url --jq .url)"
+public_failed=0
+if [ -n "${public_release_repo:-}" ]; then
+  # The public repository holds no source: its release is tagged on its own default branch.
+  public_notes="$(mktemp "$root/dist/.public-notes.XXXXXX")"
+  if [ "$notes_supplied" = 1 ]; then cp "$notes_file" "$public_notes"
+  else public_release_notes "$version" "$code" > "$public_notes"; fi
+  public_files=("$apk" "$sums")
+  [ -z "$latest_dir" ] || public_files+=("$latest_dir/$latest_apk_asset")
+  public_args=(release create "$tag" "${public_files[@]}" --repo "$public_release_repo" --target "$public_branch"
+    --draft --title "$app_name $version" --notes-file "$public_notes")
+  [ "$prerelease" = 0 ] || public_args+=(--prerelease)
+  if ! gh "${public_args[@]}"; then public_failed=1
+  elif [ "$draft" = 0 ] && ! gh release edit "$tag" --repo "$public_release_repo" --draft=false; then public_failed=1
+  fi
+  if [ "$public_failed" = 1 ]; then
+    # Keep the files the retry needs.
+    keep_notes="$root/dist/$app_name-$version-public-notes.md"
+    mv "$public_notes" "$keep_notes"; public_notes=''
+    retry_files=("$apk" "$sums")
+    if [ -n "$latest_dir" ]; then retry_files+=("$latest_dir/$latest_apk_asset"); latest_dir=''; fi
+    printf 'The source release succeeded; the public release in %s failed or was left a draft.\n' "$public_release_repo" >&2
+    printf "Check 'gh release view %s --repo %s'. To finish it, delete any incomplete draft, then run:\n" "$tag" "$public_release_repo" >&2
+    printf '  gh release create %q' "$tag" >&2; printf ' %q' "${retry_files[@]}" >&2
+    printf ' --repo %q --target %q --title %q --notes-file %q%s\n' "$public_release_repo" "$public_branch" \
+      "$app_name $version" "$keep_notes" "$([ "$prerelease" = 1 ] && printf ' --prerelease' || true)" >&2
+  else
+    printf 'Public release: %s\n' "$(gh release view "$tag" --repo "$public_release_repo" --json url --jq .url)"
+  fi
+fi
 [ "$play" = 0 ] || printf 'Play bundle (upload it in Play Console with its mapping file): %s\n' "$aab"
 if [ "$app_store" = 1 ]; then
   if ! "$here/build-ios-app-store.sh" --upload-archive "$archive"; then
@@ -204,3 +265,4 @@ if [ "$app_store" = 1 ]; then
   fi
   printf 'App Store archive uploaded: %s\nWait for Apple processing; submit for review in App Store Connect.\n' "$archive"
 fi
+[ "$public_failed" = 0 ] || die "Finish the public release in $public_release_repo (see above)."

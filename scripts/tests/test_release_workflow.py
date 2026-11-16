@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -15,12 +16,14 @@ import unittest
 PROJECT = Path(__file__).resolve().parents[2]
 REAL_GIT = shutil.which("git")
 APP = re.search(r"^app_name=(\w+)$", (PROJECT / "scripts/release-settings.sh").read_text(), re.M).group(1)
+PREFIX = re.search(r"^env_prefix=(\w+)$", (PROJECT / "scripts/release-settings.sh").read_text(), re.M).group(1)
+SECRET_KEYS = [f"{PREFIX}_KEYSTORE_PASSWORD", f"{PREFIX}_KEY_PASSWORD"]
 
 # Stand-ins for the build scripts: they write the artifacts the real ones would, named from the version in Gradle.
 STUB_BUILD = '''#!/usr/bin/env python3
-import json, os, pathlib, re
+import json, os, pathlib, re, sys
 with open(os.environ['TEST_RELEASE_LOG'], 'a') as f:
-    f.write(json.dumps(['android', pathlib.Path(__file__).name]) + '\\n')
+    f.write(json.dumps(['android', pathlib.Path(__file__).name] + sys.argv[1:]) + '\\n')
 root = pathlib.Path(__file__).resolve().parents[1]
 s = (root / 'android/app/build.gradle.kts').read_text()
 v = re.search(r'versionName = "([^"]+)"', s).group(1)
@@ -46,6 +49,11 @@ class ReleaseWorkflowTest(unittest.TestCase):
         if not re.search(r"^ios_scheme=", settings.read_text(), re.M):
             with settings.open('a') as f:
                 f.write(f"\nios_scheme={APP}\nbuild_dirs+=(ios)\n")
+        # The tests publish to a mock public repository too, which needs public release notes; a project without a
+        # public repository has none, so give it the default notes without the source commit.
+        if not re.search(r"^public_release_notes\(\)", settings.read_text(), re.M):
+            with settings.open('a') as f:
+                f.write("\npublic_release_notes() { default_release_notes \"$1\" \"$2\" '' | sed '/^Source commit:/d'; }\n")
         (self.repo / ".gitignore").write_text("dist/\n.env\n")
         (self.repo / "android/app/build.gradle.kts").write_text('        versionCode = 1\n        versionName = "1.0.0"\n')
         self.log = self.base / "calls.jsonl"
@@ -55,9 +63,20 @@ class ReleaseWorkflowTest(unittest.TestCase):
 import json, os, sys
 args = sys.argv[1:]
 with open(os.environ['TEST_RELEASE_LOG'], 'a') as f: f.write(json.dumps(['gh'] + args) + '\\n')
-if args[:1] == ['api'] and 'matching-refs' in args[1]:
-    if os.environ.get('TEST_EXISTING_TAG'): print('refs/tags/' + os.environ['TEST_EXISTING_TAG'])
-if args[:2] == ['release', 'create'] and os.environ.get('TEST_UPLOAD_FAIL'): sys.exit(1)
+repo = args[args.index('--repo') + 1] if '--repo' in args else ''
+if args[:1] == ['api']:
+    jq = args[args.index('--jq') + 1] if '--jq' in args else ''
+    if jq == '.private': print(os.environ.get('TEST_ORIGIN_PRIVATE', 'true'))
+    if jq == '.default_branch': print('main')
+    if '/branches/' in args[1] and os.environ.get('TEST_PUBLIC_EMPTY'): sys.exit(1)
+    tag_repo = os.environ.get('TEST_EXISTING_TAG_REPO', '')
+    if 'matching-refs' in args[1] and os.environ.get('TEST_EXISTING_TAG') and tag_repo in args[1]:
+        print('refs/tags/' + os.environ['TEST_EXISTING_TAG'])
+if args[:2] == ['release', 'create']:
+    with open(os.environ['TEST_NOTES_LOG'], 'a') as f:
+        f.write(json.dumps([repo, open(args[args.index('--notes-file') + 1]).read()]) + '\\n')
+    if os.environ.get('TEST_UPLOAD_FAIL'): sys.exit(1)
+    if os.environ.get('TEST_PUBLIC_UPLOAD_FAIL') and repo == 'example/app-public': sys.exit(1)
 if args[:2] == ['release', 'view']: print('https://github.com/example/app/releases/tag/v1.0.0')
 ''')
         self.executable(self.bin / "git", '''#!/usr/bin/env python3
@@ -69,6 +88,12 @@ os.execv(os.environ['TEST_REAL_GIT'], [os.environ['TEST_REAL_GIT']] + sys.argv[1
 ''')
         self.executable(self.repo / "scripts/build-android-release.sh",
                         STUB_BUILD.replace('SUFFIXES', "['.apk', '.SHA256SUMS']"))
+        self.executable(self.repo / "scripts/test-android-release.sh", '''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ['TEST_RELEASE_LOG'], 'a') as f: f.write(json.dumps(['android-tests'] + sys.argv[1:]) + '\\n')
+assert not any(key in os.environ for key in os.environ['TEST_SECRET_KEYS'].split()), 'tests must not receive signing passwords'
+sys.exit(int(os.environ.get('TEST_DEVICE_FAIL', '0')))
+''')
         self.executable(self.repo / "scripts/build-android-play.sh",
                         STUB_BUILD.replace('SUFFIXES', "['-play.aab', '-play-mapping.txt']"))
         self.executable(self.repo / "scripts/build-ios-app-store.sh", '''#!/usr/bin/env python3
@@ -79,6 +104,9 @@ if os.environ.get('TEST_EXPECT_STORE_ENV'):
     assert os.environ.get('ASC_KEY_ID') == 'fixture-key'
 if os.environ.get('TEST_IOS_FAIL'): sys.exit(1)
 if '--check' in sys.argv: sys.exit(0)
+if '--tests-only' in sys.argv:
+    assert not any(key in os.environ for key in os.environ['TEST_SECRET_KEYS'].split()), 'tests must not receive signing passwords'
+    sys.exit(int(os.environ.get('TEST_IOS_TESTS_FAIL', '0')))
 if '--upload-archive' in sys.argv:
     assert pathlib.Path(sys.argv[-1]).is_dir()
     sys.exit(1 if os.environ.get('TEST_STORE_UPLOAD_FAIL') else 0)
@@ -93,13 +121,28 @@ out.mkdir(parents=True, exist_ok=True)
 (out / 'APP.ipa').write_bytes(b'fixture')
 '''.replace('APP', APP))
         self.env = os.environ.copy()
-        self.env.update(PATH=str(self.bin) + os.pathsep + os.environ["PATH"], TEST_RELEASE_LOG=str(self.log), TEST_REAL_GIT=REAL_GIT)
+        self.env.update(PATH=str(self.bin) + os.pathsep + os.environ["PATH"], TEST_RELEASE_LOG=str(self.log), TEST_REAL_GIT=REAL_GIT,
+                        TEST_SECRET_KEYS=" ".join(SECRET_KEYS))
         self.git("init", "-q")
         self.git("config", "user.name", "Release Test")
         self.git("config", "user.email", "test@example.invalid")
         self.git("add", ".")
         self.git("commit", "-qm", "Initial fixture")
         self.git("remote", "add", "origin", "git@github.com:example/app.git")
+        self.notes_log = self.base / "notes.jsonl"
+        self.env['TEST_NOTES_LOG'] = str(self.notes_log)
+        self.configure_public_repo('example/app-public')
+
+    def configure_public_repo(self, name):
+        with (self.repo / "scripts/release-settings.sh").open('a') as f:
+            f.write(f"\npublic_release_repo={name}\n")
+        self.git('commit', '-qam', f'Public repository {name or "off"}')
+
+    def creates(self):
+        return [c for c in self.calls() if c[:3] == ['gh', 'release', 'create']]
+
+    def notes(self):
+        return dict(json.loads(line) for line in self.notes_log.read_text().splitlines()) if self.notes_log.exists() else {}
 
     @staticmethod
     def executable(path, source):
@@ -210,6 +253,70 @@ out.mkdir(parents=True, exist_ok=True)
         self.assertTrue(any(x.endswith('.SHA256SUMS') for x in calls[create]))
         self.assertIn('--draft=false', calls[publish])
 
+    def test_android_tests_run_once_before_building_including_play_and_dry_run(self):
+        result = self.run_release('--play', '--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertEqual(1, calls.count(['android-tests', '--play']))
+        first_build = next(i for i, call in enumerate(calls) if call[0] == 'android')
+        self.assertLess(calls.index(['android-tests', '--play']), first_build)
+
+    def test_android_only_release_does_not_lint_the_play_variant(self):
+        result = self.run_release('--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(['android-tests'], self.calls())
+
+    def test_every_test_runs_before_anything_is_signed_or_archived(self):
+        result = self.run_release('--play', '--app-store', '--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        calls = self.calls()
+        tests = [i for i, c in enumerate(calls) if c[0] == 'android-tests' or '--tests-only' in c]
+        builds = [i for i, c in enumerate(calls) if c[0] == 'android' or (c[0] == 'ios' and '--skip-tests' in c)]
+        self.assertTrue(tests and builds)
+        self.assertLess(max(tests), min(builds))
+        self.assertIn(['ios', '--tests-only'], calls)
+        self.assertNotIn('--skip-core-tests', calls[calls.index(['ios', '--tests-only'])])
+        # Builds never repeat the tests.
+        self.assertTrue(all('--skip-tests' in c for i, c in enumerate(calls) if i in builds))
+        mac_tests = [c for c in calls if c[0] == 'ios' and '--mac' in c and '--tests-only' in c]
+        if re.search(r'^app_store_mac=1', (self.repo / 'scripts/release-settings.sh').read_text(), re.M):
+            # The shared Swift core tests ran with the iOS tests; the Mac tests do not repeat them.
+            self.assertEqual([['ios', '--mac', '--tests-only', '--skip-core-tests']], mac_tests)
+        else:
+            self.assertEqual([], mac_tests)
+
+    def test_exported_signing_passwords_never_reach_test_processes(self):
+        for key in SECRET_KEYS:
+            self.env[key] = 'fixture-secret'
+        result = self.run_release('--play', '--app-store', '--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertTrue(any(c[0] == 'android-tests' for c in self.calls()))
+
+    def test_failed_apple_tests_prevent_any_signed_build(self):
+        self.env['TEST_IOS_TESTS_FAIL'] = '29'
+        result = self.run_release('--play', '--app-store')
+        self.assertEqual(29, result.returncode, result.stdout + result.stderr)
+        self.assertEqual('', self.git('tag'))
+        self.assertFalse(any(call[0] == 'android' or (call[0] == 'ios' and '--skip-tests' in call)
+                             or call[:2] == ['git', 'push'] or call[:2] == ['gh', 'release'] for call in self.calls()))
+
+    def test_failed_device_tests_prevent_build_tag_push_and_publication(self):
+        self.env['TEST_DEVICE_FAIL'] = '23'
+        result = self.run_release('--play', '--app-store')
+        self.assertEqual(23, result.returncode, result.stdout + result.stderr)
+        self.assertEqual('', self.git('tag'))
+        self.assertFalse(any(call[0] == 'android' or call[:2] == ['git', 'push']
+                             or call[:2] == ['gh', 'release'] for call in self.calls()))
+        self.assertFalse(any(call[0] == 'ios' and '--check' not in call for call in self.calls()))
+
+    def test_skip_tests_bypasses_every_suite(self):
+        self.env['TEST_DEVICE_FAIL'] = '23'
+        self.env['TEST_IOS_TESTS_FAIL'] = '29'
+        result = self.run_release('--skip-tests', '--app-store', '--dry-run')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertFalse(any(c[0] == 'android-tests' or '--tests-only' in c for c in calls))
+
     def test_play_bundle_matches_the_release_and_stays_off_github(self):
         result = self.run_release("--version", "1.1.0", "--play")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -224,11 +331,13 @@ out.mkdir(parents=True, exist_ok=True)
         self.git('add', '-A')
         self.git('commit', '-qm', 'Configure the fixed-name APK')
 
-    def test_fixed_name_apk_is_uploaded_when_configured_and_leaves_nothing_behind(self):
+    def test_without_public_repo_the_fixed_name_apk_goes_to_origin(self):
+        self.configure_public_repo('')
         self.configure_latest_apk_asset(f'{APP}.apk')
         result = self.run_release("--version", "1.1.0")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        create = next(c for c in self.calls() if c[:3] == ['gh', 'release', 'create'])
+        [create] = self.creates()
+        self.assertIn('example/app', create)
         self.assertTrue(any(x.endswith(f'/{APP}.apk') for x in create))
         self.assertTrue(any(x.endswith(f'/{APP}-1.1.0-2.apk') for x in create))
         self.assertEqual([], list((self.repo / 'dist').glob('.latest-apk.*')))
@@ -237,8 +346,103 @@ out.mkdir(parents=True, exist_ok=True)
         self.configure_latest_apk_asset('')
         result = self.run_release("--version", "1.1.0")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        create = next(c for c in self.calls() if c[:3] == ['gh', 'release', 'create'])
-        self.assertEqual(1, sum(x.endswith('.apk') for x in create))
+        for create in self.creates():
+            self.assertEqual(1, sum(x.endswith('.apk') for x in create))
+
+    def test_public_release_follows_the_source_release_with_every_download(self):
+        self.configure_latest_apk_asset(f'{APP}.apk')
+        result = self.run_release("--version", "1.1.0")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        calls = self.calls()
+        source, public = self.creates()
+        repo = lambda c: c[c.index('--repo') + 1]
+        self.assertEqual('example/app', repo(source))
+        self.assertEqual('example/app-public', repo(public))
+        self.assertIn('--verify-tag', source)
+        # The public repository has no source: the release is tagged on its default branch.
+        self.assertNotIn('--verify-tag', public)
+        self.assertEqual('main', public[public.index('--target') + 1])
+        self.assertIn('--draft', public)
+        # Installed apps need the versioned APK and checksums; invites need the fixed name.
+        self.assertFalse(any(x.endswith(f'/{APP}.apk') for x in source))
+        for suffix in (f'/{APP}.apk', f'/{APP}-1.1.0-2.apk', f'/{APP}-1.1.0-2.SHA256SUMS'):
+            self.assertTrue(any(x.endswith(suffix) for x in public), suffix)
+        edits = [c for c in calls if c[:3] == ['gh', 'release', 'edit']]
+        self.assertEqual(['example/app', 'example/app-public'], [repo(c) for c in edits])
+        self.assertLess(calls.index(edits[0]), calls.index(public))
+        self.assertTrue(all('--draft=false' in c for c in edits))
+        notes = self.notes()
+        self.assertIn('Source commit', notes['example/app'])
+        self.assertNotIn('Source commit', notes['example/app-public'])
+        self.assertNotIn('License', notes['example/app-public'])
+        self.assertIn('1.1.0', notes['example/app-public'])
+        self.assertEqual([], list((self.repo / 'dist').glob('.latest-apk.*')))
+        self.assertEqual([], list((self.repo / 'dist').glob('.public-notes.*')))
+
+    def test_supplied_notes_are_used_for_the_public_release_too(self):
+        notes = self.base / 'notes.md'
+        notes.write_text('Hand-written notes')
+        result = self.run_release('--version', '1.1.0', '--notes-file', str(notes))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual({'example/app': 'Hand-written notes', 'example/app-public': 'Hand-written notes'}, self.notes())
+
+    def test_public_draft_stays_unpublished(self):
+        result = self.run_release('--draft', '--prerelease')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertFalse(any(c[:3] == ['gh', 'release', 'edit'] for c in self.calls()))
+        self.assertTrue(all('--prerelease' in c for c in self.creates()))
+
+    def assert_stopped_before_build(self, result, message):
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(message, result.stderr)
+        self.assertFalse(any(c[0] in ('android', 'android-tests') or c[:2] in (['git', 'push'], ['gh', 'release'])
+                             for c in self.calls()))
+        self.assertEqual('', self.git('tag'))
+
+    def test_origin_that_is_the_public_repo_stops_before_build(self):
+        self.configure_public_repo('Example/App')
+        self.assert_stopped_before_build(self.run_release('--version', '1.1.0'), 'origin is the public release repository')
+
+    def test_missing_public_release_notes_stop_before_build(self):
+        with (self.repo / "scripts/release-settings.sh").open('a') as f:
+            f.write("\nunset -f public_release_notes\n")
+        self.git('commit', '-qam', 'No public notes')
+        self.assert_stopped_before_build(self.run_release('--version', '1.1.0'), 'public_release_notes')
+
+    def test_public_origin_stops_before_build(self):
+        self.env['TEST_ORIGIN_PRIVATE'] = 'false'
+        self.assert_stopped_before_build(self.run_release('--version', '1.1.0'), 'is not private')
+
+    def test_empty_public_repo_stops_before_build(self):
+        self.env['TEST_PUBLIC_EMPTY'] = '1'
+        self.assert_stopped_before_build(self.run_release('--version', '1.1.0'), 'no commit on its default branch')
+
+    def test_existing_public_tag_stops_before_build(self):
+        self.env.update(TEST_EXISTING_TAG='v1.1.0', TEST_EXISTING_TAG_REPO='example/app-public')
+        self.assert_stopped_before_build(self.run_release('--version', '1.1.0'), 'already exists in example/app-public')
+
+    def test_public_release_failure_keeps_the_source_release_and_names_the_retry(self):
+        self.configure_latest_apk_asset(f'{APP}.apk')
+        self.env['TEST_PUBLIC_UPLOAD_FAIL'] = '1'
+        result = self.run_release('--version', '1.1.0', '--app-store')
+        self.assertNotEqual(0, result.returncode)
+        edits = [c for c in self.calls() if c[:3] == ['gh', 'release', 'edit']]
+        self.assertEqual(1, len(edits))
+        self.assertIn('example/app', edits[0])
+        line = next(line for line in result.stderr.splitlines() if line.strip().startswith('gh release create'))
+        retry = shlex.split(line)
+        self.assertEqual('example/app-public', retry[retry.index('--repo') + 1])
+        self.assertEqual('main', retry[retry.index('--target') + 1])
+        notes = Path(retry[retry.index('--notes-file') + 1])
+        self.assertEqual((self.repo / f'dist/{APP}-1.1.0-public-notes.md').resolve(), notes.resolve())
+        self.assertIn('1.1.0', notes.read_text())
+        # Every file the retry names still exists, including the fixed-name APK.
+        files = retry[4:retry.index('--repo')]
+        self.assertEqual(3, len(files))
+        self.assertTrue(all(Path(x).exists() for x in files))
+        self.assertTrue(files[-1].endswith(f'/{APP}.apk'))
+        # The Apple upload does not depend on the public GitHub release.
+        self.assertTrue(any(c[0] == 'ios' and '--upload-archive' in c for c in self.calls()))
 
     def test_app_store_build_matches_version_and_stays_off_github(self):
         result = self.run_release('--version', '1.1.0', '--play', '--app-store', '--skip-tests')
@@ -289,13 +493,13 @@ out.mkdir(parents=True, exist_ok=True)
         (self.repo / '.env').write_text('not-an-assignment\n')
         result = self.run_release('--dry-run')
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertTrue(all(c[0] == 'android' for c in self.calls()))
+        self.assertTrue(all(c[0] in ('android', 'android-tests') for c in self.calls()))
 
     def test_app_store_dry_run_does_not_publish_or_upload(self):
         result = self.run_release('--app-store', '--dry-run')
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual('', self.git('tag'))
-        self.assertTrue(all(c[0] in ('ios', 'android') for c in self.calls()))
+        self.assertTrue(all(c[0] in ('ios', 'android', 'android-tests') for c in self.calls()))
         self.assertFalse(any('--upload-archive' in c for c in self.calls()))
 
     def test_app_store_without_ios_configuration_stops_before_build(self):
@@ -346,7 +550,7 @@ out.mkdir(parents=True, exist_ok=True)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(before, self.git('rev-parse', 'HEAD'))
         self.assertEqual('', self.git('tag'))
-        self.assertTrue(all(c[0] == 'android' for c in self.calls()))
+        self.assertTrue(all(c[0] in ('android', 'android-tests') for c in self.calls()))
 
     def test_uncommitted_change_stops_before_build_or_push(self):
         (self.repo / '.gitignore').write_text('dist/\nwork in progress\n')
