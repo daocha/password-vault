@@ -132,7 +132,17 @@ struct RecordList: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if headerInBar && !selecting {
-                    ToolbarItem(placement: .topBarLeading) { WordMark().font(.title2.bold()).lineLimit(1).fixedSize().accessibilityLabel("PassVault") }
+                    // iOS 26 puts every bar item on a glass platter, which made the logo look like a button. Only the
+                    // iOS 26 SDK (Swift 6.2) has the switch; CI's older Xcode builds the plain item.
+                    #if compiler(>=6.2)
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .topBarLeading) { barLogo }.sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarLeading) { barLogo }
+                    }
+                    #else
+                    ToolbarItem(placement: .topBarLeading) { barLogo }
+                    #endif
                     ToolbarItemGroup(placement: .topBarTrailing) { headerButtons }
                 }
             }
@@ -319,6 +329,11 @@ struct RecordList: View {
         model.run { try $0.save(updated); return updated }
     }
     /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
+    /// The logo in the navigation bar (an unfolded foldable iPhone): text, not a button.
+    private var barLogo: some View {
+        WordMark().font(.title2.bold()).lineLimit(1).fixedSize().accessibilityLabel("PassVault").accessibilityAddTraits(.isHeader)
+    }
+
     /// The list's buttons in the navigation bar (an unfolded foldable iPhone). Same actions and names as `vaultToolbar`.
     @ViewBuilder private var headerButtons: some View {
         Button { searchOpen.toggle() } label: { Label("Search", systemImage: "magnifyingglass").foregroundStyle(query.isEmpty ? Color.primary : Color.accentColor) }
