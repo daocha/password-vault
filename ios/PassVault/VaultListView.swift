@@ -133,24 +133,7 @@ struct RecordList: View {
                         .buttonBorderShape(.roundedRectangle(radius: 16)).controlSize(.large).padding(16)
                 }
             }
-            .toolbar(headerInBar && !selecting ? .visible : .hidden, for: .navigationBar)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if headerInBar && !selecting {
-                    // The whole header as one flat item across the column: separate bar items each got a glass platter
-                    // on iOS 26, and the narrow column then hid Lock and Settings in an overflow menu. Only the iOS 26 SDK
-                    // (Swift 6.2) has the switch for the platter; CI's older Xcode builds the plain item.
-                    #if compiler(>=6.2)
-                    if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .principal) { barHeader }.sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .principal) { barHeader }
-                    }
-                    #else
-                    ToolbarItem(placement: .principal) { barHeader }
-                    #endif
-                }
-            }
+            .modifier(BarHeaderToolbar(shown: headerInBar && !selecting, header: barHeader))
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
             .onChange(of: tab) { _, _ in query = ""; folder = nil; kind = nil; selected = [] }
             .onChange(of: snapshot.ids) { _, _ in selected = snapshot.selection(from: selected) }
@@ -564,4 +547,31 @@ extension Color {
 extension Color {
     /// The favourite star on every screen (same amber as Android), in light and dark.
     static let favoriteStar = Color(red: 1.0, green: 0.757, blue: 0.027)
+}
+
+/// The navigation bar of the list column: hidden, or (an unfolded foldable iPhone) showing the list's header as one flat
+/// item. Separate bar items each got a glass platter on iOS 26, and the narrow column then hid Lock and Settings in an
+/// overflow menu. Only the iOS 26 SDK (Swift 6.2) has the switch for the platter; CI's older Xcode builds the plain item.
+/// Kept out of the list column's long modifier chain, which the compiler could not type-check in time with it inside.
+private struct BarHeaderToolbar<Header: View>: ViewModifier {
+    let shown: Bool
+    let header: Header
+    func body(content: Content) -> some View {
+        content
+            .toolbar(shown ? .visible : .hidden, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if shown {
+                    #if compiler(>=6.2)
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .principal) { header }.sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .principal) { header }
+                    }
+                    #else
+                    ToolbarItem(placement: .principal) { header }
+                    #endif
+                }
+            }
+    }
 }
