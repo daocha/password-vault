@@ -24,16 +24,11 @@ struct RecordList: View {
     private func healthBeside(landscape: Bool) -> Bool {
         EntryPaneLayout.healthBesidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact, landscape: landscape)
     }
-    /// An unfolded foldable iPhone (wide, with a status bar): the logo and the list's buttons go in the navigation bar,
-    /// which iOS lays out in the status bar's row as it does the pane's, instead of a header below that row.
-    private var headerInBar: Bool { wide && heightClass != .compact && UIDevice.current.userInterfaceIdiom == .phone }
     @State private var pendingDeletion: Set<String>?
     @State private var reordering = false
     @State private var transfer = false
     /// What the Vault health sheet shows; the group to open travels with it so the sheet never reads stale state.
     @State private var healthTarget: HealthTarget?
-    /// The list column's width, so the header in the foldable's bar can span it (the bar sizes its items to fit).
-    @State private var listColumnWidth: CGFloat = 0
     /// The window is wider than tall. Measured ignoring the keyboard, which would otherwise make an upright iPad typing
     /// in an editor look like one in landscape and move Vault health out of its sheet.
     @State private var windowLandscape = false
@@ -72,9 +67,6 @@ struct RecordList: View {
                 }
             }
             .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
-            .background(GeometryReader { column in
-                Color.clear.onAppear { listColumnWidth = column.size.width }.onChange(of: column.size.width) { _, width in listColumnWidth = width }
-            })
             if wide {
                 Divider().ignoresSafeArea()
                 VStack(spacing: 0) {
@@ -96,7 +88,7 @@ struct RecordList: View {
     private func listColumn(_ snapshot: VaultListSnapshot, visibleSelected: Set<String>, selecting: Bool) -> some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if selecting { selectionBar(snapshot, selected: visibleSelected) } else if !headerInBar { vaultToolbar }
+                if selecting { selectionBar(snapshot, selected: visibleSelected) } else { vaultToolbar }
                 listControls(snapshot)
                 VStack(alignment: .leading, spacing: 8) {
                     if !selecting { notices }
@@ -145,7 +137,7 @@ struct RecordList: View {
                         .buttonBorderShape(.roundedRectangle(radius: 16)).controlSize(.large).padding(16)
                 }
             }
-            .modifier(BarHeaderToolbar(shown: headerInBar && !selecting, header: barHeader))
+            .toolbar(.hidden, for: .navigationBar)
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
             .onChange(of: tab) { _, _ in query = ""; folder = nil; kind = nil; selected = [] }
             .onChange(of: snapshot.ids) { _, _ in selected = snapshot.selection(from: selected) }
@@ -330,28 +322,8 @@ struct RecordList: View {
         let updated = model.records.filter { !ids.contains($0.id) }
         model.run { try $0.save(updated); return updated }
     }
-    /// The header in the navigation bar (an unfolded foldable iPhone), which iOS lays out in the status bar's row.
-    /// The bar's centre item, given the column's width less room for the bar's margins, so the logo sits on the left and
-    /// the buttons on the right as in the header below the status bar. Left to itself the centre item is sized to fit and
-    /// centred; a leading item this wide is folded into iOS 26's overflow menu instead.
-    /// Drawn `barHeaderLift` points above the bar's centre: iOS places the bar, and the row looked low in it.
-    private var barHeader: some View {
-        headerRow.frame(width: listColumnWidth > 40 ? listColumnWidth - 40 : nil).offset(y: -Self.barHeaderLift)
-    }
-    /// How far the foldable's bar header is raised. Kept small: the bar item's own area does not move, so the top of the
-    /// buttons loses this much of its tap area.
-    private static let barHeaderLift: CGFloat = 6
-
     /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
     private var vaultToolbar: some View {
-        headerRow
-            .padding(.horizontal, 16)
-            .frame(minHeight: 56)
-            .background(.background)
-    }
-
-    /// The logo, then Search, Vault health, Lock and Settings: below the status bar, or in the bar on an unfolded foldable.
-    private var headerRow: some View {
         HStack(spacing: 8) {
             WordMark().font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.8)
                 .accessibilityLabel("PassVault")
@@ -377,6 +349,9 @@ struct RecordList: View {
             .buttonStyle(.plain)
             .foregroundStyle(Color.aOnSurface)
         }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 56)
+        .background(.background)
     }
 
     private var addEntryButton: some View {
@@ -569,29 +544,3 @@ extension Color {
     static let favoriteStar = Color(red: 1.0, green: 0.757, blue: 0.027)
 }
 
-/// The navigation bar of the list column: hidden, or (an unfolded foldable iPhone) showing the list's header as one flat
-/// item. Separate bar items each got a glass platter on iOS 26, and the narrow column then hid Lock and Settings in an
-/// overflow menu. Only the iOS 26 SDK (Swift 6.2) has the switch for the platter; CI's older Xcode builds the plain item.
-/// Kept out of the list column's long modifier chain, which the compiler could not type-check in time with it inside.
-private struct BarHeaderToolbar<Header: View>: ViewModifier {
-    let shown: Bool
-    let header: Header
-    func body(content: Content) -> some View {
-        content
-            .toolbar(shown ? .visible : .hidden, for: .navigationBar)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if shown {
-                    #if compiler(>=6.2)
-                    if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .principal) { header }.sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .principal) { header }
-                    }
-                    #else
-                    ToolbarItem(placement: .principal) { header }
-                    #endif
-                }
-            }
-    }
-}
