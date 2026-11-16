@@ -86,6 +86,11 @@ struct HealthView: View {
             .background(Color.aBackground)
             .navigationTitle("Vault health").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button { close() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
+            // An edit open beside the list (an iPad held upright) when another entry is tapped here.
+            .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.healthSheet && pane.state.pending != nil }, set: { _ in })) {
+                Button("Discard", role: .destructive) { pane.state.discardChanges() }
+                Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
+            } message: { Text("The entry you are editing has changes that are not saved.") }
             .fullScreenCover(item: openOverReport) { item in
                 if let record = model.records.first(where: { $0.id == item.id }) { OpenEntryDetail(pane: pane, record: record, inPane: false) }
             }
@@ -99,13 +104,7 @@ struct HealthView: View {
     /// Upright, the open entry's details over the report. Closing them closes the entry; turning the device to landscape
     /// takes them away but keeps the entry open for the pane beside the report.
     private var openOverReport: Binding<OpenEntryItem?> {
-        Binding(get: {
-            guard pane.healthSheet else { return nil }
-            switch pane.state.presentation {
-            case .detail(let id), .detailAndEditor(let id): return OpenEntryItem(id: id)
-            case .none, .newEditor: return nil
-            }
-        }, set: { item in if item == nil && pane.healthSheet { pane.state.close() } })
+        Binding(get: { pane.entryOverReport }, set: { item in if item == nil && pane.entryOverReport != nil { pane.state.close() } })
     }
 
     private var privacyNote: some View {
@@ -189,7 +188,7 @@ struct HealthView: View {
 
     private func issue(_ record: VaultRecord, _ detail: String) -> some View {
         let shownBeside = beside && pane.state.viewing == record.id
-        return Button { pane.open(record.id) } label: {
+        return Button { pane.openFromHealth(record.id) } label: {
             HStack(spacing: 12) {
                 RecordAvatar(record: record, size: 36)
                 VStack(alignment: .leading, spacing: 0) {

@@ -60,6 +60,19 @@ import VaultCore
     var healthSheet = false
     /// The open entry and its editor show in the pane beside the list (or the report), not over it.
     var besideList: Bool { wide && !healthSheet }
+    /// The entry Vault health's report opened. Only that one shows over the report: an entry the list had open in its
+    /// side pane (an iPad or an unfolded foldable held upright) stays there, behind the report.
+    var fromHealth: String?
+    /// Opens an entry from Vault health's report.
+    func openFromHealth(_ id: String) { fromHealth = id; open(id) }
+    /// The entry to show over Vault health's report, upright: one the report opened, never the list's.
+    var entryOverReport: OpenEntryItem? {
+        guard healthSheet else { return nil }
+        switch state.presentation {
+        case .detail(let id), .detailAndEditor(let id): return id == fromHealth ? OpenEntryItem(id: id) : nil
+        case .none, .newEditor: return nil
+        }
+    }
     init(healthSheet: Bool = false) { self.healthSheet = healthSheet }
 
     var hasUnsavedChanges: Bool { state.editor?.hasChanges ?? false }
@@ -91,10 +104,10 @@ import VaultCore
     /// A new entry's editor, as a sheet over a narrow list. Swiping it away discards it, as before.
     var narrowNewEditor: Binding<EditorItem?> {
         Binding(get: { [weak self] in
-            guard let self, !self.besideList, self.state.presentation == .newEditor, let editor = self.state.editor else { return nil }
+            guard let self, !self.wide, self.state.presentation == .newEditor, let editor = self.state.editor else { return nil }
             return EditorItem(editor: editor)
         }, set: { [weak self] item in
-            guard let self, item == nil, !self.besideList else { return }
+            guard let self, item == nil, !self.wide else { return }
             self.state.closeEditor()
         })
     }

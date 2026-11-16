@@ -550,7 +550,7 @@ struct TransferView: View {
                 .sheet(item: $panel, onDismiss: clearPasswords) { panel in
                     settingsDialog(panel)
                 }
-                .sheet(isPresented: $health, onDismiss: { healthPane.state.close() }) { HealthView(focus: nil, pane: healthPane, close: { health = false }) }
+                .sheet(isPresented: $health, onDismiss: { healthPane.state.close(); healthPane.fromHealth = nil }) { HealthView(focus: nil, pane: healthPane, close: { health = false }) }
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
                     do {
                         let data = try readPicked(result.get())

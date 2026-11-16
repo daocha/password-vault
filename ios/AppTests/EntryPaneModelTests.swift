@@ -35,6 +35,32 @@ import VaultCore
         XCTAssertEqual(recordDraft(pane)?.form.name, "Bank (joint)")
     }
 
+    /// iPad or unfolded foldable held upright: an entry open beside the list must not pop up over Vault health's report.
+    func testVaultHealthShowsOnlyTheEntriesItOpened() {
+        let pane = EntryPaneModel(), bank = login("Bank"), mail = login("Mail")
+        pane.wide = true
+        pane.open(bank.id)
+        pane.healthSheet = true
+        XCTAssertNil(pane.entryOverReport, "the list's entry stays in its pane, behind the report")
+        XCTAssertNil(pane.hooks(inPane: true).editorItem.wrappedValue)
+        XCTAssertNil(pane.narrowNewEditor.wrappedValue, "nothing else pops up over the report")
+
+        pane.openFromHealth(mail.id)
+        XCTAssertEqual(pane.entryOverReport?.id, mail.id, "an entry opened from the report shows over it")
+        pane.edit(mail)
+        XCTAssertNotNil(pane.hooks(inPane: false).editorItem.wrappedValue, "its editor opens over its details")
+        XCTAssertNil(pane.hooks(inPane: true).editorItem.wrappedValue, "never a second time from the pane behind")
+    }
+
+    func testAnEntryOpenedBesideTheReportFollowsItUpright() {
+        let pane = EntryPaneModel(), bank = login("Bank")
+        pane.wide = true
+        pane.openFromHealth(bank.id) // In landscape, beside the report.
+        XCTAssertNil(pane.entryOverReport)
+        pane.healthSheet = true // Turned upright: the report pops up over the list.
+        XCTAssertEqual(pane.entryOverReport?.id, bank.id)
+    }
+
     func testSwipingTheSheetAwayOnANarrowScreenDiscardsTheEdit() {
         let pane = EntryPaneModel(), bank = login("Bank")
         pane.open(bank.id)

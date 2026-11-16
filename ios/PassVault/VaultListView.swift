@@ -55,7 +55,7 @@ struct RecordList: View {
         return HStack(spacing: 0) {
             Group {
                 if healthInline, let target = healthTarget {
-                    HealthView(focus: target.focus, pane: pane, beside: true, close: { healthTarget = nil })
+                    HealthView(focus: target.focus, pane: pane, beside: true, close: closeHealth)
                 } else {
                     listColumn(snapshot, visibleSelected: visibleSelected, selecting: selecting)
                 }
@@ -76,7 +76,8 @@ struct RecordList: View {
         .background(Color.aBackground)
         .onChange(of: model.records.map(\.id)) { _, ids in pane.state.keepOnly(Set(ids)) }
         // The buttons decide; the binding's setter does nothing, so Discard works whichever order SwiftUI runs the button and the dismissal in.
-        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil }, set: { _ in })) {
+        // Over Vault health's sheet the report asks instead (an alert here would be hidden behind it).
+        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil && !pane.healthSheet }, set: { _ in })) {
             Button("Discard", role: .destructive) { pane.state.discardChanges() }
             Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
         } message: { Text("The entry you are editing has changes that are not saved.") }
@@ -157,7 +158,7 @@ struct RecordList: View {
                 Button("Delete", role: .destructive) { let ids = pendingDeletion ?? []; pendingDeletion = nil; saveDeletion(ids) }
             } message: { Text(deletionMessage(pendingDeletion ?? [])) }
             .sheet(isPresented: $transfer) { TransferView() }
-            .sheet(item: healthSheet) { HealthView(focus: $0.focus, pane: pane, close: { healthTarget = nil }) }
+            .sheet(item: healthSheet) { HealthView(focus: $0.focus, pane: pane, close: closeHealth) }
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
     }
@@ -176,8 +177,10 @@ struct RecordList: View {
     /// Vault health over the list, upright. In landscape on a wide screen it sits in the list's place instead; turning the
     /// device takes the sheet away without closing the report.
     private var healthSheet: Binding<HealthTarget?> {
-        Binding(get: { pane.healthSheet ? healthTarget : nil }, set: { item in if item == nil && pane.healthSheet { healthTarget = nil } })
+        Binding(get: { pane.healthSheet ? healthTarget : nil }, set: { item in if item == nil && pane.healthSheet { closeHealth() } })
     }
+    /// Closes Vault health. Which entry it opened is forgotten, so a later report never shows an entry the list opened.
+    private func closeHealth() { healthTarget = nil; pane.fromHealth = nil }
     private func listControls(_ snapshot: VaultListSnapshot) -> some View {
         return VStack(spacing: 8) {
             if !tabsBeside { tabBar }
