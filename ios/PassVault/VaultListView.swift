@@ -351,7 +351,8 @@ struct RecordList: View {
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 56)
-        .background(.background)
+        // The app's background, as the list and Android's top bar have; the system one is pure black in dark mode.
+        .background(Color.aBackground)
     }
 
     private var addEntryButton: some View {
