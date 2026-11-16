@@ -134,6 +134,8 @@ struct OpenEntryDetail: View {
 struct EntryPaneView: View {
     @EnvironmentObject var model: VaultModel
     @ObservedObject var pane: EntryPaneModel
+    /// Where to pick an entry: the vault list, or Vault health's report.
+    var hint: LocalizedStringKey = "Choose an entry from the list, or add a new one."
     var body: some View {
         Group {
             if let editor = pane.state.editor {
@@ -141,7 +143,7 @@ struct EntryPaneView: View {
             } else if let id = pane.state.viewing, let record = model.records.first(where: { $0.id == id }) {
                 OpenEntryDetail(pane: pane, record: record, inPane: true)
             } else {
-                ContentUnavailableView("No entry selected", systemImage: "sidebar.right", description: Text("Choose an entry from the list, or add a new one."))
+                ContentUnavailableView("No entry selected", systemImage: "sidebar.right", description: Text(hint))
                     .background(Color.aBackground)
             }
         }

@@ -1,5 +1,6 @@
 package app.passvault
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
@@ -117,14 +118,14 @@ internal fun CloseOrBack(inPane: Boolean, backLabel: String, onClick: () -> Unit
     }
 }
 
-/** The right-hand side before any entry is open. */
+/** The right-hand side before any entry is open; [body] says where to pick one (the list, or the health report). */
 @Composable
-internal fun NoEntrySelected() {
+internal fun NoEntrySelected(@StringRes body: Int = R.string.main_no_entry_selected_body) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center) {
         IconBadge(Icons.Outlined.VerticalSplit, 72.dp)
         Spacer(Modifier.height(16.dp))
         Text(stringResource(R.string.main_no_entry_selected), style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-        Text(stringResource(R.string.main_no_entry_selected_body), Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Text(stringResource(body), Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 

@@ -6,6 +6,7 @@
     <string name="main_close">Close</string>
     <string name="main_no_entry_selected">No entry selected</string>
     <string name="main_no_entry_selected_body">Choose an entry from the list, or add a new one.</string>
+    <string name="main_no_entry_selected_health">Choose an entry from the report to see it here.</string>
     <string name="main_done">Done</string>
     <string name="main_apply">Apply</string>
     <string name="main_continue_action">Continue</string>

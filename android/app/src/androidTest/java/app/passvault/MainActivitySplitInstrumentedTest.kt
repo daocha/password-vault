@@ -143,6 +143,39 @@ class MainActivitySplitInstrumentedTest {
         }
     }
 
+    @Test fun vaultHealthOpensEntriesBesideTheReportInLandscape() {
+        val weak = VaultRecord(name = "Weak site", fields = listOf(VaultField(kind = FieldKind.password, label = "Password", value = "1234")))
+        withVault(listOf(weak)) { scenario ->
+            turn(scenario, landscape = true)
+            // Opened from the list with its weak passwords group open, as the expiry banner opens its group.
+            scenario.onActivity { set(it, "HealthOpen", Set::class.java, setOf(HealthSection.weak.name)); set(it, "Health", Boolean::class.javaPrimitiveType!!, true) }
+            rule.waitForIdle()
+            rule.onNodeWithText(text(R.string.main_no_entry_selected_health)).assertExists()
+            rule.onNode(hasText("Weak site") and hasAnyAncestor(hasTestTag(SPLIT_LIST))).performScrollTo().performClick()
+            rule.waitForIdle()
+            paneClose.assertExists()
+            rule.onNodeWithText(text(R.string.health_title)).assertExists() // The report stays beside it.
+
+            // Edit opens beside the report too, and the report is out of reach meanwhile.
+            rule.onNode(hasContentDescription(text(R.string.main_edit)) and hasAnyAncestor(hasTestTag(SPLIT_PANE))).performClick()
+            rule.onNodeWithTag(SPLIT_LIST_LOCKED).assertExists()
+            nameField.performTextReplacement("Weak site (fixed)")
+            turn(scenario, landscape = false)
+            nameField.assertTextContains("Weak site (fixed)")
+            turn(scenario, landscape = true)
+            nameField.assertTextContains("Weak site (fixed)")
+
+            // Back: the editor, then the details, then the report.
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }; rule.waitForIdle()
+            paneClose.assertExists()
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }; rule.waitForIdle()
+            rule.onNodeWithText(text(R.string.main_no_entry_selected_health)).assertExists()
+            scenario.onActivity { assertEquals(true, get(it, "Health")); it.onBackPressedDispatcher.onBackPressed() }; rule.waitForIdle()
+            scenario.onActivity { assertEquals(false, get(it, "Health")) }
+            rule.onNodeWithText(text(R.string.main_no_entry_selected)).assertExists()
+        }
+    }
+
     private fun set(activity: MainActivity, name: String, type: Class<*>, value: Any) {
         MainActivity::class.java.getDeclaredMethod("set$name", type).apply { isAccessible = true }.invoke(activity, value)
     }

@@ -31,15 +31,51 @@ struct HealthView: View {
     var focus: String? = nil
     @EnvironmentObject var model: VaultModel
     @Environment(\.dismiss) var dismiss
-    @State private var viewing: VaultRecord?
+    /// The entry opened from the report: beside it on a wide screen (an iPad, an iPhone in landscape), over it on a narrow
+    /// one. The same open-entry state as the vault list, so turning the phone keeps the entry and any unsaved edits.
+    @StateObject private var pane = EntryPaneModel()
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var heightClass
+    private var wide: Bool { EntryPaneLayout.showsSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
     /// Groups (and "shared by" sets of reused passwords, "reused:<field id>") the person has flipped from their starting state.
     /// A group is open when it is the focused one XOR flipped, so the focused group is open from the first frame with no state to set up.
     @State private var flipped: Set<String> = []
     private func isOpen(_ key: String) -> Bool { (key == focus) != flipped.contains(key) }
 
     var body: some View {
+        // Before any cover reacts to a new width (see EntryPaneModel.wide).
+        pane.wide = wide
+        return HStack(spacing: 0) {
+            reportColumn.frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
+            if wide {
+                Divider().ignoresSafeArea()
+                EntryPaneView(pane: pane, hint: "Choose an entry from the report to see it here.")
+            }
+        }
+        .background(Color.aBackground)
+        .onChange(of: model.records.map(\.id)) { _, ids in pane.state.keepOnly(Set(ids)) }
+        // The buttons decide, as in the vault list.
+        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil }, set: { _ in })) {
+            Button("Discard", role: .destructive) { pane.state.discardChanges() }
+            Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
+        } message: { Text("The entry you are editing has changes that are not saved.") }
+    }
+
+    /// The open entry's details over the report on a narrow screen. Closing them closes the entry; a change to a wide
+    /// screen takes them away but keeps the entry open for the side pane.
+    private var narrowDetail: Binding<OpenEntryItem?> {
+        Binding(get: {
+            guard !wide else { return nil }
+            switch pane.state.presentation {
+            case .detail(let id), .detailAndEditor(let id): return OpenEntryItem(id: id)
+            case .none, .newEditor: return nil
+            }
+        }, set: { item in if item == nil && !pane.wide { pane.state.close() } })
+    }
+
+    private var reportColumn: some View {
         let report = VaultHealth.check(model.records)
-        NavigationStack { ScrollViewReader { proxy in
+        return NavigationStack { ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 12) {
                     privacyNote
@@ -81,10 +117,8 @@ struct HealthView: View {
             .background(Color.aBackground)
             .navigationTitle("Vault health").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
-            .fullScreenCover(item: $viewing) { record in
-                if record.isTotp { TotpDetail(recordID: record.id) }
-                else if record.isSeed { SeedDetail(recordID: record.id) }
-                else { RecordDetail(recordID: record.id) }
+            .fullScreenCover(item: narrowDetail) { item in
+                if let record = model.records.first(where: { $0.id == item.id }) { OpenEntryDetail(pane: pane, record: record, inPane: false) }
             }
             .onAppear {
                 guard let focus else { return }
@@ -173,7 +207,8 @@ struct HealthView: View {
     }
 
     private func issue(_ record: VaultRecord, _ detail: String) -> some View {
-        Button { viewing = record } label: {
+        let shownBeside = wide && pane.state.viewing == record.id
+        return Button { pane.open(record.id) } label: {
             HStack(spacing: 12) {
                 RecordAvatar(record: record, size: 36)
                 VStack(alignment: .leading, spacing: 0) {
@@ -182,8 +217,11 @@ struct HealthView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Color.aOnSurfaceVariant)
             }
-            .padding(.horizontal, 16).padding(.vertical, 8).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            // The entry shown in the side pane.
+            .background(shownBeside ? Color.accentColor.opacity(0.18) : Color.clear)
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityAddTraits(shownBeside ? .isSelected : [])
     }
 
     static func label(_ score: Int) -> String { score >= 90 ? "Excellent" : score >= 70 ? "Good" : score >= 50 ? "Fair" : "Needs attention" }

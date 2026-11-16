@@ -1,7 +1,10 @@
 package app.passvault
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -39,7 +42,7 @@ enum class HealthSection { reused, weak, old, expiring, twoFactor }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HealthScreen(records: List<VaultRecord>, open: Set<String>, onToggle: (String) -> Unit, listState: LazyListState, focus: HealthSection?, onFocused: () -> Unit,
-                 onBack: () -> Unit, onOpen: (VaultRecord) -> Unit) {
+                 onBack: () -> Unit, onOpen: (VaultRecord) -> Unit, openId: String? = null) {
     val report = remember(records) { VaultHealth.check(records) }
     val allGood = report.problemCount == 0 && report.noTwoFactor.isEmpty() && report.checked > 0
     val shown = listOfNotNull(HealthSection.reused.takeIf { report.reused.isNotEmpty() }, HealthSection.weak.takeIf { report.weak.isNotEmpty() },
@@ -76,20 +79,20 @@ fun HealthScreen(records: List<VaultRecord>, open: Set<String>, onToggle: (Strin
                                 }
                                 Icon(if (setOpen) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (setOpen) group.forEach { p -> IssueRow(p.record, p.field.displayName, onOpen) }
+                            if (setOpen) group.forEach { p -> IssueRow(p.record, p.field.displayName, onOpen, openId) }
                         }
                     }
                     HealthSection.weak -> section(Icons.Outlined.GppMaybe, R.string.health_weak, R.string.health_weak_body, report.weak.size, expanded, toggle) {
-                        report.weak.forEach { (p, score) -> IssueRow(p.record, p.field.displayName + " · " + stringResource(if (score == 0) R.string.health_very_weak else R.string.health_weak_label), onOpen) }
+                        report.weak.forEach { (p, score) -> IssueRow(p.record, p.field.displayName + " · " + stringResource(if (score == 0) R.string.health_very_weak else R.string.health_weak_label), onOpen, openId) }
                     }
                     HealthSection.old -> section(Icons.Outlined.History, R.string.health_old, R.string.health_old_body, report.old.size, expanded, toggle) {
-                        report.old.forEach { (p, since) -> IssueRow(p.record, p.field.displayName + " · " + stringResource(R.string.health_old_since, formatDate(since)), onOpen) }
+                        report.old.forEach { (p, since) -> IssueRow(p.record, p.field.displayName + " · " + stringResource(R.string.health_old_since, formatDate(since)), onOpen, openId) }
                     }
                     HealthSection.expiring -> section(Icons.Outlined.Event, R.string.health_expiring, R.string.health_expiring_body, report.expiring.size, expanded, toggle) {
-                        report.expiring.forEach { r -> val date = r.expiryDate!!; IssueRow(r, stringResource(if (r.expiryState() == ExpiryState.expired) R.string.rec_expired_on else R.string.rec_expires_on, formatDate(date)), onOpen) }
+                        report.expiring.forEach { r -> val date = r.expiryDate!!; IssueRow(r, stringResource(if (r.expiryState() == ExpiryState.expired) R.string.rec_expired_on else R.string.rec_expires_on, formatDate(date)), onOpen, openId) }
                     }
                     HealthSection.twoFactor -> section(Icons.Outlined.Pin, R.string.health_2fa, R.string.health_2fa_body, report.noTwoFactor.size, expanded, toggle, advice = true) {
-                        report.noTwoFactor.forEach { r -> IssueRow(r, r.website.ifBlank { r.fields.firstOrNull { it.kind == FieldKind.username }?.value.orEmpty() }, onOpen) }
+                        report.noTwoFactor.forEach { r -> IssueRow(r, r.website.ifBlank { r.fields.firstOrNull { it.kind == FieldKind.username }?.value.orEmpty() }, onOpen, openId) }
                     }
                 }
             }
@@ -151,8 +154,10 @@ private fun LazyListScope.section(icon: ImageVector, @StringRes title: Int, @Str
 }
 
 @Composable
-private fun IssueRow(record: VaultRecord, detail: String, onOpen: (VaultRecord) -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onOpen(record) }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun IssueRow(record: VaultRecord, detail: String, onOpen: (VaultRecord) -> Unit, openId: String?) {
+    // The entry open beside the report on a wide screen.
+    val isOpen = record.id == openId
+    Row(Modifier.fillMaxWidth().then(if (isOpen) Modifier.background(MaterialTheme.colorScheme.secondaryContainer).semantics { selected = true } else Modifier).clickable { onOpen(record) }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         RecordAvatar(record, 36.dp)
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(record.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -239,6 +239,10 @@ class MainActivity : FragmentActivity() {
     private val tabsBeside get() = split && windowShort
     /** The list and the open entry are side by side. Settings, Vault health and file encryption still take the whole window. */
     private val split get() = windowWide && !health && !fileCrypt && !settings
+    /** Vault health's report with the entry it opens beside it, as the list has, on the same windows. */
+    private val healthSplit get() = windowWide && health
+    /** Something (the list or the health report) with the open entry beside it. */
+    private val sideBySide get() = split || healthSplit
     /** Opens an entry's details from the list. Never over an open editor: the list is out of reach beside one, and this guards it too. */
     private fun openEntry(record: VaultRecord, edit: Boolean = false) {
         if (viewing != null && editing) return
@@ -642,22 +646,22 @@ class MainActivity : FragmentActivity() {
                                 !unlocked -> UnlockScreen()
                                 sending != null -> sending?.let { t -> TransferSendScreen(t.frames, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
                                 receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
-                                record == null && health -> HealthScreen(records, healthOpen, onToggle = { key -> healthOpen = if (key in healthOpen) healthOpen - key else healthOpen + key }, healthList, healthFocus,
-                                    onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { viewing = it; editing = false })
-                                record == null && fileCrypt -> { val keys = fileKeys
+                                record == null && health && !windowWide -> HealthReport()
+                                record == null && !health && fileCrypt -> { val keys = fileKeys
                                     FileEncryptionScreen(keys, remember(keys, lastBackup, backedUpKeys) { FileKeys.needsBackup(keys, lastBackup, backedUpKeys) }, onBack = { fileCrypt = false }, onCreateKey = ::createFileKey, onImportKey = ::importFileKey,
                                         working = fileFlow || fileWorking,
                                         onEncrypt = { startFileFlow { encryptSource.launch(arrayOf("*/*")) } }, onDecrypt = { startFileFlow { decryptSource.launch(arrayOf("*/*")) } },
                                         onCopyPublic = ::copyPublicKey, onSharePublic = ::sharePublicKey, onOpenKey = { viewing = it; editing = false },
                                         onBackup = { fileCrypt = false; settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }) }
-                                record == null && settings -> SettingsScreen()
-                                // The list, the open entry (over Settings, Vault health or file encryption when opened from
-                                // there), or both side by side. One call site for every case, so turning the phone moves nothing.
-                                else -> EntrySplitLayout(showList = record == null || split, showPane = record != null || split, listLocked = record != null && editing,
-                                    list = { VaultScreen() }, pane = { Column {
+                                record == null && !health && settings -> SettingsScreen()
+                                // The list or the health report, the open entry (over Settings, Vault health or file encryption
+                                // when opened from there), or both side by side. One call site for every case, so turning the
+                                // phone moves nothing.
+                                else -> EntrySplitLayout(showList = record == null || sideBySide, showPane = record != null || sideBySide, listLocked = record != null && editing,
+                                    list = { if (health) HealthReport() else VaultScreen() }, pane = { Column {
                                         // Always both boxes, so the tabs coming or going never moves the entry (and its unsaved edits) in the composition.
                                         Box { if (tabsBeside) VaultTabs(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp).testTag(PANE_TABS)) }
-                                        Box(Modifier.weight(1f)) { if (record != null) key(record.id) { RecordScreen(record, editing, inPane = split) } else NoEntrySelected() }
+                                        Box(Modifier.weight(1f)) { if (record != null) key(record.id) { RecordScreen(record, editing, inPane = sideBySide) } else NoEntrySelected(if (health) R.string.main_no_entry_selected_health else R.string.main_no_entry_selected_body) }
                                     } })
                             }
                         }
@@ -1082,6 +1086,12 @@ class MainActivity : FragmentActivity() {
             }) { Text(stringResource(R.string.main_apply)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
+    /** Vault health's report. Beside the entry it opened on a wide screen, that entry's row is marked. */
+    @Composable private fun HealthReport() {
+        HealthScreen(records, healthOpen, onToggle = { key -> healthOpen = if (key in healthOpen) healthOpen - key else healthOpen + key }, healthList, healthFocus,
+            onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { openEntry(it) }, openId = if (healthSplit) viewing?.id else null)
+    }
+
     /** Passwords, Seed phrases, 2FA codes: above the list, or above the entry beside it on a phone in landscape. */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun VaultTabs(modifier: Modifier) {
