@@ -132,18 +132,18 @@ struct RecordList: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if headerInBar && !selecting {
-                    // iOS 26 puts every bar item on a glass platter, which made the logo look like a button. Only the
-                    // iOS 26 SDK (Swift 6.2) has the switch; CI's older Xcode builds the plain item.
+                    // The whole header as one flat item across the column: separate bar items each got a glass platter
+                    // on iOS 26, and the narrow column then hid Lock and Settings in an overflow menu. Only the iOS 26 SDK
+                    // (Swift 6.2) has the switch for the platter; CI's older Xcode builds the plain item.
                     #if compiler(>=6.2)
                     if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .topBarLeading) { barLogo }.sharedBackgroundVisibility(.hidden)
+                        ToolbarItem(placement: .principal) { barHeader }.sharedBackgroundVisibility(.hidden)
                     } else {
-                        ToolbarItem(placement: .topBarLeading) { barLogo }
+                        ToolbarItem(placement: .principal) { barHeader }
                     }
                     #else
-                    ToolbarItem(placement: .topBarLeading) { barLogo }
+                    ToolbarItem(placement: .principal) { barHeader }
                     #endif
-                    ToolbarItemGroup(placement: .topBarTrailing) { headerButtons }
                 }
             }
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
@@ -329,20 +329,18 @@ struct RecordList: View {
         model.run { try $0.save(updated); return updated }
     }
     /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
-    /// The logo in the navigation bar (an unfolded foldable iPhone): text, not a button.
-    private var barLogo: some View {
-        WordMark().font(.title2.bold()).lineLimit(1).fixedSize().accessibilityLabel("PassVault").accessibilityAddTraits(.isHeader)
-    }
-
-    /// The list's buttons in the navigation bar (an unfolded foldable iPhone). Same actions and names as `vaultToolbar`.
-    @ViewBuilder private var headerButtons: some View {
-        Button { searchOpen.toggle() } label: { Label("Search", systemImage: "magnifyingglass").foregroundStyle(query.isEmpty ? Color.primary : Color.accentColor) }
-        Button { healthTarget = HealthTarget(focus: nil) } label: { Label("Vault health", systemImage: "checkmark.shield") }
-        Button { model.lock() } label: { Label("Lock vault", systemImage: "lock") }
-        Button { transfer = true } label: { Label("Settings", systemImage: "gearshape") }.accessibilityIdentifier("vault.settings")
-    }
+    /// The header in the navigation bar (an unfolded foldable iPhone), which iOS lays out in the status bar's row.
+    private var barHeader: some View { headerRow.frame(maxWidth: .infinity) }
 
     private var vaultToolbar: some View {
+        headerRow
+            .padding(.horizontal, 16)
+            .frame(minHeight: 56)
+            .background(.background)
+    }
+
+    /// The logo, then Search, Vault health, Lock and Settings: below the status bar, or in the bar on an unfolded foldable.
+    private var headerRow: some View {
         HStack(spacing: 8) {
             WordMark().font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.8)
                 .accessibilityLabel("PassVault")
@@ -368,9 +366,6 @@ struct RecordList: View {
             .buttonStyle(.plain)
             .foregroundStyle(Color.aOnSurface)
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 56)
-        .background(.background)
     }
 
     private var addEntryButton: some View {
