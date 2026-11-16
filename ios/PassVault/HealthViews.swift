@@ -39,7 +39,8 @@ struct HealthView: View {
     let close: () -> Void
     /// Groups (and "shared by" sets of reused passwords, "reused:<field id>") the person has flipped from their starting state.
     /// A group is open when it is the focused one XOR flipped, so the focused group is open from the first frame with no state to set up.
-    @State private var flipped: Set<String> = []
+    /// Owned by whoever opens the report, so turning the device (which moves the report) keeps it.
+    @Binding var flipped: Set<String>
     private func isOpen(_ key: String) -> Bool { (key == focus) != flipped.contains(key) }
 
     var body: some View {

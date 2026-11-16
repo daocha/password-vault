@@ -185,6 +185,24 @@ class MainActivitySplitInstrumentedTest {
         }
     }
 
+    @Test fun switchingTabsBesideTheListCancelsA2faReorder() {
+        fun code(name: String) = VaultRecord(name = name, type = RecordType.totp,
+            fields = listOf(VaultField(kind = FieldKind.password, label = TOTP_LABEL, value = "otpauth://totp/$name:me?secret=JBSWY3DPEHPK3PXP&issuer=$name")))
+        withVault(listOf(code("Alpha"), code("Bravo"))) { scenario ->
+            turn(scenario, landscape = true)
+            scenario.onActivity { set(it, "Tab", RecordType::class.java, RecordType.totp) }
+            rule.waitForIdle()
+            rule.onNodeWithTag(REORDER_BUTTON).performSemanticsAction(SemanticsActions.OnClick)
+            rule.onNodeWithText(text(R.string.totp_reorder_title)).assertExists()
+            // The tabs above the pane stay usable: leaving the 2FA tab cancels the reorder instead of leaving it pending.
+            rule.onNode(hasText(text(R.string.main_passwords)) and hasAnyAncestor(hasTestTag(PANE_TABS))).performClick()
+            rule.onNodeWithText(text(R.string.totp_reorder_title)).assertDoesNotExist()
+            rule.onNode(hasText(text(R.string.totp_tab)) and hasAnyAncestor(hasTestTag(PANE_TABS))).performClick()
+            rule.onNodeWithText(text(R.string.totp_reorder_title)).assertDoesNotExist()
+            rule.onNodeWithTag(REORDER_BUTTON).assertExists()
+        }
+    }
+
     private fun set(activity: MainActivity, name: String, type: Class<*>, value: Any) {
         MainActivity::class.java.getDeclaredMethod("set$name", type).apply { isAccessible = true }.invoke(activity, value)
     }

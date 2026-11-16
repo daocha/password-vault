@@ -34,6 +34,12 @@ struct RecordList: View {
     @State private var healthTarget: HealthTarget?
     /// The list column's width, so the header in the foldable's bar can span it (the bar sizes its items to fit).
     @State private var listColumnWidth: CGFloat = 0
+    /// The window is wider than tall. Measured ignoring the keyboard, which would otherwise make an upright iPad typing
+    /// in an editor look like one in landscape and move Vault health out of its sheet.
+    @State private var windowLandscape = false
+    /// Groups the person opened or closed in Vault health's report, kept here so turning the device (which moves the
+    /// report between its sheet and the list's place) keeps them.
+    @State private var healthFlipped: Set<String> = []
     /// Ids picked by tapping an entry's icon; any selection turns the header into the selection bar.
     @State private var selected = Set<String>()
     init(initialSelection: Set<String> = []) { _selected = State(initialValue: initialSelection) }
@@ -42,7 +48,12 @@ struct RecordList: View {
     private var showTotp: Bool { tab == .totp }
     private var filter: VaultListFilter { VaultListFilter(tab: tab, query: query, favorites: favorites, folder: folder, kind: kind) }
     var body: some View {
-        GeometryReader { window in content(landscape: window.size.width > window.size.height) }
+        content(landscape: windowLandscape)
+            .background(GeometryReader { window in
+                Color.clear
+                    .onAppear { windowLandscape = window.size.width > window.size.height }
+                    .onChange(of: window.size) { _, size in windowLandscape = size.width > size.height }
+            }.ignoresSafeArea(.keyboard))
     }
     private func content(landscape: Bool) -> some View {
         let snapshot = VaultListSnapshot(records: model.records, filter: filter)
@@ -55,7 +66,7 @@ struct RecordList: View {
         return HStack(spacing: 0) {
             Group {
                 if healthInline, let target = healthTarget {
-                    HealthView(focus: target.focus, pane: pane, beside: true, close: closeHealth)
+                    HealthView(focus: target.focus, pane: pane, beside: true, close: closeHealth, flipped: $healthFlipped)
                 } else {
                     listColumn(snapshot, visibleSelected: visibleSelected, selecting: selecting)
                 }
@@ -158,7 +169,7 @@ struct RecordList: View {
                 Button("Delete", role: .destructive) { let ids = pendingDeletion ?? []; pendingDeletion = nil; saveDeletion(ids) }
             } message: { Text(deletionMessage(pendingDeletion ?? [])) }
             .sheet(isPresented: $transfer) { TransferView() }
-            .sheet(item: healthSheet) { HealthView(focus: $0.focus, pane: pane, close: closeHealth) }
+            .sheet(item: healthSheet) { HealthView(focus: $0.focus, pane: pane, close: closeHealth, flipped: $healthFlipped) }
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
     }
@@ -180,7 +191,7 @@ struct RecordList: View {
         Binding(get: { pane.healthSheet ? healthTarget : nil }, set: { item in if item == nil && pane.healthSheet { closeHealth() } })
     }
     /// Closes Vault health. Which entry it opened is forgotten, so a later report never shows an entry the list opened.
-    private func closeHealth() { healthTarget = nil; pane.fromHealth = nil }
+    private func closeHealth() { healthTarget = nil; pane.fromHealth = nil; healthFlipped = [] }
     private func listControls(_ snapshot: VaultListSnapshot) -> some View {
         return VStack(spacing: 8) {
             if !tabsBeside { tabBar }

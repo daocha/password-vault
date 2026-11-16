@@ -905,6 +905,9 @@ class MainActivity : FragmentActivity() {
     @Composable private fun VaultScreen() {
         var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }; var creating by remember { mutableStateOf(false) }
         var reordering by remember { mutableStateOf(false) }
+        // On a phone in landscape the tabs sit beside the list, so they stay usable during a 2FA reorder: leaving the 2FA
+        // tab cancels it, rather than leaving it pending to reappear later.
+        LaunchedEffect(tab) { if (tab != RecordType.totp) reordering = false }
         val selecting = selected.isNotEmpty(); val haptics = LocalHapticFeedback.current
         // The search bar is opened from the top bar and tucks away once the user starts scrolling the results; the query stays applied.
         var searchOpen by remember { mutableStateOf(false) }; val searchFocus = remember { androidx.compose.ui.focus.FocusRequester() }
