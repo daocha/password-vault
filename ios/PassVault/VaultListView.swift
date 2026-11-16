@@ -91,8 +91,8 @@ struct RecordList: View {
         // The buttons decide; the binding's setter does nothing, so Discard works whichever order SwiftUI runs the button and the dismissal in.
         // Over Vault health's sheet the report asks instead (an alert here would be hidden behind it).
         .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil && !pane.healthSheet }, set: { _ in })) {
-            Button("Discard", role: .destructive) { pane.state.discardChanges() }
-            Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
+            Button("Discard", role: .destructive) { pane.discardChanges() }
+            Button("Keep editing", role: .cancel) { pane.keepEditing() }
         } message: { Text("The entry you are editing has changes that are not saved.") }
     }
     private func listColumn(_ snapshot: VaultListSnapshot, visibleSelected: Set<String>, selecting: Bool) -> some View {

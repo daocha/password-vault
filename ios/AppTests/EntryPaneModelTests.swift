@@ -61,6 +61,60 @@ import VaultCore
         XCTAssertEqual(pane.entryOverReport?.id, bank.id)
     }
 
+    func testKeepingAHealthEditStillPresentsItAfterTurningUpright() throws {
+        let pane = EntryPaneModel(), bank = login("Bank"), mail = login("Mail")
+        pane.wide = true
+        pane.openFromHealth(bank.id)
+        pane.edit(bank)
+        let draft = try XCTUnwrap(recordDraft(pane))
+        draft.form.name = "Bank (joint)"
+        pane.openFromHealth(mail.id)
+        XCTAssertNotNil(pane.state.pending)
+        XCTAssertEqual(pane.fromHealth, bank.id, "a pending switch has not opened Mail")
+        pane.keepEditing()
+
+        pane.wide = false
+        pane.healthSheet = true
+        XCTAssertEqual(pane.entryOverReport?.id, bank.id)
+        XCTAssertEqual(pane.hooks(inPane: false).editorItem.wrappedValue?.id, draft.id)
+        XCTAssertEqual(recordDraft(pane)?.form.name, "Bank (joint)")
+    }
+
+    func testDiscardingAHealthEditPresentsTheRequestedEntryAfterTurningUpright() throws {
+        let pane = EntryPaneModel(), bank = login("Bank"), mail = login("Mail")
+        pane.wide = true
+        pane.openFromHealth(bank.id)
+        pane.edit(bank)
+        try XCTUnwrap(recordDraft(pane)).form.name = "Bank (joint)"
+        pane.openFromHealth(mail.id)
+        // The confirmation can also be answered after the report moves to a sheet.
+        pane.wide = false
+        pane.healthSheet = true
+        XCTAssertEqual(pane.entryOverReport?.id, bank.id)
+        pane.discardChanges()
+        XCTAssertEqual(pane.entryOverReport?.id, mail.id)
+        XCTAssertNil(pane.state.editor)
+        XCTAssertNil(pane.state.pending)
+    }
+
+    func testAListRequestReplacesThePendingHealthOrigin() throws {
+        let pane = EntryPaneModel(), bank = login("Bank"), mail = login("Mail"), shop = login("Shop")
+        pane.wide = true
+        pane.open(bank.id)
+        pane.edit(bank)
+        try XCTUnwrap(recordDraft(pane)).form.name = "Bank (joint)"
+        pane.openFromHealth(mail.id)
+        pane.keepEditing()
+        XCTAssertNil(pane.fromHealth, "the report never opened the list's entry")
+        pane.openFromHealth(mail.id)
+        pane.open(shop.id)
+        pane.discardChanges()
+        pane.healthSheet = true
+        XCTAssertEqual(pane.state.viewing, shop.id)
+        XCTAssertNil(pane.fromHealth)
+        XCTAssertNil(pane.entryOverReport)
+    }
+
     func testSwipingTheSheetAwayOnANarrowScreenDiscardsTheEdit() {
         let pane = EntryPaneModel(), bank = login("Bank")
         pane.open(bank.id)
@@ -100,11 +154,11 @@ import VaultCore
         pane.open(bank.id)
         XCTAssertNotNil(pane.state.pending)
         XCTAssertEqual(pane.state.viewing, mail.id)
-        pane.state.keepEditing()
+        pane.keepEditing()
         XCTAssertEqual(recordDraft(pane)?.form.name, "Mail (work)")
         pane.create(VaultRecord())
         XCTAssertNotNil(pane.state.pending, "New entry asks too")
-        pane.state.discardChanges()
+        pane.discardChanges()
         XCTAssertEqual(pane.state.presentation, .newEditor)
     }
 

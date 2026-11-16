@@ -89,8 +89,8 @@ struct HealthView: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button { close() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
             // An edit open beside the list (an iPad held upright) when another entry is tapped here.
             .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.healthSheet && pane.state.pending != nil }, set: { _ in })) {
-                Button("Discard", role: .destructive) { pane.state.discardChanges() }
-                Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
+                Button("Discard", role: .destructive) { pane.discardChanges() }
+                Button("Keep editing", role: .cancel) { pane.keepEditing() }
             } message: { Text("The entry you are editing has changes that are not saved.") }
             .fullScreenCover(item: openOverReport) { item in
                 if let record = model.records.first(where: { $0.id == item.id }) { OpenEntryDetail(pane: pane, record: record, inPane: false) }

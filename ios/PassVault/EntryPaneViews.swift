@@ -64,7 +64,7 @@ import VaultCore
     /// side pane (an iPad or an unfolded foldable held upright) stays there, behind the report.
     var fromHealth: String?
     /// Opens an entry from Vault health's report.
-    func openFromHealth(_ id: String) { fromHealth = id; open(id) }
+    func openFromHealth(_ id: String) { request(.open(id), fromHealth: id) }
     /// The entry to show over Vault health's report, upright: one the report opened, never the list's.
     var entryOverReport: OpenEntryItem? {
         guard healthSheet else { return nil }
@@ -76,8 +76,28 @@ import VaultCore
     init(healthSheet: Bool = false) { self.healthSheet = healthSheet }
 
     var hasUnsavedChanges: Bool { state.editor?.hasChanges ?? false }
-    func open(_ id: String) { state.request(.open(id), unsavedChanges: hasUnsavedChanges) }
-    func create(_ record: VaultRecord) { state.request(.create(.editing(record, isNew: true)), unsavedChanges: hasUnsavedChanges) }
+    /// The origin of a switch awaiting confirmation; the currently open entry keeps its own origin meanwhile.
+    private var pendingFromHealth: String?
+    private func request(_ request: EntryPane<OpenEditor>.Request, fromHealth origin: String? = nil) {
+        if state.request(request, unsavedChanges: hasUnsavedChanges) {
+            fromHealth = origin
+            pendingFromHealth = nil
+        } else {
+            pendingFromHealth = origin
+        }
+    }
+    func open(_ id: String) { request(.open(id)) }
+    func create(_ record: VaultRecord) { request(.create(.editing(record, isNew: true))) }
+    func discardChanges() {
+        guard state.pending != nil else { return }
+        state.discardChanges()
+        fromHealth = pendingFromHealth
+        pendingFromHealth = nil
+    }
+    func keepEditing() {
+        state.keepEditing()
+        pendingFromHealth = nil
+    }
     func edit(_ record: VaultRecord) { state.edit(.editing(record, isNew: false)) }
     func editorDone(_ saved: String?) {
         if let saved { state.saved(saved, showDetails: wide) } else { state.closeEditor() }
