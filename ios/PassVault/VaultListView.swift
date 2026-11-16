@@ -14,13 +14,34 @@ struct RecordList: View {
     /// or unfolding the phone keeps the entry and any unsaved edits; it goes away with the list when the vault locks.
     @StateObject private var pane = EntryPaneModel()
     @Environment(\.horizontalSizeClass) private var sizeClass
-    /// An unfolded foldable iPhone or an iPad: details and editors open in a pane beside the list instead of over it.
-    private var wide: Bool { sizeClass == .regular }
+    @Environment(\.verticalSizeClass) private var heightClass
+    /// An iPad, an unfolded foldable iPhone, or an iPhone in landscape: details and editors open in a pane beside the list
+    /// instead of over it. Turning the phone moves the open entry and any unsaved edits between the pane and full screen.
+    private var wide: Bool { EntryPaneLayout.showsSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
+    /// A phone in landscape: the tabs sit above the side pane, leaving the short list column its rows.
+    private var tabsBeside: Bool { EntryPaneLayout.tabsInSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
+    /// Vault health takes the list's place beside the pane: a wide screen in landscape (see EntryPaneLayout.healthBesidePane).
+    private func healthBeside(landscape: Bool) -> Bool {
+        EntryPaneLayout.healthBesidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact, landscape: landscape)
+    }
+    /// An unfolded foldable iPhone held upright (status bar across the top): the logo and the list's buttons go in the
+    /// navigation bar, which iOS lays out in the status bar's row as it does the pane's, instead of a header below that
+    /// row. Turned sideways the status bar runs down the side and the list's own header already starts at the top, where
+    /// the taller navigation bar would push everything down, so it keeps the header below.
+    private var headerInBar: Bool { wide && heightClass != .compact && UIDevice.current.userInterfaceIdiom == .phone && !windowLandscape }
     @State private var pendingDeletion: Set<String>?
     @State private var reordering = false
     @State private var transfer = false
     /// What the Vault health sheet shows; the group to open travels with it so the sheet never reads stale state.
     @State private var healthTarget: HealthTarget?
+    /// The list column's width, so the header in the foldable's bar can span it (the bar sizes its items to fit).
+    @State private var listColumnWidth: CGFloat = 0
+    /// The window is wider than tall. Measured ignoring the keyboard, which would otherwise make an upright iPad typing
+    /// in an editor look like one in landscape and move Vault health out of its sheet.
+    @State private var windowLandscape = false
+    /// Groups the person opened or closed in Vault health's report, kept here so turning the device (which moves the
+    /// report between its sheet and the list's place) keeps them.
+    @State private var healthFlipped: Set<String> = []
     /// Ids picked by tapping an entry's icon; any selection turns the header into the selection bar.
     @State private var selected = Set<String>()
     init(initialSelection: Set<String> = []) { _selected = State(initialValue: initialSelection) }
@@ -29,31 +50,55 @@ struct RecordList: View {
     private var showTotp: Bool { tab == .totp }
     private var filter: VaultListFilter { VaultListFilter(tab: tab, query: query, favorites: favorites, folder: folder, kind: kind) }
     var body: some View {
+        content(landscape: windowLandscape)
+            .background(GeometryReader { window in
+                Color.clear
+                    .onAppear { windowLandscape = window.size.width > window.size.height }
+                    .onChange(of: window.size) { _, size in windowLandscape = size.width > size.height }
+            }.ignoresSafeArea(.keyboard))
+    }
+    private func content(landscape: Bool) -> some View {
         let snapshot = VaultListSnapshot(records: model.records, filter: filter)
+        let healthInline = healthTarget != nil && healthBeside(landscape: landscape)
         let visibleSelected = snapshot.selection(from: selected)
         let selecting = !visibleSelected.isEmpty
-        // Before any sheet reacts to a new width (see EntryPaneModel.wide).
+        // Before any sheet reacts to a new width or orientation (see EntryPaneModel.wide).
         pane.wide = wide
+        pane.healthSheet = healthTarget != nil && !healthInline
         return HStack(spacing: 0) {
-            listColumn(snapshot, visibleSelected: visibleSelected, selecting: selecting)
-                .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
+            Group {
+                if healthInline, let target = healthTarget {
+                    HealthView(focus: target.focus, pane: pane, beside: true, close: closeHealth, flipped: $healthFlipped)
+                } else {
+                    listColumn(snapshot, visibleSelected: visibleSelected, selecting: selecting)
+                }
+            }
+            .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
+            .background(GeometryReader { column in
+                Color.clear.onAppear { listColumnWidth = column.size.width }.onChange(of: column.size.width) { _, width in listColumnWidth = width }
+            })
             if wide {
                 Divider().ignoresSafeArea()
-                EntryPaneView(pane: pane)
+                VStack(spacing: 0) {
+                    if tabsBeside && !healthInline { tabBar.padding(.horizontal, 16).padding(.vertical, 8) }
+                    if healthInline { EntryPaneView(pane: pane, hint: "Choose an entry from the report to see it here.") }
+                    else { EntryPaneView(pane: pane) }
+                }
             }
         }
         .background(Color.aBackground)
         .onChange(of: model.records.map(\.id)) { _, ids in pane.state.keepOnly(Set(ids)) }
         // The buttons decide; the binding's setter does nothing, so Discard works whichever order SwiftUI runs the button and the dismissal in.
-        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil }, set: { _ in })) {
-            Button("Discard", role: .destructive) { pane.state.discardChanges() }
-            Button("Keep editing", role: .cancel) { pane.state.keepEditing() }
+        // Over Vault health's sheet the report asks instead (an alert here would be hidden behind it).
+        .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.state.pending != nil && !pane.healthSheet }, set: { _ in })) {
+            Button("Discard", role: .destructive) { pane.discardChanges() }
+            Button("Keep editing", role: .cancel) { pane.keepEditing() }
         } message: { Text("The entry you are editing has changes that are not saved.") }
     }
     private func listColumn(_ snapshot: VaultListSnapshot, visibleSelected: Set<String>, selecting: Bool) -> some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if selecting { selectionBar(snapshot, selected: visibleSelected) } else { vaultToolbar }
+                if selecting { selectionBar(snapshot, selected: visibleSelected) } else if !headerInBar { vaultToolbar }
                 listControls(snapshot)
                 VStack(alignment: .leading, spacing: 8) {
                     if !selecting { notices }
@@ -102,7 +147,7 @@ struct RecordList: View {
                         .buttonBorderShape(.roundedRectangle(radius: 16)).controlSize(.large).padding(16)
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .modifier(BarHeaderToolbar(shown: headerInBar && !selecting, header: barHeader))
             .onChange(of: searchOpen) { _, open in if open { searchFocused = true } }
             .onChange(of: tab) { _, _ in query = ""; folder = nil; kind = nil; selected = [] }
             .onChange(of: snapshot.ids) { _, _ in selected = snapshot.selection(from: selected) }
@@ -126,7 +171,7 @@ struct RecordList: View {
                 Button("Delete", role: .destructive) { let ids = pendingDeletion ?? []; pendingDeletion = nil; saveDeletion(ids) }
             } message: { Text(deletionMessage(pendingDeletion ?? [])) }
             .sheet(isPresented: $transfer) { TransferView() }
-            .sheet(item: $healthTarget) { HealthView(focus: $0.focus) }
+            .sheet(item: healthSheet) { HealthView(focus: $0.focus, pane: pane, close: closeHealth, flipped: $healthFlipped) }
             .fullScreenCover(item: $model.sending) { TransferSendView(payload: $0) }
         }
     }
@@ -134,16 +179,24 @@ struct RecordList: View {
     /// wide screen also takes them away, but keeps the entry open for the side pane.
     private var narrowDetail: Binding<OpenEntryItem?> {
         Binding(get: {
-            guard !wide else { return nil }
+            // Over Vault health's sheet the report shows the entry instead.
+            guard !wide, !pane.healthSheet else { return nil }
             switch pane.state.presentation {
             case .detail(let id), .detailAndEditor(let id): return OpenEntryItem(id: id)
             case .none, .newEditor: return nil
             }
-        }, set: { item in if item == nil && !pane.wide { pane.state.close() } })
+        }, set: { item in if item == nil && !pane.wide && !pane.healthSheet { pane.state.close() } })
     }
+    /// Vault health over the list, upright. In landscape on a wide screen it sits in the list's place instead; turning the
+    /// device takes the sheet away without closing the report.
+    private var healthSheet: Binding<HealthTarget?> {
+        Binding(get: { pane.healthSheet ? healthTarget : nil }, set: { item in if item == nil && pane.healthSheet { closeHealth() } })
+    }
+    /// Closes Vault health. Which entry it opened is forgotten, so a later report never shows an entry the list opened.
+    private func closeHealth() { healthTarget = nil; pane.fromHealth = nil; healthFlipped = [] }
     private func listControls(_ snapshot: VaultListSnapshot) -> some View {
         return VStack(spacing: 8) {
-            tabBar
+            if !tabsBeside { tabBar }
             if searchOpen {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(Color.aOnSurfaceVariant)
@@ -279,8 +332,23 @@ struct RecordList: View {
         let updated = model.records.filter { !ids.contains($0.id) }
         model.run { try $0.save(updated); return updated }
     }
+    /// The header in the navigation bar (an unfolded foldable iPhone), which iOS lays out in the status bar's row.
+    /// The bar's centre item, given the column's width less room for the bar's margins, so the logo sits on the left and
+    /// the buttons on the right as in the header below the status bar. Left to itself the centre item is sized to fit and
+    /// centred; a leading item this wide is folded into iOS 26's overflow menu instead.
+    private var barHeader: some View { headerRow.frame(width: listColumnWidth > 40 ? listColumnWidth - 40 : nil) }
+
     /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
     private var vaultToolbar: some View {
+        headerRow
+            .padding(.horizontal, 16)
+            .frame(minHeight: 56)
+            // The app's background, as the list and Android's top bar have; the system one is pure black in dark mode.
+            .background(Color.aBackground)
+    }
+
+    /// The logo, then Search, Vault health, Lock and Settings: below the status bar, or in the bar on an unfolded foldable.
+    private var headerRow: some View {
         HStack(spacing: 8) {
             WordMark().font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.8)
                 .accessibilityLabel("PassVault")
@@ -306,9 +374,6 @@ struct RecordList: View {
             .buttonStyle(.plain)
             .foregroundStyle(Color.aOnSurface)
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 56)
-        .background(.background)
     }
 
     private var addEntryButton: some View {
@@ -499,4 +564,31 @@ extension Color {
 extension Color {
     /// The favourite star on every screen (same amber as Android), in light and dark.
     static let favoriteStar = Color(red: 1.0, green: 0.757, blue: 0.027)
+}
+
+/// The navigation bar of the list column: hidden, or (an unfolded foldable iPhone) showing the list's header as one flat
+/// item. Separate bar items each got a glass platter on iOS 26, and the narrow column then hid Lock and Settings in an
+/// overflow menu. Only the iOS 26 SDK (Swift 6.2) has the switch for the platter; CI's older Xcode builds the plain item.
+/// Kept out of the list column's long modifier chain, which the compiler could not type-check in time with it inside.
+private struct BarHeaderToolbar<Header: View>: ViewModifier {
+    let shown: Bool
+    let header: Header
+    func body(content: Content) -> some View {
+        content
+            .toolbar(shown ? .visible : .hidden, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if shown {
+                    #if compiler(>=6.2)
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .principal) { header }.sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .principal) { header }
+                    }
+                    #else
+                    ToolbarItem(placement: .principal) { header }
+                    #endif
+                }
+            }
+    }
 }

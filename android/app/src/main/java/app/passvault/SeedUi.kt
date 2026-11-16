@@ -63,14 +63,14 @@ fun SeedWordGrid(words: List<String>) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SeedDetail(record: VaultRecord, onBack: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onToggleFavorite: () -> Unit) {
+fun SeedDetail(record: VaultRecord, inPane: Boolean = false, onBack: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onToggleFavorite: () -> Unit) {
     var shown by remember(record.id) { mutableStateOf(false) }; var passphraseShown by remember(record.id) { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }; var deleting by remember { mutableStateOf(false) }
     val privateKey = record.privateKey; val words = record.seedWords; val problem = remember(words) { Bip39.problem(words) }
     val passphrase = record.fields.firstOrNull { it.label == SEED_PASSPHRASE_LABEL }?.value.orEmpty()
     val notes = record.fields.firstOrNull { it.kind == FieldKind.note }?.value.orEmpty()
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
-        topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.seed_back)) } },
+        topBar = { TopAppBar(title = {}, navigationIcon = { CloseOrBack(inPane, stringResource(R.string.seed_back), onBack) },
             actions = {
                 IconButton(onClick = onToggleFavorite) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (record.favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                 IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, stringResource(R.string.seed_edit)) }

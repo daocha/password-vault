@@ -55,10 +55,49 @@ import VaultCore
 @MainActor final class EntryPaneModel: ObservableObject {
     @Published var state = EntryPane<OpenEditor>()
     var wide = false
+    /// Vault health is open over the list (upright), so the entry it opens shows over the report, narrow-style, even
+    /// where the list has a side pane (an iPad or an unfolded foldable held upright). Updated with `wide`.
+    var healthSheet = false
+    /// The open entry and its editor show in the pane beside the list (or the report), not over it.
+    var besideList: Bool { wide && !healthSheet }
+    /// The entry Vault health's report opened. Only that one shows over the report: an entry the list had open in its
+    /// side pane (an iPad or an unfolded foldable held upright) stays there, behind the report.
+    var fromHealth: String?
+    /// Opens an entry from Vault health's report.
+    func openFromHealth(_ id: String) { request(.open(id), fromHealth: id) }
+    /// The entry to show over Vault health's report, upright: one the report opened, never the list's.
+    var entryOverReport: OpenEntryItem? {
+        guard healthSheet else { return nil }
+        switch state.presentation {
+        case .detail(let id), .detailAndEditor(let id): return id == fromHealth ? OpenEntryItem(id: id) : nil
+        case .none, .newEditor: return nil
+        }
+    }
+    init(healthSheet: Bool = false) { self.healthSheet = healthSheet }
 
     var hasUnsavedChanges: Bool { state.editor?.hasChanges ?? false }
-    func open(_ id: String) { state.request(.open(id), unsavedChanges: hasUnsavedChanges) }
-    func create(_ record: VaultRecord) { state.request(.create(.editing(record, isNew: true)), unsavedChanges: hasUnsavedChanges) }
+    /// The origin of a switch awaiting confirmation; the currently open entry keeps its own origin meanwhile.
+    private var pendingFromHealth: String?
+    private func request(_ request: EntryPane<OpenEditor>.Request, fromHealth origin: String? = nil) {
+        if state.request(request, unsavedChanges: hasUnsavedChanges) {
+            fromHealth = origin
+            pendingFromHealth = nil
+        } else {
+            pendingFromHealth = origin
+        }
+    }
+    func open(_ id: String) { request(.open(id)) }
+    func create(_ record: VaultRecord) { request(.create(.editing(record, isNew: true))) }
+    func discardChanges() {
+        guard state.pending != nil else { return }
+        state.discardChanges()
+        fromHealth = pendingFromHealth
+        pendingFromHealth = nil
+    }
+    func keepEditing() {
+        state.keepEditing()
+        pendingFromHealth = nil
+    }
     func edit(_ record: VaultRecord) { state.edit(.editing(record, isNew: false)) }
     func editorDone(_ saved: String?) {
         if let saved { state.saved(saved, showDetails: wide) } else { state.closeEditor() }
@@ -72,10 +111,12 @@ import VaultCore
             edit: { [weak self] in self?.edit($0) },
             // Narrow screens only: the editor opens as a sheet over the details. A wide screen shows it in the pane instead.
             editorItem: Binding(get: { [weak self] in
-                guard let self, !self.wide, case .detailAndEditor = self.state.presentation, let editor = self.state.editor else { return nil }
+                // Details in the pane never present the editor themselves: beside the list it shows in the pane, and
+                // behind Vault health's sheet the details over the report present it.
+                guard let self, !inPane, !self.besideList, case .detailAndEditor = self.state.presentation, let editor = self.state.editor else { return nil }
                 return EditorItem(editor: editor)
             }, set: { [weak self] item in
-                guard let self, item == nil, !self.wide else { return }
+                guard let self, !inPane, item == nil, !self.besideList else { return }
                 self.state.closeEditor()
             }),
             editorDone: { [weak self] in self?.editorDone($0) })
@@ -134,14 +175,17 @@ struct OpenEntryDetail: View {
 struct EntryPaneView: View {
     @EnvironmentObject var model: VaultModel
     @ObservedObject var pane: EntryPaneModel
+    /// Where to pick an entry: the vault list, or Vault health's report.
+    var hint: LocalizedStringKey = "Choose an entry from the list, or add a new one."
     var body: some View {
         Group {
-            if let editor = pane.state.editor {
+            // Behind Vault health's sheet the editor is shown over the report instead; one editor per draft.
+            if let editor = pane.state.editor, !pane.healthSheet {
                 editor.view(done: { pane.editorDone($0) }).id(editor.id)
             } else if let id = pane.state.viewing, let record = model.records.first(where: { $0.id == id }) {
                 OpenEntryDetail(pane: pane, record: record, inPane: true)
             } else {
-                ContentUnavailableView("No entry selected", systemImage: "sidebar.right", description: Text("Choose an entry from the list, or add a new one."))
+                ContentUnavailableView("No entry selected", systemImage: "sidebar.right", description: Text(hint))
                     .background(Color.aBackground)
             }
         }

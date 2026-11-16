@@ -87,13 +87,13 @@ fun TotpRowCode(account: TotpAccount?, nowMillis: Long, onCopy: ((String) -> Uni
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TotpDetail(record: VaultRecord, onCopy: ((String) -> Unit)?, onBack: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onToggleFavorite: () -> Unit) {
+fun TotpDetail(record: VaultRecord, onCopy: ((String) -> Unit)?, inPane: Boolean = false, onBack: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onToggleFavorite: () -> Unit) {
     val account = remember(record) { record.totp }
     var keyShown by remember(record.id) { mutableStateOf(false) }; var menu by remember { mutableStateOf(false) }; var deleting by remember { mutableStateOf(false) }
     val notes = record.fields.firstOrNull { it.kind == FieldKind.note }?.value.orEmpty()
     val now = rememberNowMillis()
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
-        topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.seed_back)) } },
+        topBar = { TopAppBar(title = {}, navigationIcon = { CloseOrBack(inPane, stringResource(R.string.seed_back), onBack) },
             actions = {
                 IconButton(onClick = onToggleFavorite) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, stringResource(if (record.favorite) R.string.seed_remove_favorite else R.string.seed_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                 IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, stringResource(R.string.seed_edit)) }

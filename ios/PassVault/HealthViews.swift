@@ -27,14 +27,20 @@ extension Color {
 /// The vault health report, laid out like Android: a privacy note, the score, then one rounded card per group with its icon, count and a
 /// short explanation, left-aligned. Everything is computed from the unlocked records in memory; nothing is sent anywhere.
 /// Every group starts collapsed; `focus` opens one group and scrolls to it (the expiry banner opens "expiring").
+///
+/// Upright it opens over the vault list and shows an entry over itself. In landscape on a wide screen (`beside`) it takes the
+/// list's place, beside the entry pane, and entries open in that pane. Either way the entry lives in the list's open-entry
+/// model, so turning the device moves it (and any unsaved edits) between the two.
 struct HealthView: View {
     var focus: String? = nil
     @EnvironmentObject var model: VaultModel
-    @Environment(\.dismiss) var dismiss
-    @State private var viewing: VaultRecord?
+    @ObservedObject var pane: EntryPaneModel
+    var beside = false
+    let close: () -> Void
     /// Groups (and "shared by" sets of reused passwords, "reused:<field id>") the person has flipped from their starting state.
     /// A group is open when it is the focused one XOR flipped, so the focused group is open from the first frame with no state to set up.
-    @State private var flipped: Set<String> = []
+    /// Owned by whoever opens the report, so turning the device (which moves the report) keeps it.
+    @Binding var flipped: Set<String>
     private func isOpen(_ key: String) -> Bool { (key == focus) != flipped.contains(key) }
 
     var body: some View {
@@ -80,17 +86,26 @@ struct HealthView: View {
             }
             .background(Color.aBackground)
             .navigationTitle("Vault health").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
-            .fullScreenCover(item: $viewing) { record in
-                if record.isTotp { TotpDetail(recordID: record.id) }
-                else if record.isSeed { SeedDetail(recordID: record.id) }
-                else { RecordDetail(recordID: record.id) }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button { close() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back") } }
+            // An edit open beside the list (an iPad held upright) when another entry is tapped here.
+            .alert("Discard unsaved changes?", isPresented: Binding(get: { pane.healthSheet && pane.state.pending != nil }, set: { _ in })) {
+                Button("Discard", role: .destructive) { pane.discardChanges() }
+                Button("Keep editing", role: .cancel) { pane.keepEditing() }
+            } message: { Text("The entry you are editing has changes that are not saved.") }
+            .fullScreenCover(item: openOverReport) { item in
+                if let record = model.records.first(where: { $0.id == item.id }) { OpenEntryDetail(pane: pane, record: record, inPane: false) }
             }
             .onAppear {
                 guard let focus else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { withAnimation { proxy.scrollTo(focus, anchor: .top) } }
             }
         } }
+    }
+
+    /// Upright, the open entry's details over the report. Closing them closes the entry; turning the device to landscape
+    /// takes them away but keeps the entry open for the pane beside the report.
+    private var openOverReport: Binding<OpenEntryItem?> {
+        Binding(get: { pane.entryOverReport }, set: { item in if item == nil && pane.entryOverReport != nil { pane.state.close() } })
     }
 
     private var privacyNote: some View {
@@ -173,7 +188,8 @@ struct HealthView: View {
     }
 
     private func issue(_ record: VaultRecord, _ detail: String) -> some View {
-        Button { viewing = record } label: {
+        let shownBeside = beside && pane.state.viewing == record.id
+        return Button { pane.openFromHealth(record.id) } label: {
             HStack(spacing: 12) {
                 RecordAvatar(record: record, size: 36)
                 VStack(alignment: .leading, spacing: 0) {
@@ -182,8 +198,11 @@ struct HealthView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Color.aOnSurfaceVariant)
             }
-            .padding(.horizontal, 16).padding(.vertical, 8).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            // The entry shown in the pane beside the report.
+            .background(shownBeside ? Color.accentColor.opacity(0.18) : Color.clear)
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityAddTraits(shownBeside ? .isSelected : [])
     }
 
     static func label(_ score: Int) -> String { score >= 90 ? "Excellent" : score >= 70 ? "Good" : score >= 50 ? "Fair" : "Needs attention" }

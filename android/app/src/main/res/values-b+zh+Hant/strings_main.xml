@@ -4,6 +4,9 @@
     <string name="main_cancel">取消</string>
     <string name="main_delete">刪除</string>
     <string name="main_close">關閉</string>
+    <string name="main_no_entry_selected">未選擇項目</string>
+    <string name="main_no_entry_selected_body">從列表中選擇一個項目，或新增項目。</string>
+    <string name="main_no_entry_selected_health">從報告中選擇一個項目，在此查看。</string>
     <string name="main_done">完成</string>
     <string name="main_apply">套用</string>
     <string name="main_continue_action">繼續</string>

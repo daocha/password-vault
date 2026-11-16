@@ -66,6 +66,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -161,7 +162,7 @@ class MainActivity : FragmentActivity() {
         val app = applicationContext
         languageResources = app.createConfigurationContext(languageConfiguration(app.resources.configuration, language)).resources
     }
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); if (languageResources != null) applyLanguage() }
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); windowWide = EntrySplit.isWide(newConfig); windowShort = EntrySplit.isShort(newConfig); windowHealthBeside = EntrySplit.healthBeside(newConfig); if (languageResources != null) applyLanguage() }
     private var biometricEnabled by mutableStateOf(false)
     /** Whether PassVault is the device's autofill service; read again whenever the app comes back. */
     private var autofillEnabled by mutableStateOf(false)
@@ -230,6 +231,30 @@ class MainActivity : FragmentActivity() {
     private var kind by mutableStateOf<RecordType?>(null)
     private var viewing by mutableStateOf<VaultRecord?>(null)
     private var editing by mutableStateOf(false)
+    /** A tablet, an unfolded foldable or a phone in landscape: the open entry goes beside the list (see [EntrySplit]). */
+    private var windowWide by mutableStateOf(false)
+    /** A phone in landscape: too short for the list to keep its tabs (see [EntrySplit.tabsBeside]). */
+    private var windowShort by mutableStateOf(false)
+    /** The Passwords, Seed phrases and 2FA tabs sit above the entry beside the list, leaving the short list column its rows. */
+    private val tabsBeside get() = split && windowShort
+    /** The list and the open entry are side by side. Settings, Vault health and file encryption still take the whole window. */
+    private val split get() = windowWide && !health && !fileCrypt && !settings
+    /** A wide window in landscape: Vault health's report sits beside the entry it opens (see [EntrySplit.healthBeside]). */
+    private var windowHealthBeside by mutableStateOf(false)
+    /** Vault health's report with the entry it opens beside it, in landscape. Upright it fills the window, as before. */
+    private val healthSplit get() = windowHealthBeside && health
+    /** Something (the list or the health report) with the open entry beside it. */
+    private val sideBySide get() = split || healthSplit
+    /** Opens an entry's details from the list. Never over an open editor: the list is out of reach beside one, and this guards it too. */
+    private fun openEntry(record: VaultRecord, edit: Boolean = false) {
+        if (viewing != null && editing) return
+        viewing = record; editing = edit
+    }
+    /** Leaves the list for a whole-window screen. An entry open beside the list closes first, so it is not shown over that screen. */
+    private fun leaveList(open: () -> Unit) {
+        if (viewing != null && editing) return
+        viewing = null; open()
+    }
     private var importBytes by mutableStateOf<ByteArray?>(null)
     /** A KeePass key file chosen in the import password dialog. */
     private var importKeyFile by mutableStateOf<ByteArray?>(null)
@@ -252,11 +277,12 @@ class MainActivity : FragmentActivity() {
     private fun discardPendingExport() { pendingExport?.clear(); pendingExport = null }
     private lateinit var biometricPrompt: BiometricPrompt
     // System back walks up one screen (editor → entry → list, settings → list); on the list it leaves the app.
+    // Beside the list, Back clears the list's selection before closing the entry's details, but an editor comes first.
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
             val record = viewing
             when {
-                selected.isNotEmpty() -> selected = emptySet()
+                selected.isNotEmpty() && EntrySplit.listInFront(record != null, editing, split) -> selected = emptySet()
                 sending != null -> discardTransfer()
                 receiving -> receiving = false
                 record != null && editing && records.any { it.id == record.id } -> editing = false
@@ -564,6 +590,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        windowWide = EntrySplit.isWide(super.getResources().configuration); windowShort = EntrySplit.isShort(super.getResources().configuration); windowHealthBeside = EntrySplit.healthBeside(super.getResources().configuration)
         // Allow screenshots only in the debug APK; keep release and emulator QA screens protected.
         if (BuildConfig.BUILD_TYPE != "debug") window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         // Keep autofill services and content capture (screen-context features) from reading or saving what is typed here.
@@ -599,6 +626,8 @@ class MainActivity : FragmentActivity() {
             }
         })
         onBackPressedDispatcher.addCallback(this, backCallback)
+        // The open entry follows changes made beside it from the list, and closes once deleted (see EntrySplit.refreshed).
+        lifecycleScope.launch { snapshotFlow { records }.collect { latest -> EntrySplit.refreshed(viewing, editing, latest).let { if (it !== viewing) viewing = it } } }
         lifecycleScope.launch { snapshotFlow { unlocked && (viewing != null || settings || fileCrypt || health || sending != null || receiving || selected.isNotEmpty()) }.collect { backCallback.isEnabled = it } }
         ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         recoverFiles()
@@ -612,24 +641,30 @@ class MainActivity : FragmentActivity() {
             val configuration = remember(systemConfiguration, language) { languageConfiguration(if (language.isEmpty()) applicationContext.resources.configuration.let { android.content.res.Configuration(systemConfiguration).apply { setLocales(it.locales) } } else systemConfiguration, language) }
             CompositionLocalProvider(LocalConfiguration provides configuration) { PassVaultTheme(themeMode) { BlockTextCopy(!allowCopy, ::copySecret) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                    Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().displayCutoutPadding()) {
                         key(generation) {
                             val record = viewing
                             when {
                                 !unlocked -> UnlockScreen()
                                 sending != null -> sending?.let { t -> TransferSendScreen(t.frames, t.code, onSaveFile = { launchPicker { transferFile.launch("passvault_transfer_" + exportFileName("pvtransfer").removePrefix("passvault_")) } }, onDone = { discardTransfer() }) }
                                 receiving -> TransferReceiveScreen(this@MainActivity, onComplete = { data -> receiving = false; importBytes?.fill(0); importBytes = data }, onCancel = { receiving = false })
-                                record != null -> RecordScreen(record, editing)
-                                health -> HealthScreen(records, healthOpen, onToggle = { key -> healthOpen = if (key in healthOpen) healthOpen - key else healthOpen + key }, healthList, healthFocus,
-                                    onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { viewing = it; editing = false })
-                                fileCrypt -> { val keys = fileKeys
+                                record == null && health && !windowHealthBeside -> HealthReport()
+                                record == null && !health && fileCrypt -> { val keys = fileKeys
                                     FileEncryptionScreen(keys, remember(keys, lastBackup, backedUpKeys) { FileKeys.needsBackup(keys, lastBackup, backedUpKeys) }, onBack = { fileCrypt = false }, onCreateKey = ::createFileKey, onImportKey = ::importFileKey,
                                         working = fileFlow || fileWorking,
                                         onEncrypt = { startFileFlow { encryptSource.launch(arrayOf("*/*")) } }, onDecrypt = { startFileFlow { decryptSource.launch(arrayOf("*/*")) } },
                                         onCopyPublic = ::copyPublicKey, onSharePublic = ::sharePublicKey, onOpenKey = { viewing = it; editing = false },
                                         onBackup = { fileCrypt = false; settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }) }
-                                settings -> SettingsScreen()
-                                else -> VaultScreen()
+                                record == null && !health && settings -> SettingsScreen()
+                                // The list or the health report, the open entry (over Settings, Vault health or file encryption
+                                // when opened from there), or both side by side. One call site for every case, so turning the
+                                // phone moves nothing.
+                                else -> EntrySplitLayout(showList = record == null || sideBySide, showPane = record != null || sideBySide, listLocked = record != null && editing,
+                                    list = { if (health) HealthReport() else VaultScreen() }, pane = { Column {
+                                        // Always both boxes, so the tabs coming or going never moves the entry (and its unsaved edits) in the composition.
+                                        Box { if (tabsBeside) VaultTabs(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp).testTag(PANE_TABS)) }
+                                        Box(Modifier.weight(1f)) { if (record != null) key(record.id) { RecordScreen(record, editing, inPane = sideBySide) } else NoEntrySelected(if (health) R.string.main_no_entry_selected_health else R.string.main_no_entry_selected_body) }
+                                    } })
                             }
                         }
                         if (unlocked) ImportDialogs()
@@ -870,6 +905,9 @@ class MainActivity : FragmentActivity() {
     @Composable private fun VaultScreen() {
         var confirmDelete by remember { mutableStateOf(false) }; var grouping by remember { mutableStateOf(false) }; var creating by remember { mutableStateOf(false) }
         var reordering by remember { mutableStateOf(false) }
+        // On a phone in landscape the tabs sit beside the list, so they stay usable during a 2FA reorder: leaving the 2FA
+        // tab cancels it, rather than leaving it pending to reappear later.
+        LaunchedEffect(tab) { if (tab != RecordType.totp) reordering = false }
         val selecting = selected.isNotEmpty(); val haptics = LocalHapticFeedback.current
         // The search bar is opened from the top bar and tucks away once the user starts scrolling the results; the query stays applied.
         var searchOpen by remember { mutableStateOf(false) }; val searchFocus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -880,6 +918,8 @@ class MainActivity : FragmentActivity() {
         LaunchedEffect(searchOpen) { if (searchOpen) { field = androidx.compose.ui.text.input.TextFieldValue(query, androidx.compose.ui.text.TextRange(query.length)); searchFocus.requestFocus() } }
         LaunchedEffect(listState) { snapshotFlow { listState.isScrollInProgress }.collect { if (it && searchOpen) { focusManager.clearFocus(); searchOpen = false } } }
         val type = tab; val seedTab = tab == RecordType.seed; val totpTab = tab == RecordType.totp
+        // A phone in landscape is short: a slimmer top bar (as tall as its buttons) leaves the list more rows.
+        val barHeight = if (windowShort) 48.dp else TopAppBarDefaults.TopAppBarExpandedHeight
         val ofType = records.filter { it.type.tab == type }
         val groups = remember(records) { VaultFolders.names(records) }
         // A group filter whose last entry was moved or deleted has no chip left to clear it.
@@ -895,33 +935,29 @@ class MainActivity : FragmentActivity() {
         }; return }
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                if (selecting) TopAppBar(title = { Text(stringResource(R.string.main_selected_count, selected.size)) }, navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, stringResource(R.string.main_cancel_selection)) } },
+                if (selecting) TopAppBar(title = { Text(stringResource(R.string.main_selected_count, selected.size)) }, expandedHeight = barHeight, navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, stringResource(R.string.main_cancel_selection)) } },
                     actions = {
                         IconButton(onClick = { val ids = visible.map { it.id }.toSet(); selected = if (selected.containsAll(ids)) emptySet() else ids }) { Icon(Icons.Outlined.SelectAll, stringResource(R.string.main_select_all)) }
                         if (tab == RecordType.login) IconButton(onClick = { grouping = true }) { Icon(Icons.Outlined.Folder, stringResource(R.string.main_change_group_selected)) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.main_delete_selected)) }
                     }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer))
-                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, actions = { IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, stringResource(R.string.main_search), tint = if (query.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current) }; IconButton(onClick = { openHealth() }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { fileCrypt = true }) { Icon(EncryptedFileIcon, stringResource(R.string.files_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+                else TopAppBar(title = { WordMark(MaterialTheme.typography.titleLarge) }, expandedHeight = barHeight, actions = { IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, stringResource(R.string.main_search), tint = if (query.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current) }; IconButton(onClick = { leaveList { openHealth() } }) { Icon(Icons.Outlined.HealthAndSafety, stringResource(R.string.health_title)) }; IconButton(onClick = { leaveList { fileCrypt = true } }) { Icon(EncryptedFileIcon, stringResource(R.string.files_title)) }; IconButton(onClick = { lockVault() }) { Icon(Icons.Outlined.Lock, stringResource(R.string.main_lock_vault)) }; Box { IconButton(onClick = { leaveList { settings = true } }) { Icon(Icons.Outlined.Settings, stringResource(R.string.main_settings)) }; if (updates?.ui?.hasUpdate == true) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
             },
             floatingActionButton = { if (!selecting) Box {
-                ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else { viewing = VaultRecord(type = tab, fields = emptyList()); editing = true } }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
+                ExtendedFloatingActionButton(onClick = { if (tab == RecordType.login) creating = true else openEntry(VaultRecord(type = tab, fields = emptyList()), edit = true) }, icon = { Icon(if (totpTab) Icons.Outlined.QrCodeScanner else Icons.Default.Add, null) }, text = { Text(stringResource(when (tab) { RecordType.seed -> R.string.main_new_seed_phrase; RecordType.totp -> R.string.totp_add; else -> R.string.main_new_entry })) })
                 // Logins, cards and secure notes share this tab, so the button asks which one.
                 DropdownMenu(creating, { creating = false }) {
                     listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.rec_new_login), Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_new_card), Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_new_note)).forEach { (t, icon, label) ->
-                        DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null) }, onClick = { creating = false; viewing = VaultRecord(type = t, fields = defaultFields(t)); editing = true })
+                        DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null) }, onClick = { creating = false; openEntry(VaultRecord(type = t, fields = defaultFields(t)), edit = true) })
                     }
                 }
             } }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = if (searchOpen) 12.dp else 0.dp)) {
-                    listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
-                        SegmentedButton(tab == t, { if (tab != t) query = ""; tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    }
-                }
+                if (!tabsBeside) VaultTabs(Modifier.fillMaxWidth().padding(bottom = if (searchOpen) 12.dp else 0.dp))
                 if (searchOpen) TextField(field, { field = it; query = it.text }, Modifier.fillMaxWidth().focusRequester(searchFocus), placeholder = { Text(stringResource(R.string.main_search)) }, leadingIcon = { Icon(Icons.Default.Search, null) },
                     trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, stringResource(R.string.main_clear_search)) } }, singleLine = true, shape = RoundedCornerShape(28.dp),
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
-                LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(Modifier.padding(top = if (tabsBeside && !searchOpen) 0.dp else 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { FilterChip(favorites, { favorites = !favorites }, label = { Text(stringResource(R.string.main_favorites)) }, leadingIcon = { Icon(if (favorites) Icons.Default.Star else Icons.Outlined.StarOutline, null, Modifier.size(18.dp)) }) }
                     if (tab == RecordType.login) for ((t, icon, label) in listOf(Triple(RecordType.card, Icons.Outlined.CreditCard, R.string.rec_filter_cards), Triple(RecordType.note, Icons.AutoMirrored.Outlined.StickyNote2, R.string.rec_filter_notes))) if (ofType.any { it.type == t })
                         item { FilterChip(kind == t, { kind = if (kind == t) null else t }, label = { Text(stringResource(label)) }, leadingIcon = { Icon(icon, null, Modifier.size(18.dp)) }) }
@@ -932,10 +968,10 @@ class MainActivity : FragmentActivity() {
                 if (!selecting && remember(records, lastBackup, backupSnapshotAt, backupInterval, backupSnoozedUntil) { BackupReminder.due(records, lastBackup, backupInterval, backupSnoozedUntil, snapshotAt = backupSnapshotAt) }) {
                     val last = lastBackup
                     AttentionBanner(Icons.Outlined.SaveAlt, if (last == null) stringResource(R.string.backup_banner_never) else stringResource(R.string.backup_banner_due, backupAge(last), BackupReminder.changedSince(records, backupSnapshotAt)),
-                        stringResource(R.string.backup_now), onDismiss = { backups.snooze(); loadBackupStatus() }) { settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) }
+                        stringResource(R.string.backup_now), onDismiss = { backups.snooze(); loadBackupStatus() }) { leaveList { settings = true; settingsDialog = SettingsDialog.Exporting(Export.encrypted) } }
                 }
                 val expiring = remember(records) { records.count { it.needsNotice() } }
-                if (expiring > 0 && !selecting) SlimNotice(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { openHealth(HealthSection.expiring) }
+                if (expiring > 0 && !selecting) SlimNotice(Icons.Outlined.Event, stringResource(R.string.health_banner_expiring, expiring), stringResource(R.string.health_review)) { leaveList { openHealth(HealthSection.expiring) } }
                 if (ofType.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconBadge(when (tab) { RecordType.seed -> Icons.Outlined.AccountBalanceWallet; RecordType.totp -> Icons.Outlined.Pin; else -> Icons.Outlined.Key }, 72.dp); Spacer(Modifier.height(16.dp))
                     Text(stringResource(when (tab) { RecordType.seed -> R.string.main_no_seed_phrases; RecordType.totp -> R.string.totp_empty_title; else -> R.string.main_peace_of_mind }), style = MaterialTheme.typography.titleLarge)
@@ -959,12 +995,15 @@ class MainActivity : FragmentActivity() {
                             RecordType.login -> record.fields.firstOrNull { it.kind == FieldKind.username && it.value.isNotBlank() }?.value ?: record.website
                         }
                         val isSelected = record.id in selected
+                        // The entry shown beside the list.
+                        val isOpen = split && !selecting && viewing?.id == record.id
                         fun toggle() { selected = if (isSelected) selected - record.id else selected + record.id }
-                        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
+                        Card(modifier = Modifier.fillMaxWidth().then(if (isOpen) Modifier.semantics { this.selected = true } else Modifier), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow),
+                            border = if (isOpen) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {
                             // An expired or due-soon entry gets a badge at the bottom right, so its row grows by a line.
                             val badged = record.expiryState().let { it == ExpiryState.expired || it == ExpiryState.soon }
                             Box(Modifier.fillMaxWidth()) {
-                            Row(Modifier.fillMaxWidth().clickable { if (selecting) toggle() else { viewing = record; editing = false } }.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (badged) 32.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().clickable { if (selecting) toggle() else openEntry(record) }.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (badged) 32.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 // Tapping the icon selects; tapping anywhere else opens the entry (or toggles it while selecting).
                                 Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClickLabel = if (isSelected) stringResource(R.string.main_deselect) else stringResource(R.string.main_select)) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); toggle() }, contentAlignment = Alignment.Center) {
                                     when {
@@ -1052,30 +1091,47 @@ class MainActivity : FragmentActivity() {
             }) { Text(stringResource(R.string.main_apply)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
-    @Composable private fun RecordScreen(record: VaultRecord, edit: Boolean) {
+    /** Vault health's report. Beside the entry it opened on a wide screen, that entry's row is marked. */
+    @Composable private fun HealthReport() {
+        HealthScreen(records, healthOpen, onToggle = { key -> healthOpen = if (key in healthOpen) healthOpen - key else healthOpen + key }, healthList, healthFocus,
+            onFocused = { healthFocus = null }, onBack = { health = false }, onOpen = { openEntry(it) }, openId = if (healthSplit) viewing?.id else null)
+    }
+
+    /** Passwords, Seed phrases, 2FA codes: above the list, or above the entry beside it on a phone in landscape. */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable private fun VaultTabs(modifier: Modifier) {
+        SingleChoiceSegmentedButtonRow(modifier) {
+            listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
+                SegmentedButton(tab == t, { if (tab != t) query = ""; tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+    }
+
+    /** An entry's details or editor, full window or beside the list ([inPane]: the details then close with X rather than go back). */
+    @Composable private fun RecordScreen(record: VaultRecord, edit: Boolean, inPane: Boolean) {
         if (record.type == RecordType.totp) {
             val isNew = records.none { it.id == record.id }
             if (edit) TotpEditor(record, isNew, records, this, requestCamera = ::withCamera, pickImage = { then -> imageRead = then; if (!launchPicker { imagePicker.launch(arrayOf("image/*")) }) imageRead = null },
                 onMigration = { offerMigration(it); viewing = null; editing = false },
                 onCancel = { if (isNew) viewing = null else editing = false }, onSave = { saved -> saveRecord(saved) { viewing = saved; editing = false } })
-            else TotpDetail(record, if (allowCopy) ::copySecret else null, onBack = { viewing = null }, onEdit = { editing = true },
+            else TotpDetail(record, if (allowCopy) ::copySecret else null, inPane = inPane, onBack = { viewing = null }, onEdit = { editing = true },
                 onDelete = { val updated = records.filter { it.id != record.id }; work({ engine.save(updated) }) { viewing = null } },
                 onToggleFavorite = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } })
         } else if (record.type == RecordType.seed) {
             val isNew = records.none { it.id == record.id }
             if (edit) SeedEditor(record, isNew, onCancel = { if (isNew) viewing = null else editing = false }, onSave = { saved -> saveRecord(saved) { viewing = saved; editing = false } })
-            else SeedDetail(record, onBack = { viewing = null }, onEdit = { editing = true },
+            else SeedDetail(record, inPane = inPane, onBack = { viewing = null }, onEdit = { editing = true },
                 onDelete = { val updated = records.filter { it.id != record.id }; work({ engine.save(updated) }) { viewing = null } },
                 onToggleFavorite = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } })
-        } else if (edit) RecordEditor(record) else RecordDetail(record)
+        } else if (edit) RecordEditor(record) else RecordDetail(record, inPane)
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
-    @Composable private fun RecordDetail(record: VaultRecord) {
+    @Composable private fun RecordDetail(record: VaultRecord, inPane: Boolean) {
         var revealed by remember(record.id) { mutableStateOf(emptySet<String>()) }; var menu by remember { mutableStateOf(false) }; var deleting by remember { mutableStateOf(false) }; var historyFor by remember(record.id) { mutableStateOf<String?>(null) }
         val fileKey = record.ageIdentity != null
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
-            topBar = { TopAppBar(title = {}, navigationIcon = { IconButton(onClick = { viewing = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.main_back)) } },
+            topBar = { TopAppBar(title = {}, navigationIcon = { CloseOrBack(inPane, stringResource(R.string.main_back)) { viewing = null } },
                 actions = {
                     IconButton(onClick = { val saved = record.copy(favorite = !record.favorite); saveRecord(saved) { viewing = saved } }) { Icon(if (record.favorite) Icons.Default.Star else Icons.Outlined.StarOutline, if (record.favorite) stringResource(R.string.main_remove_favorite) else stringResource(R.string.main_add_favorite), tint = if (record.favorite) FavoriteStar else MaterialTheme.colorScheme.onSurfaceVariant) }
                     // Editing could damage a file key, and with it every file encrypted to it.
