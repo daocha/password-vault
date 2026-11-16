@@ -18,6 +18,8 @@ struct RecordList: View {
     /// An iPad, an unfolded foldable iPhone, or an iPhone in landscape: details and editors open in a pane beside the list
     /// instead of over it. Turning the phone moves the open entry and any unsaved edits between the pane and full screen.
     private var wide: Bool { EntryPaneLayout.showsSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
+    /// A phone in landscape: the tabs sit above the side pane, leaving the short list column its rows.
+    private var tabsBeside: Bool { EntryPaneLayout.tabsInSidePane(regularWidth: sizeClass == .regular, compactHeight: heightClass == .compact) }
     @State private var pendingDeletion: Set<String>?
     @State private var reordering = false
     @State private var transfer = false
@@ -41,7 +43,10 @@ struct RecordList: View {
                 .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
             if wide {
                 Divider().ignoresSafeArea()
-                EntryPaneView(pane: pane)
+                VStack(spacing: 0) {
+                    if tabsBeside { tabBar.padding(.horizontal, 16).padding(.vertical, 8) }
+                    EntryPaneView(pane: pane)
+                }
             }
         }
         .background(Color.aBackground)
@@ -145,7 +150,7 @@ struct RecordList: View {
     }
     private func listControls(_ snapshot: VaultListSnapshot) -> some View {
         return VStack(spacing: 8) {
-            tabBar
+            if !tabsBeside { tabBar }
             if searchOpen {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(Color.aOnSurfaceVariant)

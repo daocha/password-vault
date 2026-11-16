@@ -24,6 +24,15 @@ class EntrySplitTest {
         assertFalse("a tiny landscape window", EntrySplit.isWide(540, 300))
     }
 
+    @Test fun onlyAPhoneInLandscapeMovesTheTabsBesideTheList() {
+        assertTrue("a phone in landscape", EntrySplit.tabsBeside(915, 411))
+        assertTrue("a small phone in landscape", EntrySplit.tabsBeside(592, 360))
+        assertFalse("a tablet in landscape has the height to keep them above the list", EntrySplit.tabsBeside(1280, 800))
+        assertFalse("an unfolded foldable", EntrySplit.tabsBeside(673, 841))
+        assertFalse("a phone held upright has no pane", EntrySplit.tabsBeside(411, 915))
+        assertFalse("a short window too narrow to split", EntrySplit.tabsBeside(411, 400))
+    }
+
     @Test fun theListTakesUnderHalfTheWidthWithinLimits() {
         assertEquals(280f, EntrySplit.listWidthDp(560f), 0f)
         assertEquals(.45f * 800, EntrySplit.listWidthDp(800f), .01f)

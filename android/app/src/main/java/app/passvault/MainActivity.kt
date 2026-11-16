@@ -162,7 +162,7 @@ class MainActivity : FragmentActivity() {
         val app = applicationContext
         languageResources = app.createConfigurationContext(languageConfiguration(app.resources.configuration, language)).resources
     }
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); windowWide = EntrySplit.isWide(newConfig); if (languageResources != null) applyLanguage() }
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); windowWide = EntrySplit.isWide(newConfig); windowShort = EntrySplit.isShort(newConfig); if (languageResources != null) applyLanguage() }
     private var biometricEnabled by mutableStateOf(false)
     /** Whether PassVault is the device's autofill service; read again whenever the app comes back. */
     private var autofillEnabled by mutableStateOf(false)
@@ -233,6 +233,10 @@ class MainActivity : FragmentActivity() {
     private var editing by mutableStateOf(false)
     /** A tablet, an unfolded foldable or a phone in landscape: the open entry goes beside the list (see [EntrySplit]). */
     private var windowWide by mutableStateOf(false)
+    /** A phone in landscape: too short for the list to keep its tabs (see [EntrySplit.tabsBeside]). */
+    private var windowShort by mutableStateOf(false)
+    /** The Passwords, Seed phrases and 2FA tabs sit above the entry beside the list, leaving the short list column its rows. */
+    private val tabsBeside get() = split && windowShort
     /** The list and the open entry are side by side. Settings, Vault health and file encryption still take the whole window. */
     private val split get() = windowWide && !health && !fileCrypt && !settings
     /** Opens an entry's details from the list. Never over an open editor: the list is out of reach beside one, and this guards it too. */
@@ -580,7 +584,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        windowWide = EntrySplit.isWide(super.getResources().configuration)
+        windowWide = EntrySplit.isWide(super.getResources().configuration); windowShort = EntrySplit.isShort(super.getResources().configuration)
         // Allow screenshots only in the debug APK; keep release and emulator QA screens protected.
         if (BuildConfig.BUILD_TYPE != "debug") window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         // Keep autofill services and content capture (screen-context features) from reading or saving what is typed here.
@@ -650,7 +654,11 @@ class MainActivity : FragmentActivity() {
                                 // The list, the open entry (over Settings, Vault health or file encryption when opened from
                                 // there), or both side by side. One call site for every case, so turning the phone moves nothing.
                                 else -> EntrySplitLayout(showList = record == null || split, showPane = record != null || split, listLocked = record != null && editing,
-                                    list = { VaultScreen() }, pane = { if (record != null) key(record.id) { RecordScreen(record, editing, inPane = split) } else NoEntrySelected() })
+                                    list = { VaultScreen() }, pane = { Column {
+                                        // Always both boxes, so the tabs coming or going never moves the entry (and its unsaved edits) in the composition.
+                                        Box { if (tabsBeside) VaultTabs(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp).testTag(PANE_TABS)) }
+                                        Box(Modifier.weight(1f)) { if (record != null) key(record.id) { RecordScreen(record, editing, inPane = split) } else NoEntrySelected() }
+                                    } })
                             }
                         }
                         if (unlocked) ImportDialogs()
@@ -934,11 +942,7 @@ class MainActivity : FragmentActivity() {
                 }
             } }) { padding ->
             Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = if (searchOpen) 12.dp else 0.dp)) {
-                    listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
-                        SegmentedButton(tab == t, { if (tab != t) query = ""; tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    }
-                }
+                if (!tabsBeside) VaultTabs(Modifier.fillMaxWidth().padding(bottom = if (searchOpen) 12.dp else 0.dp))
                 if (searchOpen) TextField(field, { field = it; query = it.text }, Modifier.fillMaxWidth().focusRequester(searchFocus), placeholder = { Text(stringResource(R.string.main_search)) }, leadingIcon = { Icon(Icons.Default.Search, null) },
                     trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, stringResource(R.string.main_clear_search)) } }, singleLine = true, shape = RoundedCornerShape(28.dp),
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
@@ -1076,6 +1080,16 @@ class MainActivity : FragmentActivity() {
             }) { Text(stringResource(R.string.main_apply)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
+    /** Passwords, Seed phrases, 2FA codes: above the list, or above the entry beside it on a phone in landscape. */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable private fun VaultTabs(modifier: Modifier) {
+        SingleChoiceSegmentedButtonRow(modifier) {
+            listOf(Triple(RecordType.login, Icons.Outlined.Key, R.string.main_passwords), Triple(RecordType.seed, Icons.Outlined.AccountBalanceWallet, R.string.main_seed_phrases), Triple(RecordType.totp, Icons.Outlined.Pin, R.string.totp_tab)).forEachIndexed { i, (t, icon, label) ->
+                SegmentedButton(tab == t, { if (tab != t) query = ""; tab = t; group = null; kind = null; selected = emptySet() }, SegmentedButtonDefaults.itemShape(i, 3), icon = { Icon(icon, null, Modifier.size(18.dp)) }) { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+    }
+
     /** An entry's details or editor, full window or beside the list ([inPane]: the details then close with X rather than go back). */
     @Composable private fun RecordScreen(record: VaultRecord, edit: Boolean, inPane: Boolean) {
         if (record.type == RecordType.totp) {

@@ -6,7 +6,9 @@ import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -14,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -52,6 +55,8 @@ class MainActivitySplitInstrumentedTest {
             assertTrue("Vault must initialize", ready)
             scenario.onActivity { activity ->
                 set(activity, "Records", List::class.java, records)
+                // The backup reminder would push the rows below a small landscape screen's fold (and its dismiss button is also "Close").
+                set(activity, "BackupSnoozedUntil", java.time.Instant::class.java, java.time.Instant.now().plusSeconds(3600))
                 set(activity, "Unlocked", Boolean::class.javaPrimitiveType!!, true)
             }
             rule.waitForIdle()
@@ -69,15 +74,29 @@ class MainActivitySplitInstrumentedTest {
         rule.waitForIdle()
     }
 
+    /** The details' close button in the pane beside the list. */
+    private val paneClose get() = rule.onNode(hasContentDescription(text(R.string.main_close)) and hasAnyAncestor(hasTestTag(SPLIT_PANE)))
+    private fun open(scenario: ActivityScenario<MainActivity>, name: String) {
+        rule.onNodeWithText(name).performScrollTo().performClick()
+        rule.waitForIdle()
+        scenario.onActivity { assertEquals(name, (get(it, "Viewing") as VaultRecord?)?.name) }
+    }
     private val nameField get() = rule.onNode(hasSetTextAction() and hasText(text(R.string.main_name)))
 
     @Test fun anEntryOpensBesideTheListAndKeepsUnsavedEditsWhenTurned() {
         withVault(listOf(VaultRecord(name = "Bank"))) { scenario ->
             turn(scenario, landscape = true)
             rule.onNodeWithText(text(R.string.main_no_entry_selected)).assertExists()
-            rule.onNodeWithText("Bank").performClick()
+            // A phone in landscape: the tabs sit above the pane, and still switch the list.
+            rule.onNode(hasTestTag(PANE_TABS)).assertExists()
+            rule.onNode(hasText(text(R.string.main_seed_phrases)) and hasAnyAncestor(hasTestTag(SPLIT_LIST))).assertDoesNotExist()
+            rule.onNode(hasText(text(R.string.main_seed_phrases)) and hasAnyAncestor(hasTestTag(PANE_TABS))).performClick()
+            scenario.onActivity { assertEquals(RecordType.seed, get(it, "Tab")) }
+            rule.onNode(hasText(text(R.string.main_passwords)) and hasAnyAncestor(hasTestTag(PANE_TABS))).performClick()
+            scenario.onActivity { assertEquals(RecordType.login, get(it, "Tab")) }
+            open(scenario, "Bank")
             rule.onNodeWithTag(SPLIT_PANE).assertExists()
-            rule.onNodeWithContentDescription(text(R.string.main_close)).assertExists()
+            paneClose.assertExists()
             rule.onNodeWithContentDescription(text(R.string.main_settings)).assertExists() // The list is still there.
 
             rule.onNodeWithContentDescription(text(R.string.main_edit)).performClick()
@@ -111,14 +130,16 @@ class MainActivitySplitInstrumentedTest {
     @Test fun turningUprightShowsTheOpenDetailsFullScreen() {
         withVault(listOf(VaultRecord(name = "Bank"))) { scenario ->
             turn(scenario, landscape = true)
-            rule.onNodeWithText("Bank").performClick()
-            rule.onNode(hasContentDescription(text(R.string.main_close))).assertExists()
+            open(scenario, "Bank")
+            paneClose.assertExists()
             turn(scenario, landscape = false)
             rule.onNodeWithTag(SPLIT_PANE).assertDoesNotExist()
+            rule.onNodeWithTag(PANE_TABS).assertDoesNotExist()
             rule.onNodeWithContentDescription(text(R.string.main_back)).assertExists()
             rule.onNodeWithContentDescription(text(R.string.main_settings)).assertDoesNotExist()
             rule.onNodeWithContentDescription(text(R.string.main_back)).performClick()
             rule.onNodeWithContentDescription(text(R.string.main_settings)).assertExists()
+            rule.onNodeWithText(text(R.string.main_seed_phrases)).assertExists() // Upright, the tabs are back above the list.
         }
     }
 

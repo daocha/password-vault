@@ -1,6 +1,11 @@
 package app.passvault
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -37,10 +42,18 @@ class EntrySplitInstrumentedTest {
     private var open by mutableStateOf(true)
     private var listTaps = 0
 
-    /** As MainActivity uses it: one call, whichever of the list and the entry are shown. */
+    /**
+     * As MainActivity uses it: one call, whichever of the list and the entry are shown. Drawn at least [WIDTH_DP] wide,
+     * whatever the test device's screen (CI's emulator is a small phone held upright), by scaling the density down.
+     */
     private fun show() = rule.setContent {
+        val density = LocalDensity.current
+        val widthPx = LocalConfiguration.current.screenWidthDp * density.density
+        CompositionLocalProvider(LocalDensity provides Density(minOf(density.density, widthPx / WIDTH_DP), density.fontScale)) { content() }
+    }
+    @androidx.compose.runtime.Composable private fun content() {
         EntrySplitLayout(showList = wide || !open, showPane = wide || open, listLocked = locked,
-            list = { Column(Modifier.testTag("list")) { Button(onClick = { listTaps++ }) { Text("Row") } } },
+            list = { Column(Modifier.fillMaxSize().testTag("list")) { Button(onClick = { listTaps++ }) { Text("Row") } } },
             pane = {
                 if (open) {
                     // A draft as the editors keep it: plain remembered state, gone if the editor left the composition or moved.
@@ -57,6 +70,7 @@ class EntrySplitInstrumentedTest {
             })
     }
     private var attachCount = 0
+    private companion object { const val WIDTH_DP = 720f }
 
     @Test fun showsTheListAndTheEntrySideBySide() {
         show()

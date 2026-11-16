@@ -18,17 +18,19 @@ final class TwoPaneTests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 30), app.debugDescription)
         if app.windows.firstMatch.horizontalSizeClass == .regular { throw XCTSkip("an iPad shows the pane whichever way it is turned") }
         XCTAssertFalse(app.staticTexts["No entry selected"].exists, "an upright iPhone has no side pane")
-        // Added upright, where the editor has room for the confirmation checkbox above the keyboard.
+        // Added and opened upright: in landscape the list is short and its add button covers most rows.
         app.buttons["tab.seed"].tap()
         let name = "Sideways \(UUID().uuidString.prefix(4))"
         addSeed(name, in: app)
         XCTAssertTrue(waitUntilHittable(settings), app.debugDescription)
+        row(name, in: app).tap()
+        XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 10), "upright, the details open full screen: \(app.debugDescription)")
 
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.staticTexts["No entry selected"].waitForExistence(timeout: 10), "an iPhone in landscape splits like an iPad: \(app.debugDescription)")
-        row(name, in: app).tap()
-        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 10), "the entry opens beside the list: \(app.debugDescription)")
-        XCTAssertTrue(settings.isHittable, "the list stays usable beside the pane")
+        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 10), "turning the phone moves the open entry beside the list: \(app.debugDescription)")
+        XCTAssertTrue(waitUntilHittable(settings), "the list stays usable beside the pane")
+        let seedTab = app.buttons["tab.seed"]
+        XCTAssertTrue(seedTab.isHittable && seedTab.frame.minX > settings.frame.maxX, "the tabs sit above the pane, leaving the list its rows: \(app.debugDescription)")
 
         app.buttons["Edit"].tap()
         let field = app.textViews["Wallet name"]
@@ -49,6 +51,9 @@ final class TwoPaneTests: XCTestCase {
         XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 10), "upright, the details are full screen again: \(app.debugDescription)")
         app.buttons["Back"].tap()
         XCTAssertTrue(waitUntilHittable(settings), app.debugDescription)
+        XCTAssertLessThan(seedTab.frame.minX, settings.frame.maxX, "upright, the tabs are back above the list")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.staticTexts["No entry selected"].waitForExistence(timeout: 10), "an iPhone in landscape splits like an iPad: \(app.debugDescription)")
     }
 
     func testEntriesOpenBesideTheListOnWideScreensAndOverItOnNarrowOnes() {

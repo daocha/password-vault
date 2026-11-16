@@ -110,6 +110,11 @@ func entryPaneChecks() throws {
     try check(EntryPaneLayout.showsSidePane(regularWidth: false, compactHeight: true) && EntryPaneLayout.showsSidePane(regularWidth: true, compactHeight: false),
               "an iPhone in landscape splits like an iPad")
     try check(!EntryPaneLayout.showsSidePane(regularWidth: false, compactHeight: false), "an upright iPhone keeps the full-screen details")
+    try check(EntryPaneLayout.tabsInSidePane(regularWidth: false, compactHeight: true) && !EntryPaneLayout.tabsInSidePane(regularWidth: true, compactHeight: false),
+              "only a phone in landscape moves the tabs above the side pane")
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let split = try String(contentsOf: root.appendingPathComponent("android/app/src/main/java/app/passvault/EntrySplit.kt"), encoding: .utf8)
+    try check(split.contains("fun tabsBeside(widthDp: Int, heightDp: Int) = isWide(widthDp, heightDp) && isShort(heightDp)"), "Android also moves the tabs beside the list only on a phone in landscape")
     var pane = EntryPane<String>()
     pane.request(.open("a"), unsavedChanges: false); pane.edit("draft")
     try check(pane.presentation == .detailAndEditor("a"), "editing keeps the entry's details underneath")

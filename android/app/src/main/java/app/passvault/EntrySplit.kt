@@ -48,6 +48,12 @@ internal object EntrySplit {
     /** Whether a window this size shows the list and the open entry side by side. */
     fun isWide(widthDp: Int, heightDp: Int) = widthDp >= WIDE_DP || (widthDp > heightDp && widthDp >= LANDSCAPE_DP)
     fun isWide(configuration: android.content.res.Configuration) = isWide(configuration.screenWidthDp, configuration.screenHeightDp)
+    /** Material's compact window height: a phone in landscape. The list then gives its tabs to the pane beside it. */
+    const val SHORT_DP = 480
+    fun isShort(heightDp: Int) = heightDp < SHORT_DP
+    fun isShort(configuration: android.content.res.Configuration) = isShort(configuration.screenHeightDp)
+    /** Whether the tabs go above the entry beside the list rather than above the list. Matches iOS's tabsInSidePane. */
+    fun tabsBeside(widthDp: Int, heightDp: Int) = isWide(widthDp, heightDp) && isShort(heightDp)
 
     /** The list's share of the width: a little under half, so the entry beside it gets the larger part. */
     fun listWidthDp(widthDp: Float) = (widthDp * 0.45f).coerceIn(LIST_MIN_DP, LIST_MAX_DP).coerceAtMost(widthDp)
@@ -125,3 +131,4 @@ internal fun NoEntrySelected() {
 internal const val SPLIT_LIST = "split-list"
 internal const val SPLIT_LIST_LOCKED = "split-list-locked"
 internal const val SPLIT_PANE = "split-pane"
+internal const val PANE_TABS = "pane-tabs"
