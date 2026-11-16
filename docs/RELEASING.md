@@ -15,7 +15,7 @@ GitHub and Play builds without uninstalling and keeps its vault.
 On the maintainer's Mac, use the portable toolchain from `AGENTS.md`; nothing is installed:
 
 ```bash
-T=/private/tmp/aquarestore-tools
+T=/private/tmp/android-tools
 export JAVA_HOME=$(echo $T/jdk-17*/Contents/Home) ANDROID_HOME=$T/android-sdk GRADLE_USER_HOME=$T/gradle-home
 ```
 
@@ -61,8 +61,9 @@ scripts/release-github.sh --version 2026.11.2 --play
 1. Checks that tracked files are committed and nothing untracked sits in `android/` or `scripts/` (files elsewhere,
    such as release notes at the root, are fine), that `gh` is logged in, and that the tag is new.
 2. A new version name raises `versionCode` by one (or use `--version-code`).
-3. Builds and verifies the APK (`build-android-release.sh`): unit tests, release lint, signer, package, version,
-   not debuggable. With `--play`, also builds the bundle (`build-android-play.sh`) from the same source.
+3. Runs every test first (see "Tests before signing" below), then builds and verifies the APK
+   (`build-android-release.sh`): signer, package, version, not debuggable. With `--play`, also builds the bundle
+   (`build-android-play.sh`) from the same source.
 4. Asks before publishing, then commits the version, tags `vX.Y.Z` and pushes branch and tag together: if the push is
    refused (e.g. protected `main`), nothing is pushed and the tag is removed. Merge the version commit through a
    pull request, then run again from the merged branch with the same `--version`.
@@ -70,6 +71,34 @@ scripts/release-github.sh --version 2026.11.2 --play
 
 `--dry-run` builds and verifies without any Git or GitHub writes. Other options: `--prerelease`, `--notes-file`,
 `--skip-tests`. Outputs go to `dist/`.
+
+### Tests before signing
+
+Every test runs before anything is signed or archived, and none of them receives the signing passwords. In a
+terminal the script asks for the keystore password first, so a wrong one fails at once.
+
+1. Android unit tests and release lint (with `--play`, also the Play variant's lint): `scripts/test-android-release.sh`.
+2. The instrumented tests (`:app:connectedQaAndroidTest`, the emulator-only `qa` variant) on one test device:
+   `scripts/test-android-device.sh`. They remove the PassVault QA app and its test vaults afterwards; the debug and
+   release apps are never touched. Choose the device with:
+   - `ANDROID_AVD=<name>`: that emulator, started headless when it is not running and stopped afterwards
+     (`ANDROID_AVD_HOME` selects the AVD folder, `ANDROID_EMULATOR_PORT` its port and `ANDROID_EMULATOR_OPTIONS`
+     adds emulator flags);
+   - `ANDROID_SERIAL=<id>`: that connected device, phone or emulator;
+   - otherwise the only connected device. A phone needs confirmation in a terminal, and several devices need one of
+     the settings above.
+
+   Keystore keys need a secure lock screen. An emulator without one gets the PIN 1234 for the tests and loses it
+   afterwards; an emulator that already has 1234 keeps it and is unlocked with it when its storage is still locked
+   after a boot. An emulator with any other lock stops the release. A phone's lock is never changed: it needs a
+   screen lock of its own and must be unlocked.
+3. With `--app-store`, the iOS checks from `run_ios_tests` in `release-settings.sh` (`swift test` and
+   `swift run vault-security-checks`).
+
+A missing device or a failed test stops the release before any signing, tagging, pushing or publishing. The tests
+also run with `--dry-run`. Only `--skip-tests` bypasses them; use it only after testing the exact source revision.
+
+### Output paths
 
 Before editing version metadata or building, `release-github.sh` checks that the output paths for the requested version and build number are unused. This also applies to dry runs. It checks the APK and checksums, the bundle and mapping with `--play`, and the archive and export directory with `--app-store`; publishing also checks the generated notes path unless `--notes-file` is supplied. Move conflicting outputs aside before retrying. Other versions and outputs for unselected platforms may remain in `dist/`. To retry only an Apple upload, use `build-ios-app-store.sh --upload-archive PATH` with the existing archive.
 
@@ -112,20 +141,11 @@ SHA-256 in the form Play Console shows.
 Run `scripts/release-github.sh --play`, then upload the bundle and its mapping file to Play. Both builds share one
 `versionCode` sequence; Play rejects a code it has already seen.
 
-## Keeping the scripts in sync with AquaRestore
+## Testing the release scripts
 
-`_signing-common.sh`, `build-android-debug.sh`, `build-android-release.sh`, `build-android-play.sh`,
-`release-github.sh`, `rotate-signing-key.sh`, `print-signing-fingerprint.sh` and `tests/test_release_workflow.py`
-are identical in PassVault and AquaRestore. Everything project-specific (app name, package, key defaults, build directories, forbidden Play
-permissions, release notes, source checks) is in `scripts/release-settings.sh`. Change a shared file in both
-repositories, and check with:
-
-```bash
-for f in _signing-common.sh build-android-debug.sh build-android-release.sh build-android-play.sh \
-         release-github.sh rotate-signing-key.sh print-signing-fingerprint.sh tests/test_release_workflow.py; do
-  diff -q ~/git/password-vault/scripts/$f ~/git/AquaRestore/scripts/$f
-done
-```
+Everything specific to PassVault (app name, package, key defaults, build directories, forbidden Play permissions,
+release notes, source checks, the device test task and how to prepare the test device, the iOS scheme and test
+command) is in `scripts/release-settings.sh`.
 
 Test the scripts with `for script in scripts/*.sh; do bash -n "$script" || exit; done` and `python3 -m unittest discover -s scripts/tests -v`.
 
@@ -164,7 +184,8 @@ passes them to Xcode as `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. App S
 have three numeric components without a beta suffix. The current single-component build number
 must be 1–9999, and every new uploaded build needs an unused, increasing number. To rebuild the same
 version after an upload, increase the version code in a branch and merge that metadata through a PR.
-Do not reuse an existing GitHub tag. `--skip-tests` skips the Swift package checks too.
+Do not reuse an existing GitHub tag. `--skip-tests` skips the Swift package checks too. In a combined
+`release-github.sh --app-store` run they run first, with the Android tests, before anything is signed.
 
 Outputs are `dist/PassVault-VERSION-CODE.xcarchive` and
 `dist/PassVault-VERSION-CODE-app-store/PassVault.ipa`. Keep the archive, including its dSYMs, for crash reports.
@@ -252,10 +273,3 @@ References: [Apple SDK requirements](https://developer.apple.com/news/upcoming-r
 [create the app record](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/),
 [upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/),
 [submit for review](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-app/).
-
-The shared files also include `build-ios-app-store.sh` and `tests/test_ios_app_store.py`;
-keep these and `release-github.sh` / `tests/test_release_workflow.py` identical in both repositories.
-The iOS scheme and test command belong in each project's `release-settings.sh`.
-
-The Apple `.env` loader in `_signing-common.sh` and `tests/test_release_env.py` are shared too.
-Keep that test identical alongside the existing shared release scripts and tests.

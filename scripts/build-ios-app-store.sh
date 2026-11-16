@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build a signed App Store IPA without uploading it.
 # Usage: scripts/build-ios-app-store.sh [--skip-tests] [--check]
+#        scripts/build-ios-app-store.sh --tests-only [--skip-core-tests]   (release-github.sh runs the tests first)
 #        scripts/build-ios-app-store.sh --upload-archive PATH
 # Needs macOS, Xcode 26+, XcodeGen, Python 3 and DEVELOPMENT_TEAM.
 # Upload is explicit and uses an existing archive; it does not submit for review.
@@ -8,18 +9,21 @@ set +x
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/_signing-common.sh"
-skip_tests=0; check_only=0; upload_archive=''
+skip_tests=0; check_only=0; upload_archive=''; tests_only=0; core_tests=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --skip-tests) skip_tests=1; shift ;;
     --check) check_only=1; shift ;;
+    --tests-only) tests_only=1; shift ;;
+    --skip-core-tests) core_tests=0; shift ;;
     --upload-archive)
       [ "$#" -ge 2 ] || die 'Missing archive path.'
       upload_archive="$2"; shift 2 ;;
-    -h|--help) sed -n '2,6p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
     *) die "Unknown option: $1" ;;
   esac
 done
+[ "$tests_only" = 0 ] || [ "$skip_tests" = 0 ] || die '--tests-only cannot be combined with --skip-tests.'
 load_app_store_env
 [ "$(uname)" = Darwin ] || die 'App Store builds need macOS.'
 xcodebuild -version >/dev/null 2>&1 || die 'Install full Xcode and select it with xcode-select.'
@@ -51,7 +55,12 @@ if [ -n "$upload_archive" ]; then
 else
   check_sources --release
   cd "$root/ios"
-  if [ "$skip_tests" = 0 ]; then run_ios_tests; fi
+  if [ "$skip_tests" = 0 ]; then
+    hook_args=()
+    [ "$core_tests" = 1 ] || hook_args+=(--skip-core-tests)
+    run_ios_tests ${hook_args[@]+"${hook_args[@]}"}
+  fi
+  [ "$tests_only" = 0 ] || exit 0
   xcodegen generate --quiet
   archive="$root/dist/$app_name-$version-$code.xcarchive"
   output="$root/dist/$app_name-$version-$code-app-store"
