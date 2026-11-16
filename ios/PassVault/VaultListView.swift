@@ -32,6 +32,8 @@ struct RecordList: View {
     @State private var transfer = false
     /// What the Vault health sheet shows; the group to open travels with it so the sheet never reads stale state.
     @State private var healthTarget: HealthTarget?
+    /// The list column's width, so the header in the foldable's bar can span it (the bar sizes its items to fit).
+    @State private var listColumnWidth: CGFloat = 0
     /// Ids picked by tapping an entry's icon; any selection turns the header into the selection bar.
     @State private var selected = Set<String>()
     init(initialSelection: Set<String> = []) { _selected = State(initialValue: initialSelection) }
@@ -59,6 +61,9 @@ struct RecordList: View {
                 }
             }
             .frame(minWidth: wide ? 320 : nil, maxWidth: wide ? 420 : .infinity)
+            .background(GeometryReader { column in
+                Color.clear.onAppear { listColumnWidth = column.size.width }.onChange(of: column.size.width) { _, width in listColumnWidth = width }
+            })
             if wide {
                 Divider().ignoresSafeArea()
                 VStack(spacing: 0) {
@@ -137,12 +142,12 @@ struct RecordList: View {
                     // (Swift 6.2) has the switch for the platter; CI's older Xcode builds the plain item.
                     #if compiler(>=6.2)
                     if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .principal) { barHeader }.sharedBackgroundVisibility(.hidden)
+                        ToolbarItem(placement: .topBarLeading) { barHeader }.sharedBackgroundVisibility(.hidden)
                     } else {
-                        ToolbarItem(placement: .principal) { barHeader }
+                        ToolbarItem(placement: .topBarLeading) { barHeader }
                     }
                     #else
-                    ToolbarItem(placement: .principal) { barHeader }
+                    ToolbarItem(placement: .topBarLeading) { barHeader }
                     #endif
                 }
             }
@@ -328,10 +333,12 @@ struct RecordList: View {
         let updated = model.records.filter { !ids.contains($0.id) }
         model.run { try $0.save(updated); return updated }
     }
-    /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
     /// The header in the navigation bar (an unfolded foldable iPhone), which iOS lays out in the status bar's row.
-    private var barHeader: some View { headerRow.frame(maxWidth: .infinity) }
+    /// Leading and as wide as the column (less the bar's 16 pt margins): the logo on the left, the buttons on the right, as
+    /// in the header below the status bar. A centred item would be sized to fit and centred.
+    private var barHeader: some View { headerRow.frame(width: listColumnWidth > 32 ? listColumnWidth - 32 : nil) }
 
+    /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
     private var vaultToolbar: some View {
         headerRow
             .padding(.horizontal, 16)
