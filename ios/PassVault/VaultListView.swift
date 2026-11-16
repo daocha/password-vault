@@ -334,7 +334,13 @@ struct RecordList: View {
     /// The bar's centre item, given the column's width less room for the bar's margins, so the logo sits on the left and
     /// the buttons on the right as in the header below the status bar. Left to itself the centre item is sized to fit and
     /// centred; a leading item this wide is folded into iOS 26's overflow menu instead.
-    private var barHeader: some View { headerRow.frame(width: listColumnWidth > 40 ? listColumnWidth - 40 : nil) }
+    /// Drawn `barHeaderLift` points above the bar's centre: iOS places the bar, and the row looked low in it.
+    private var barHeader: some View {
+        headerRow.frame(width: listColumnWidth > 40 ? listColumnWidth - 40 : nil).offset(y: -Self.barHeaderLift)
+    }
+    /// How far the foldable's bar header is raised. Kept small: the bar item's own area does not move, so the top of the
+    /// buttons loses this much of its tap area.
+    private static let barHeaderLift: CGFloat = 6
 
     /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
     private var vaultToolbar: some View {
