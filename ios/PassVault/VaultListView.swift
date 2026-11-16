@@ -142,12 +142,12 @@ struct RecordList: View {
                     // (Swift 6.2) has the switch for the platter; CI's older Xcode builds the plain item.
                     #if compiler(>=6.2)
                     if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .topBarLeading) { barHeader }.sharedBackgroundVisibility(.hidden)
+                        ToolbarItem(placement: .principal) { barHeader }.sharedBackgroundVisibility(.hidden)
                     } else {
-                        ToolbarItem(placement: .topBarLeading) { barHeader }
+                        ToolbarItem(placement: .principal) { barHeader }
                     }
                     #else
-                    ToolbarItem(placement: .topBarLeading) { barHeader }
+                    ToolbarItem(placement: .principal) { barHeader }
                     #endif
                 }
             }
@@ -334,9 +334,10 @@ struct RecordList: View {
         model.run { try $0.save(updated); return updated }
     }
     /// The header in the navigation bar (an unfolded foldable iPhone), which iOS lays out in the status bar's row.
-    /// Leading and as wide as the column (less the bar's 16 pt margins): the logo on the left, the buttons on the right, as
-    /// in the header below the status bar. A centred item would be sized to fit and centred.
-    private var barHeader: some View { headerRow.frame(width: listColumnWidth > 32 ? listColumnWidth - 32 : nil) }
+    /// The bar's centre item, given the column's width less room for the bar's margins, so the logo sits on the left and
+    /// the buttons on the right as in the header below the status bar. Left to itself the centre item is sized to fit and
+    /// centred; a leading item this wide is folded into iOS 26's overflow menu instead.
+    private var barHeader: some View { headerRow.frame(width: listColumnWidth > 40 ? listColumnWidth - 40 : nil) }
 
     /// A plain header keeps the wordmark out of iOS's automatic toolbar button backgrounds.
     private var vaultToolbar: some View {
