@@ -34,15 +34,23 @@ if args[:2] == ['shell', 'getprop']:
     elif key == 'sys.boot_completed': print('1')
     elif key == 'ro.product.model': print(device.get('model', 'Pixel'))
 elif args[:2] == ['emu', 'avd']: print(device.get('avd', '')); print('OK')
+elif args == ['emu', 'kill'] and os.path.exists(state) and serial in json.load(open(state)): os.remove(state)
 '''
 
+# A stand-in emulator. Like the real one, it keeps running until `adb emu kill` stops it (which removes TEST_ADB_STATE):
+# test-android-device.sh treats an emulator process that exits by itself as a failed boot. A stand-in that exited at
+# once made the tests depend on whether the script's first boot check came before or after that exit.
 EMULATOR = '''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 args = sys.argv[1:]
 with open(os.environ['TEST_DEVICE_LOG'], 'a') as log: log.write(json.dumps(['emulator'] + args) + '\\n')
 serial = 'emulator-' + args[args.index('-port') + 1]
 state = os.environ['TEST_ADB_STATE']
-with open(state, 'w') as f: json.dump({serial: {'qemu': '1', 'avd': args[args.index('-avd') + 1]}}, f)
+with open(state + '.tmp', 'w') as f: json.dump({serial: {'qemu': '1', 'avd': args[args.index('-avd') + 1]}}, f)
+os.replace(state + '.tmp', state)  # adb never reads a half-written file
+deadline = time.monotonic() + 60  # never outlive a test whose script forgot to stop it
+while os.path.exists(state) and time.monotonic() < deadline:
+    time.sleep(0.05)
 '''
 
 GRADLE = '''#!/usr/bin/env python3
