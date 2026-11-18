@@ -9,8 +9,9 @@ func passwordRevealChecks() throws {
         try check(!(try String(contentsOf: file, encoding: .utf8)).contains("SecureField("), "\(file.lastPathComponent): password boxes use PasswordInput, which has an eye")
     }
     let input = try String(contentsOf: app.appendingPathComponent("PasswordInput.swift"), encoding: .utf8)
-    try check(input.contains("if shown { TextField(label, text: $text) } else { SecureField(label, text: $text) }") && input.contains("@State private var shown = false"), "PasswordInput starts hidden and toggles")
-    try check((try String(contentsOf: app.appendingPathComponent("SettingsPasswordField.swift"), encoding: .utf8)).contains("field.rightView = eye"), "the Settings and Export password box has an eye")
+    // One field switched in place: swapping a SecureField for a TextField lost the keyboard and made the form jump.
+    try check(input.contains("field.isSecureTextEntry = !shown") && input.contains("setShown(false)") && !input.contains("TextField(label"), "PasswordBox starts hidden and toggles one field in place")
+    try check((try String(contentsOf: app.appendingPathComponent("SettingsPasswordField.swift"), encoding: .utf8)).contains("PasswordBox(field: Field())"), "the Settings and Export password box has an eye")
     for language in ["en", "zh-Hans", "zh-Hant"] {
         let table = try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("\(language).lproj/Localizable.strings")), format: nil) as! [String: String]
         try check(table["Show password"] != nil && table["Hide password"] != nil, "\(language) translates the eye's labels")

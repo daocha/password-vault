@@ -11,9 +11,11 @@ final class PasswordRevealUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 15), app.debugDescription)
         field.tap()
         field.typeText("abc")
+        let place = field.frame
         app.buttons["Show password"].firstMatch.tap()
         let shown = app.textFields["Master passphrase"]
         XCTAssertTrue(shown.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(shown.frame, place, "the form must not jump when the eye is tapped")
         XCTAssertEqual(shown.value as? String, "abc")
         // The keyboard stays with the box: typing goes on where it left off.
         shown.typeText("d")
@@ -22,5 +24,6 @@ final class PasswordRevealUITests: XCTestCase {
         XCTAssertTrue(app.secureTextFields["Master passphrase"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(app.textFields["Master passphrase"].exists)
         XCTAssertEqual((app.secureTextFields["Master passphrase"].value as? String)?.count, 4)
+        XCTAssertEqual(app.secureTextFields["Master passphrase"].frame, place)
     }
 }

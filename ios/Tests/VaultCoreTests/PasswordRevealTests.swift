@@ -22,7 +22,10 @@ final class PasswordRevealTests: XCTestCase {
         }
         XCTAssertTrue(unlock.contains("PasswordInput(label: keepass ? \"Database password\" : \"File password\""), "import password has an eye")
         let settings = try String(contentsOf: appSources.appendingPathComponent("SettingsPasswordField.swift"), encoding: .utf8)
-        XCTAssertTrue(settings.contains("field.rightView = eye"), "the app password box in Settings and Export has an eye")
+        XCTAssertTrue(settings.contains("PasswordBox(field: Field())"), "the app password box in Settings and Export has an eye")
+        let input = try String(contentsOf: appSources.appendingPathComponent("PasswordInput.swift"), encoding: .utf8)
+        XCTAssertTrue(input.contains("field.isSecureTextEntry = !shown"), "the eye switches one field in place")
+        XCTAssertFalse(input.contains("TextField(label"), "no second field to swap in: that lost the keyboard and made the form jump")
     }
 
     func testEyeLabelsAreTranslated() throws {

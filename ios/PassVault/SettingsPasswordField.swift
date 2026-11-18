@@ -3,6 +3,7 @@ import UIKit
 
 /// Keep the secure field and its initial keyboard focus in the presented sheet's UIKit hierarchy.
 /// A FocusState owned by the presenting settings view can leave a nested sheet unfocused.
+/// The field sits in a `PasswordBox`, so it has the same eye as every other password box.
 struct SettingsPasswordField: UIViewControllerRepresentable {
     @Binding var text: String
 
@@ -19,13 +20,12 @@ struct SettingsPasswordField: UIViewControllerRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: Controller, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 200, height: max(34, uiViewController.field.intrinsicContentSize.height))
+        CGSize(width: proposal.width ?? 200, height: uiViewController.box.intrinsicContentSize.height)
     }
 
     final class Controller: UIViewController {
-        let field = Field()
-        /// Shows or hides the typed password, like the eye on every other password box.
-        let eye = UIButton(type: .system)
+        let box = PasswordBox(field: Field())
+        var field: UITextField { box.field }
         var text: Binding<String>
 
         init(text: Binding<String>) {
@@ -35,38 +35,12 @@ struct SettingsPasswordField: UIViewControllerRepresentable {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
         override func loadView() {
-            field.isSecureTextEntry = true
             field.textContentType = .password
             field.placeholder = localized("Current app password")
             field.accessibilityLabel = localized("Current app password")
-            field.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 15))
-            field.adjustsFontForContentSizeCategory = true
-            field.textColor = .label
-            field.backgroundColor = .clear
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-            field.spellCheckingType = .no
             field.text = text.wrappedValue
             field.addTarget(self, action: #selector(edited), for: .editingChanged)
-            eye.tintColor = .secondaryLabel
-            eye.frame = CGRect(x: 0, y: 0, width: 40, height: 34)
-            eye.addTarget(self, action: #selector(toggleShown), for: .touchUpInside)
-            field.rightView = eye
-            field.rightViewMode = .always
-            setShown(false)
-            view = field
-        }
-
-        @objc func toggleShown() { setShown(field.isSecureTextEntry) }
-
-        func setShown(_ shown: Bool) {
-            if field.isSecureTextEntry == shown {
-                field.isSecureTextEntry = !shown
-                // A secure box that gets the keyboard back clears itself on the next key. Typing the text in again keeps it.
-                if !shown, field.isFirstResponder, let existing = field.text, !existing.isEmpty { field.text = ""; field.insertText(existing); edited() }
-            }
-            eye.setImage(UIImage(systemName: shown ? "eye.slash" : "eye"), for: .normal)
-            eye.accessibilityLabel = localized(shown ? "Hide password" : "Show password")
+            view = box
         }
 
         override func viewDidAppear(_ animated: Bool) {
