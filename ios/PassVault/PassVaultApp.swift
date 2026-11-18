@@ -51,6 +51,8 @@ import AVFoundation
         engine = initialized
         erased = (try? initialized?.isErased()) ?? false
         loadBackupStatus()
+        // A backup copy left from sending one before the app was closed.
+        BackupShare.sweep(in: FileManager.default.temporaryDirectory)
     }
     func loadBackupStatus() {
         lastBackup = backups.lastBackup; backupSnapshotAt = backups.snapshotAt
@@ -107,14 +109,18 @@ import AVFoundation
                 }
                 biometricEnabled = (try? engine.biometricsEnabled()) ?? false
                 attempts = try engine.remainingAttempts(); done?()
-            } catch {
-                show(error.localizedDescription)
-                // Failed export/password verification also closes visible secret views.
-                lock(); attempts = (try? engine.remainingAttempts()) ?? 0
-                erased = (try? engine.isErased()) ?? false
-            }
+            } catch { failed(error) }
             busy = false
         }
+    }
+    /// A failed action: its message, and the attempts left. As on Android, a wrong password in an open vault leaves it open (the attempt
+    /// is still counted); only an unlock that failed, or the erasure after the tenth wrong password, shows the lock screen.
+    func failed(_ error: Error) {
+        show(error.localizedDescription)
+        let closed = !unlocked || !(engine?.isUnlocked() ?? false)
+        if closed { lock() }
+        attempts = (try? engine?.remainingAttempts()) ?? 0
+        erased = (try? engine?.isErased()) ?? false
     }
     /// The app left the screen: lock now, or note the time so a later return can lock once the chosen delay has passed.
     func didEnterBackground() {
@@ -188,6 +194,7 @@ import AVFoundation
         do {
             try engine.resetErasedVault()
             BackupStatus(defaults: backupPreferences).clear(); forgetDecoyBackups(); loadBackupStatus()
+            BackupShare.sweep(in: FileManager.default.temporaryDirectory)
             biometricEnabled = false; erased = false; exists = false; attempts = 10; show("Create a new vault, then import your backup.", error: false)
         }
         catch { show(error.localizedDescription) }
@@ -276,6 +283,14 @@ struct VaultRoot: View {
             }
             .overlay { if model.busy { ZStack { Color.black.opacity(0.15).ignoresSafeArea(); ProgressView("Securing your vault…").padding(28).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) } } }
             .disabled(model.busy)
+    }
+}
+
+extension View {
+    /// The message bar inside a sheet. The vault list's own bar is behind any sheet, so messages from Settings and its panels (a wrong
+    /// password, "Encrypted backup exported.") were never seen there.
+    func statusBar(_ model: VaultModel) -> some View {
+        safeAreaInset(edge: .bottom) { if model.status.isShowing { StatusBanner(status: model.status) { model.dismissMessage() } } }
     }
 }
 
@@ -465,6 +480,8 @@ struct TransferView: View {
     @State private var importing = false
     @State private var exporting = false
     @State private var document: ExportDocument?
+    /// An encrypted backup is ready: save it to Files or send it to a nearby device.
+    @State private var choosingDestination = false
     @State private var pendingImport: [VaultRecord]?
     @State private var receiving = false
     @State private var decoyPassword = ""
@@ -548,6 +565,7 @@ struct TransferView: View {
                 }
             }.scrollContentBackground(.hidden).background(Color.aBackground).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { dismiss() } }
+                .statusBar(model)
                 .sheet(item: $panel, onDismiss: clearPasswords) { panel in
                     settingsDialog(panel)
                 }
@@ -585,6 +603,7 @@ struct TransferView: View {
     }
     private func clearPasswords() {
         password = ""; newPassword = ""; confirmNew = ""; decoyPassword = ""; confirmDecoy = ""; csvConsent = false
+        choosingDestination = false; if !exporting { document = nil }
     }
 
     private func open(_ next: VaultSettingsPanel) {
@@ -617,7 +636,7 @@ struct TransferView: View {
     private func settingsDialog(_ panel: VaultSettingsPanel) -> some View {
         NavigationStack {
             Form {
-                if panel.requiresPassword {
+                if panel.requiresPassword && !choosingDestination {
                     Section("App password") { SettingsPasswordField(text: $password) }
                 }
                 switch panel {
@@ -698,6 +717,15 @@ struct TransferView: View {
                         Button("Continue") { send() }.disabled(password.isEmpty)
                     } footer: { Text("No network needed. The old phone shows a moving QR code encrypted with a one-time transfer code. A transfer file works too.") }
                 case .exportEncrypted, .exportCSV:
+                    if choosingDestination {
+                        // Buttons in the panel itself: a confirmation dialog over this sheet showed its title without any buttons.
+                        Section {
+                            Button("Save to Files", systemImage: "folder") { choosingDestination = false; exporting = true }
+                            Button("Send to a nearby device", systemImage: "square.and.arrow.up") { choosingDestination = false; sendBackup() }
+                        } header: { Text("Save or send this backup?") } footer: {
+                            Text("Send it only to a device you own or trust, with AirDrop. Anyone who gets this file can keep trying to guess your app password.")
+                        }
+                    } else {
                     Section("Export") {
                         if csv {
                             Text("CSV files expose every password. Keep them out of spreadsheets: cells may contain formulas. Delete your migration copy after checking the import.").font(.footnote).foregroundStyle(.orange)
@@ -706,6 +734,7 @@ struct TransferView: View {
                             Text("Encrypted exports use your app password. Keep it safe; there is no recovery service.").font(.footnote)
                         }
                         Button("Export") { export() }.disabled(password.isEmpty || (csv && !csvConsent))
+                    }
                     }
                 }
             }
@@ -720,10 +749,12 @@ struct TransferView: View {
                     document = nil
                     switch result {
                     case .failure(let error): model.show(error.localizedDescription)
-                    case .success: if let exported { model.recordBackup(exported) }
+                    case .success:
+                        if let exported { model.recordBackup(exported); self.panel = nil; model.show(exported.csv ? "Plaintext CSV exported. Protect or delete this file after migration." : "Encrypted backup exported.", error: false) }
                     }
                 }
         }
+        .statusBar(model)
         .interactiveDismissDisabled(model.busy)
         .presentationDetents(panel.requiresPassword ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
@@ -747,7 +778,7 @@ struct TransferView: View {
                 let sealed = try await Task.detached { try engine.exportTransfer(password: pass) }.value
                 // Shown from the vault list, so it can come back after a lock; this sheet closes.
                 if model.unlocked { model.sending = TransferPayload(code: sealed.code, data: sealed.data, decoy: model.decoy); dismiss() }
-            } catch { model.show(error.localizedDescription); model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
+            } catch { model.failed(error) }
             model.busy = false
         }
     }
@@ -758,6 +789,21 @@ struct TransferView: View {
         default: model.show("Camera access is needed to scan. Allow it in Settings, or use a transfer file.")
         }
     }
+    /// Hands a copy of the prepared backup to the trimmed share sheet. It counts as a backup when iOS reports the share completed.
+    private func sendBackup() {
+        guard let exported = document?.exported else { return }
+        document = nil
+        let temporary = FileManager.default.temporaryDirectory
+        do {
+            let file = try BackupShare.write(exported.data, name: exportFileName("pvault"), in: temporary)
+            DispatchQueue.main.async {
+                BackupShareSheet.present(file) { completed in
+                    BackupShare.sweep(in: temporary)
+                    if completed { model.recordBackup(exported); self.panel = nil; model.show("Encrypted backup sent.", error: false) }
+                }
+            }
+        } catch { model.show(error.localizedDescription) }
+    }
     private func export() {
         guard !model.busy, let engine = model.engine else { return }
         let pass = password, isCSV = csv, defaults = model.backupPreferences
@@ -765,8 +811,11 @@ struct TransferView: View {
         Task {
             do {
                 let exported = try await Task.detached { try engine.prepareExport(password: pass, csv: isCSV, instance: { BackupStatus(defaults: defaults, decoy: $0).instance }) }.value
-                if model.unlocked { document = ExportDocument(data: exported.data, exported: exported); exporting = true }
-            } catch { model.show(error.localizedDescription); model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
+                if model.unlocked {
+                    document = ExportDocument(data: exported.data, exported: exported)
+                    if isCSV { exporting = true } else { choosingDestination = true }
+                }
+            } catch { model.failed(error) }
             model.busy = false
         }
     }

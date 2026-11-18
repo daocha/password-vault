@@ -202,4 +202,16 @@
     <string name="main_language_english">English</string>
     <string name="main_language_zh_hans">简体中文</string>
     <string name="main_language_zh_hant">繁體中文</string>
+    <string name="export_choice_title">儲存還是傳送這份備份？</string>
+    <string name="export_choice_body">儲存為檔案，或直接傳送到你身邊自己的手機、平板或電腦。</string>
+    <string name="export_send_warning">只傳送到你自己或你信任的裝置。拿到這個檔案的人可以不斷嘗試猜測你的主密碼。</string>
+    <string name="export_save_file">儲存為檔案</string>
+    <string name="export_send_with">用 %1$s 傳送</string>
+    <string name="export_arrived_title">備份收到了嗎？</string>
+    <string name="export_arrived_body">只有對方裝置收到了檔案，才算作一次備份。</string>
+    <string name="export_arrived_yes">收到了</string>
+    <string name="export_arrived_no">沒有</string>
+    <string name="export_sent_done">已傳送加密備份。</string>
+    <string name="export_sent_weak">已傳送加密備份，但你的主密碼容易被猜到：拿到這個檔案的人可能破解它。請在設定中更改密碼，傳送一份新備份，再刪除這一份。</string>
+    <string name="export_sent_not_counted">未計為備份。</string>
 </resources>

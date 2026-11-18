@@ -226,7 +226,8 @@ public final class VaultEngine: @unchecked Sendable {
             return (main, false)
         }
         if let decoy = keys.1 { value.attempts = before; try write(value); return (decoy, true) }
-        lock()
+        // A wrong password in an open vault (export, password change…) is counted but leaves it open, as on Android; the tenth erases it.
+        if unlocking { lock() }
         if value.attempts == 10 { try erase(value); throw VaultError.erased }
         throw VaultError.authentication
     }
@@ -283,6 +284,8 @@ public final class VaultEngine: @unchecked Sendable {
     } }
     /// Whether the open vault is the decoy one.
     public func isDecoy() -> Bool { serialized { activeDecoy } }
+    /// Whether a vault is open (the data key is loaded).
+    public func isUnlocked() -> Bool { serialized { key != nil } }
     /// Whether a decoy vault exists. Only the main vault can tell; from the decoy vault this is always false.
     public func hasDecoy() throws -> Bool { try serialized { guard !activeDecoy, key != nil else { return false }; return try state()?.decoy != nil } }
     /// Whether the real vault can give the decoy a new password (`resetDecoyPassword`); decoys set up by earlier test builds cannot.

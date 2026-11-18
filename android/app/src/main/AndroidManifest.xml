@@ -37,12 +37,26 @@
         <package android:name="org.mozilla.focus" />
         <package android:name="org.mozilla.klar" />
     </queries>
+    <!-- Finds Quick Share and the phone makers' nearby-sharing apps, the only apps an encrypted backup may be sent with (NearbyShare). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="application/octet-stream" />
+        </intent>
+    </queries>
     <!-- Deliberately no INTERNET permission. Only the GitHub sideload build (src/release) and a debug build given a LAN
          update server (src/lanUpdate) add it, to update themselves. -->
     <application android:localeConfig="@xml/locales_config" android:allowBackup="false" android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false"
         android:label="${appLabel}" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme">
+        <!-- Hands one encrypted backup to the nearby-sharing app the user picked; serves only cache/backup-share. -->
+        <provider android:name="app.passvault.BackupShareProvider"
+            android:authorities="${applicationId}.backupshare"
+            android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/backup_share_paths" />
+        </provider>
         <activity android:name=".MainActivity" android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
