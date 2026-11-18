@@ -109,6 +109,12 @@ public enum Records {
         guard data.count <= maxBytes else { throw VaultError.invalid("Vault exceeds the 16 MiB limit.") }
         return data
     }
+    /// The same records always give the same bytes: keys sorted, including the `legacy` dictionary, whose order `encode` leaves to
+    /// the dictionary. For comparing (the automatic backup digest), not for storage.
+    public static func canonical(_ records: [VaultRecord]) throws -> Data {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(validate(records))
+    }
     public static func decode(_ data: Data) throws -> [VaultRecord] {
         guard data.count <= maxBytes else { throw VaultError.invalid("File exceeds the 16 MiB limit.") }
         return try validate(JSONDecoder().decode([VaultRecord].self, from: data))

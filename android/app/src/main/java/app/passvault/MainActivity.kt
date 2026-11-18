@@ -102,6 +102,8 @@ private sealed interface SettingsDialog {
     data object DecoyManage : SettingsDialog
     data object DecoyReset : SettingsDialog
     data object AutofillHelp : SettingsDialog
+    data object AutoBackup : SettingsDialog
+    data object AutoBackupSetup : SettingsDialog
     data class Exporting(val kind: Export) : SettingsDialog
 }
 
@@ -285,6 +287,17 @@ class MainActivity : FragmentActivity() {
         // The copy stays in the cache until answered (or the next export or start): the sharing app may still be reading it.
         if (sentExport != null && unlocked) askArrived = true
     }
+    /** The open vault's automatic backup settings (the decoy has its own). */
+    private val autoBackups get() = AutoBackupSettings(prefs, if (decoySession) "decoy." else "")
+    /** Shown in Settings; refreshed after each automatic backup. */
+    private var autoBackupState by mutableStateOf(0)
+    /** Set up with the app password, waiting for the user to pick the folder: the sealed backup key. */
+    private var pendingAutoSetup: ByteArray? = null
+    private var pendingAutoWeak = false
+    private val autoBackupFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { finishAutoSetup(it) }
+    /** The result of a backup the user asked for (Back up now, or the first one after choosing the folder), shown as a dialog. */
+    private class AutoBackupNotice(val saved: Boolean, val text: String)
+    private var autoBackupNotice by mutableStateOf<AutoBackupNotice?>(null)
     private lateinit var biometricPrompt: BiometricPrompt
     // System back walks up one screen (editor → entry → list, settings → list); on the list it leaves the app.
     // Beside the list, Back clears the list's selection before closing the entry's details, but an editor comes first.
@@ -396,6 +409,7 @@ class MainActivity : FragmentActivity() {
     private fun fileVault(decoy: Boolean = decoySession) = FileVault(decoy, BackupStatus(prefs, if (decoy) "decoy." else "").instance)
     private fun clearVaultHistory(decoy: Boolean) {
         BackupStatus(prefs, if (decoy) "decoy." else "").clear()
+        forgetAutoBackup(if (decoy) "decoy." else "")
         fileNotices.forgetBefore(fileVault(decoy))
         BackupShareFiles.sweep(cacheDir)
     }
@@ -776,6 +790,8 @@ class MainActivity : FragmentActivity() {
         if (isChangingConfigurations) return
         if (!unlocked) { discardPendingUnlock(); return }
         backgroundSince = SystemClock.elapsedRealtime()
+        // Leaving the app saves changes to the automatic backup place now, in case the app is closed before it locks.
+        if (!systemPickerOpen) autoBackup(force = false)
         // The app's own system pickers get a bounded grace period instead of suspending auto-lock, so leaving from inside a picker still locks.
         val timeout = if (systemPickerOpen) PICKER_GRACE_MILLIS else autoLock.millis ?: return // deviceLock: the screen-off receiver locks.
         lockTimeout = timeout
@@ -784,6 +800,7 @@ class MainActivity : FragmentActivity() {
     /** [keepTransfer]: the lock comes from leaving the app (perhaps to share the transfer file), not from turning the screen off. */
     private fun lockVault(clearClipboard: Boolean = true, keepTransfer: Boolean = false) {
         if (clearClipboard && clearClipOnLock && unlocked) clearCopiedText()
+        autoBackup(force = false)
         clearVaultSession()
         // A transfer outlives the lock for a while, so its code is still there after sharing the file from another app.
         if (!keepTransfer || sending?.let { SystemClock.elapsedRealtime() >= it.expiresAt } != false) discardTransfer()
@@ -798,7 +815,7 @@ class MainActivity : FragmentActivity() {
         fileCrypt = false; fileSource = null; fileFlow = false; encryptedOriginal = null; fileJob?.cancel(); fileProgress = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; discardPendingExport()
-        exportChoice = null; askArrived = false; sentExport = null
+        exportChoice = null; askArrived = false; sentExport = null; autoBackupNotice = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
     }
@@ -1433,6 +1450,12 @@ class MainActivity : FragmentActivity() {
                 SectionTitle(stringResource(R.string.main_backup_migration))
                 Group {
                     Row(Icons.Outlined.History, stringResource(R.string.backup_last_title), lastBackup?.let { stringResource(R.string.backup_last_value, formatUpdated(it.toString()).orEmpty(), backupAge(it)) } ?: stringResource(R.string.backup_never)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
+                    val auto = remember(autoBackupState, decoySession, lastBackup) { autoBackups }
+                    Row(Icons.Outlined.CloudSync, stringResource(R.string.auto_backup_title), when {
+                        !auto.enabled -> stringResource(R.string.main_off)
+                        auto.problem != null -> autoBackupProblem(auto)
+                        else -> stringResource(R.string.auto_backup_on, auto.name)
+                    }) { dialog = if (auto.enabled) SettingsDialog.AutoBackup else SettingsDialog.AutoBackupSetup }
                     Row(Icons.Outlined.NotificationsActive, stringResource(R.string.backup_reminder_title), stringResource(backupInterval.labelRes)) { dialog = SettingsDialog.BackupReminderChoice }
                     Row(Icons.Outlined.FileOpen, stringResource(R.string.main_import_action), stringResource(R.string.main_import_row_summary)) { launchPicker { importPicker.launch(arrayOf("*/*")) } }
                     Row(Icons.Outlined.SendToMobile, stringResource(R.string.transfer_send), stringResource(R.string.transfer_send_summary)) { dialog = SettingsDialog.TransferSend }
@@ -1499,6 +1522,32 @@ class MainActivity : FragmentActivity() {
             SettingsDialog.DecoyRemove -> PasswordDialog(Icons.Outlined.TheaterComedy, stringResource(R.string.decoy_remove), stringResource(R.string.decoy_remove_body), stringResource(R.string.main_delete), { dialog = null }) { pass ->
                 work({ engine.removeDecoy(pass); clearVaultHistory(true); null }) { decoyEnabled = false; decoyResettable = false; message = getString(R.string.decoy_removed) }
             }
+            SettingsDialog.AutoBackupSetup -> {
+                var password by remember { mutableStateOf("") }
+                AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.CloudSync, null) }, title = { Text(stringResource(R.string.auto_backup_title)) },
+                    text = { HardenWindow(); Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(stringResource(R.string.auto_backup_body))
+                        Text(stringResource(R.string.auto_backup_places), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        SecretInput(stringResource(R.string.main_app_password), password, { password = it })
+                        OutlinedButton(onClick = { val value = password; password = ""; dialog = null; setUpAutoBackup(value) }, Modifier.fillMaxWidth(), enabled = password.isNotEmpty()) {
+                            Icon(Icons.Outlined.Folder, null); Text("  " + stringResource(R.string.auto_backup_choose_folder))
+                        }
+                    } },
+                    confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_cancel)) } })
+            }
+            SettingsDialog.AutoBackup -> {
+                val auto = remember(autoBackupState, lastBackup) { autoBackups }
+                AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.CloudSync, null) }, title = { Text(stringResource(R.string.auto_backup_title)) },
+                    text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(stringResource(R.string.auto_backup_status_folder, auto.name))
+                        Text(auto.lastAutomatic?.let { stringResource(R.string.auto_backup_last, formatUpdated(it.toString()).orEmpty()) } ?: stringResource(R.string.auto_backup_never), style = MaterialTheme.typography.bodySmall)
+                        if (auto.problem != null) Text(autoBackupProblem(auto), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        if (auto.problem != AutoBackupSettings.Problem.keyGone) OutlinedButton(onClick = { dialog = null; autoBackup(force = true, announce = true) }, Modifier.fillMaxWidth(), enabled = !busy) { Icon(Icons.Outlined.Backup, null); Text("  " + stringResource(R.string.auto_backup_now)) }
+                        OutlinedButton(onClick = { dialog = SettingsDialog.AutoBackupSetup }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.FolderOpen, null); Text("  " + stringResource(R.string.auto_backup_change)) }
+                        OutlinedButton(onClick = { dialog = null; forgetAutoBackup(if (decoySession) "decoy." else ""); message = getString(R.string.auto_backup_turned_off) }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.CloudOff, null); Text("  " + stringResource(R.string.auto_backup_turn_off)) }
+                    } },
+                    confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.main_ok)) } })
+            }
             is SettingsDialog.Exporting -> {
                 var consent by remember { mutableStateOf(false) }
                 val csv = d.kind == Export.csv
@@ -1561,7 +1610,7 @@ class MainActivity : FragmentActivity() {
             } },
             confirmButton = { TextButton(onClick = { val c = current; val n = next; val hadBiometric = biometricEnabled; val decoy = decoySession; current = ""; next = ""; repeat = ""; dismiss()
                 // The decoy's password change leaves the real vault's biometric key alone, and must not mention it.
-                work({ engine.changePassword(c, n); null }) { if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && problem == null && samePassword(next, repeat)) { Text(stringResource(R.string.main_change)) } },
+                work({ engine.changePassword(c, n); null }) { if (autoBackups.enabled) { autoBackups.failed(AutoBackupSettings.Problem.keyGone); autoBackupState++ }; if (!decoy) biometricEnabled = false; message = getString(if (hadBiometric && !decoy) R.string.main_app_password_changed_biometric_off else R.string.main_app_password_changed) } }, enabled = current.isNotEmpty() && problem == null && samePassword(next, repeat)) { Text(stringResource(R.string.main_change)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
     }
     /** Sets up the decoy vault, or with [reset] gives the existing one a new password (its contents are kept). */
@@ -1576,7 +1625,8 @@ class MainActivity : FragmentActivity() {
                 if (repeat.isNotEmpty() && !samePassword(decoy, repeat)) Text(stringResource(R.string.main_passwords_dont_match), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             } },
             confirmButton = { TextButton(onClick = { val c = current; val d = decoy; current = ""; decoy = ""; repeat = ""; dismiss()
-                if (reset) work({ engine.resetDecoyPassword(c, d); null }) { message = getString(R.string.decoy_password_changed) }
+                // The decoy keeps its data key, so its automatic backups would still use the old decoy password: set them up again.
+                if (reset) work({ engine.resetDecoyPassword(c, d); null }) { AutoBackupSettings(prefs, "decoy.").let { if (it.enabled) it.failed(AutoBackupSettings.Problem.keyGone) }; message = getString(R.string.decoy_password_changed) }
                 else work({ engine.createDecoy(c, d); null }) { decoyEnabled = true; decoyResettable = true; message = getString(R.string.decoy_created) } },
                 enabled = current.isNotEmpty() && problem == null && samePassword(decoy, repeat)) { Text(stringResource(if (reset) R.string.main_change else R.string.decoy_create)) } },
             dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.main_cancel)) } })
@@ -1677,6 +1727,82 @@ class MainActivity : FragmentActivity() {
             finally { prepared?.clear(); busy = false }
         }
     }
+    /** Checks the app password (a counted attempt), derives the backup key once, then lets the user pick where backups go. */
+    private fun setUpAutoBackup(password: String) {
+        // No cleanup that wipes the sealed key: work() runs cleanup after done(), and this array is the key kept for the picker's result.
+        // It is ciphertext under the data key, so nothing secret is left in memory by keeping it.
+        var sealed: ByteArray? = null; var weak = false
+        work({ weak = VaultEngine.weakBackupPassword(password, csv = false); sealed = engine.sealAutoBackupKey(password); null }) {
+            val key = sealed ?: return@work
+            pendingAutoSetup = key; pendingAutoWeak = weak
+            val opened = launchPicker { autoBackupFolder.launch(null) }
+            if (!opened) pendingAutoSetup = null
+        }
+    }
+    private fun displayName(uri: android.net.Uri): String = runCatching {
+        val document = android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, android.provider.DocumentsContract.getTreeDocumentId(uri))
+        contentResolver.query(document, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }.getOrNull() ?: uri.lastPathSegment.orEmpty()
+    private fun finishAutoSetup(uri: android.net.Uri?) {
+        systemPickerOpen = false
+        val key = pendingAutoSetup ?: return; pendingAutoSetup = null
+        if (uri == null || !unlocked) { messageError = false; message = getString(R.string.auto_backup_cancelled); return }
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        try { contentResolver.takePersistableUriPermission(uri, flags) }
+        catch (_: SecurityException) { messageError = true; message = getString(R.string.auto_backup_unusable); return }
+        autoBackups.location?.takeIf { it != uri }?.let { old -> runCatching { contentResolver.releasePersistableUriPermission(old, flags) } }
+        turnOnAutoBackup(uri.toString(), displayName(uri), key)
+    }
+    /** Saves the chosen folder with the sealed key, backs up at once and shows the automatic backup panel (with Back up now). */
+    private fun turnOnAutoBackup(location: String, name: String, sealedKey: ByteArray) {
+        autoBackups.turnOn(location, name, sealedKey)
+        autoBackupState++
+        settings = true; settingsDialog = SettingsDialog.AutoBackup
+        autoBackup(force = true, announce = true)
+        if (pendingAutoWeak) { messageError = true; message = getString(R.string.auto_backup_weak) }
+    }
+    /**
+     * Saves an automatic backup of the open vault if it changed since the last one ([force]: even if not). Runs on the calling thread up
+     * to the encryption (milliseconds: the key was derived when it was set up), so a lock right after it still finds the vault open; the
+     * file is written in the background.
+     */
+    private fun autoBackup(force: Boolean, announce: Boolean = false) {
+        if (!::engine.isInitialized || !unlocked) return
+        val settings = autoBackups
+        val sealed = settings.sealedKey ?: return
+        if (!settings.enabled || (!force && (busy || settings.problem == AutoBackupSettings.Problem.keyGone))) return
+        val decoy = decoySession; val epoch = generation
+        val result = runCatching { engine.exportAutomatic(sealed, settings.lastDigest, force) { d -> BackupStatus(prefs, if (d) "decoy." else "").instance } }.getOrNull() ?: return
+        when (result) {
+            VaultEngine.Automatic.Unchanged -> {}
+            VaultEngine.Automatic.KeyGone -> { settings.failed(AutoBackupSettings.Problem.keyGone); autoBackupState++; if (announce) autoBackupNotice = AutoBackupNotice(false, autoBackupProblem(settings)) }
+            is VaultEngine.Automatic.Ready -> AutoBackupRunner.write(applicationContext.contentResolver, prefs, settings, result, force) { outcome ->
+                lifecycleScope.launch(Dispatchers.Main) {
+                    if (epoch != generation || !unlocked || decoy != decoySession) return@launch
+                    loadBackupStatus(); autoBackupState++
+                    when {
+                        // Asked for: confirm in a dialog, saved or not.
+                        announce && outcome == AutoBackupRunner.Result.saved ->
+                            autoBackupNotice = AutoBackupNotice(true, getString(R.string.auto_backup_saved, settings.name, formatUpdated(settings.lastAutomatic.toString()).orEmpty()))
+                        announce && outcome == AutoBackupRunner.Result.failed -> autoBackupNotice = AutoBackupNotice(false, autoBackupProblem(settings))
+                        // On its own (locking, leaving): only a failure is mentioned.
+                        outcome == AutoBackupRunner.Result.failed -> { messageError = true; message = autoBackupProblem(settings) }
+                    }
+                }
+            }
+        }
+    }
+    private fun autoBackupProblem(settings: AutoBackupSettings) = when (settings.problem) {
+        AutoBackupSettings.Problem.keyGone -> getString(R.string.auto_backup_problem_key)
+        AutoBackupSettings.Problem.noAccess -> getString(R.string.auto_backup_problem_access, settings.name)
+        else -> getString(R.string.auto_backup_problem_write)
+    }
+    /** Turns automatic backups off for a vault and gives up access to its place. Files already saved stay. */
+    private fun forgetAutoBackup(prefix: String) {
+        val settings = AutoBackupSettings(prefs, prefix)
+        settings.location?.let { runCatching { contentResolver.releasePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
+        settings.clear(); autoBackupState++
+    }
     private fun cancelExportChoice() { exportChoice = null; discardPendingExport(); messageError = false; message = getString(R.string.main_export_cancelled) }
     private fun saveExport() {
         exportChoice = null
@@ -1720,6 +1846,11 @@ class MainActivity : FragmentActivity() {
                     targets.forEach { target -> OutlinedButton(onClick = { sendExport(target) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Share, null); Text("  " + stringResource(R.string.export_send_with, target.label)) } }
                 } },
                 confirmButton = {}, dismissButton = { TextButton(onClick = ::cancelExportChoice) { Text(stringResource(R.string.main_cancel)) } })
+        }
+        autoBackupNotice?.let { notice ->
+            AlertDialog(onDismissRequest = { autoBackupNotice = null }, icon = { Icon(if (notice.saved) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff, null) },
+                title = { Text(stringResource(if (notice.saved) R.string.auto_backup_done_title else R.string.auto_backup_failed_title)) }, text = { Text(notice.text) },
+                confirmButton = { TextButton(onClick = { autoBackupNotice = null }) { Text(stringResource(R.string.main_ok)) } })
         }
         if (askArrived) AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.Share, null) }, title = { Text(stringResource(R.string.export_arrived_title)) },
             text = { Text(stringResource(R.string.export_arrived_body)) },

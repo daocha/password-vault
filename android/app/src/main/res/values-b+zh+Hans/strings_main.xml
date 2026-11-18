@@ -214,4 +214,25 @@
     <string name="export_sent_done">已发送加密备份。</string>
     <string name="export_sent_weak">已发送加密备份，但你的主密码容易被猜到：拿到这个文件的人可能破解它。请在设置中更改密码，发送一份新备份，再删除这一份。</string>
     <string name="export_sent_not_counted">未计为备份。</string>
+    <string name="auto_backup_title">自动备份</string>
+    <string name="auto_backup_on">开 · %1$s</string>
+    <string name="auto_backup_body">每次修改后，当你锁定 PassVault 或离开应用时，它会自动把加密备份保存到你一次选定的文件夹。每次备份都是一个新文件，用你的主密码打开。PassVault 本身从不联网。</string>
+    <string name="auto_backup_places">请选择一个会被其他应用复制到手机以外的文件夹：Google 云端硬盘或 OneDrive 中的文件夹、云盘应用会备份的文件夹（例如百度网盘的文件夹备份）、电脑同步文件夹、SD 卡或 U 盘。</string>
+    <string name="auto_backup_choose_folder">选择文件夹</string>
+    <string name="auto_backup_status_folder">保存到文件夹 %1$s。每次备份都是一个新文件，旧备份会一直保留，直到你删除。</string>
+    <string name="auto_backup_last">上次自动备份：%1$s</string>
+    <string name="auto_backup_never">还没有保存过自动备份。</string>
+    <string name="auto_backup_now">立即备份</string>
+    <string name="auto_backup_change">选择其他文件夹</string>
+    <string name="auto_backup_turn_off">关闭</string>
+    <string name="auto_backup_turned_off">已关闭自动备份。已保存的备份会保留。</string>
+    <string name="auto_backup_cancelled">未设置自动备份。</string>
+    <string name="auto_backup_saved">已于 %2$s 保存到 %1$s。</string>
+    <string name="auto_backup_unusable">这个文件夹不能用于自动备份，请选择其他文件夹。</string>
+    <string name="auto_backup_weak">自动备份已开启，但你的主密码容易被猜到：拿到备份的人可能破解它。请在设置中更改密码，然后重新设置自动备份。</string>
+    <string name="auto_backup_problem_key">已暂停：你的主密码已更改。请重新选择文件夹以继续。</string>
+    <string name="auto_backup_problem_access">已暂停：PassVault 无法再打开 %1$s。请重新选择文件夹。</string>
+    <string name="auto_backup_problem_write">上一次自动备份未能保存。PassVault 会在下次重试。</string>
+    <string name="auto_backup_done_title">备份已保存</string>
+    <string name="auto_backup_failed_title">备份未保存</string>
 </resources>

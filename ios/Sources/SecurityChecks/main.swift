@@ -31,6 +31,7 @@ func rejects(_ label: String, _ action: () throws -> Void) throws {
 do {
     try parityRegressionChecks()
     try backupShareChecks()
+    try autoBackupChecks()
     try wrongPasswordChecks()
     try passwordRevealChecks()
     try statusMessageChecks()

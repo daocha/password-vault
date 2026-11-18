@@ -105,6 +105,7 @@ public final class VaultEngine: @unchecked Sendable {
     private var stateClock = UnlockTiming()
     private static let keyAAD = Data("PassVault/key/v1".utf8)
     private static let ownerAAD = Data("PassVault/decoy-owner/v1".utf8)
+    private static let autoBackupAAD = Data("PassVault/auto-backup-key/v1".utf8)
     /// Decoy password changes allowed between openings by the real password or biometrics.
     public static let decoyChanges = 3
     public init(storage: VaultStorage) { self.storage = storage }
@@ -411,6 +412,26 @@ public final class VaultEngine: @unchecked Sendable {
         let snapshotAt = Date(), sourceInstance = instance(activeDecoy)
         let data = csv ? Data(try VaultCSV.exportRecords(records).utf8) : try VaultCrypto.exportBackup(records, password: password)
         return VaultExport(data: data, csv: csv, decoy: activeDecoy, instance: sourceInstance, snapshotAt: snapshotAt)
+    } }
+    /// Turning on automatic backups: verifies the open vault's password (a counted attempt) and returns a backup key
+    /// (`VaultCrypto.backupKey`) sealed under the open vault's data key, to keep in ordinary preferences. Only this vault, unlocked, can
+    /// open it, and changing the password replaces the data key, so a new password always needs automatic backup set up again.
+    public func sealAutoBackupKey(password: String) throws -> Data { try serialized {
+        guard let dataKey = key else { throw VaultError.locked }
+        var candidate = try authenticate(password).key; candidate.resetBytes(in: 0..<candidate.count)
+        var backupKey = try VaultCrypto.backupKey(password: password); defer { backupKey.resetBytes(in: 0..<backupKey.count) }
+        return try VaultCrypto.seal(backupKey, key: dataKey, aad: Self.autoBackupAAD)
+    } }
+    /// An automatic backup of the open vault with a key from `sealAutoBackupKey`: no password, nothing when nothing changed.
+    public func exportAutomatic(sealedKey: Data, lastDigest: Data?, force: Bool = false, instance: (Bool) -> Int = { _ in 0 }) throws -> AutomaticBackup { try serialized {
+        guard let dataKey = key else { throw VaultError.locked }
+        guard var backupKey = try? VaultCrypto.open(sealedKey, key: dataKey, aad: Self.autoBackupAAD), backupKey.count == VaultCrypto.backupKeySize else { return .keyGone }
+        defer { backupKey.resetBytes(in: 0..<backupKey.count) }
+        let digest = try VaultCrypto.backupDigest(records, backupKey: backupKey)
+        if !force, let lastDigest, lastDigest == digest { return .unchanged }
+        let snapshotAt = Date(), sourceInstance = instance(activeDecoy)
+        let data = try VaultCrypto.exportBackup(records, backupKey: backupKey)
+        return .ready(VaultExport(data: data, csv: false, decoy: activeDecoy, instance: sourceInstance, snapshotAt: snapshotAt), digest: digest)
     } }
     /// Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code.
     public func exportTransfer(password: String) throws -> (code: String, data: Data) { try serialized {

@@ -116,6 +116,30 @@ object VaultCrypto {
         val salt = random(16); val header = BackupFormat.header(profile, salt); val key = passwordKey(password, salt, profile); val plain = Records.encode(records)
         try { return header + seal(plain, key, header) } finally { key.fill(0); plain.fill(0) }
     }
+    /**
+     * A key for automatic backups, derived once from the app password so that later backups need no password: the backup header
+     * (cost and salt) followed by the Argon2id key, [BACKUP_KEY_SIZE] bytes. Files made with it are ordinary backups ([exportBackup] with
+     * the same password opens them); they share one salt, and each has its own random nonce.
+     */
+    fun backupKey(password: String): ByteArray {
+        require(password.isNotEmpty() && PasswordText.bytes(password).size <= PasswordText.MAX_BYTES)
+        val profile = KdfProfile.BACKUP; val salt = random(16); val key = passwordKey(password, salt, profile)
+        try { return BackupFormat.header(profile, salt) + key } finally { key.fill(0) }
+    }
+    const val BACKUP_KEY_SIZE = BackupFormat.V2_HEADER + 32
+    fun exportBackup(records: List<VaultRecord>, backupKey: ByteArray): ByteArray {
+        require(backupKey.size == BACKUP_KEY_SIZE)
+        val header = backupKey.copyOfRange(0, BackupFormat.V2_HEADER); val key = backupKey.copyOfRange(BackupFormat.V2_HEADER, BACKUP_KEY_SIZE)
+        BackupFormat.parse(header)
+        val plain = Records.encode(records)
+        try { return header + seal(plain, key, header) } finally { key.fill(0); plain.fill(0) }
+    }
+    /** Tells whether the records changed since the last automatic backup without storing anything readable: keyed with the backup key. */
+    fun backupDigest(records: List<VaultRecord>, backupKey: ByteArray): ByteArray {
+        require(backupKey.size == BACKUP_KEY_SIZE)
+        val key = backupKey.copyOfRange(BackupFormat.V2_HEADER, BACKUP_KEY_SIZE); val input = "PassVault/auto-backup-digest/v1".toByteArray() + Records.encode(records)
+        try { return ByteArray(32).also { check(sodium.crypto_generichash(it, 32, input, input.size.toLong(), key, 32) == 0) } } finally { key.fill(0); input.fill(0) }
+    }
     fun isBackup(data: ByteArray) = BackupFormat.isBackup(data)
     fun importBackup(data: ByteArray, password: String): List<VaultRecord> {
         val parsed = BackupFormat.parse(data)

@@ -95,6 +95,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
     private var hashingMillis = 0L
     private val wrapAAD = "PassVault/key/v1".toByteArray()
     private val ownerAAD = "PassVault/decoy-owner/v1".toByteArray()
+    private val autoBackupAAD = "PassVault/auto-backup-key/v1".toByteArray()
     private fun state(): DeviceState? {
         val value = storage.readState()?.let(DeviceState::decode) ?: run { lock(); return null }
         require(value.attempts in 0..10); UUID.fromString(value.blob)
@@ -284,6 +285,34 @@ class VaultEngine(private val storage: ProtectedStorage) {
         return@serialized VaultExport.prepare(records, csv, activeDecoy, encode = { snapshot ->
             if (csv) VaultCSV.exportRecords(snapshot).toByteArray() else VaultCrypto.exportBackup(snapshot, password)
         }, weakPassword = weak, instance = instance)
+    }
+    /**
+     * Turning on automatic backups: verifies the open vault's password (a counted attempt) and returns a backup key
+     * ([VaultCrypto.backupKey]) sealed under the open vault's data key, to keep in ordinary preferences. Only this vault, unlocked,
+     * can open it, and changing the password replaces the data key, so a new password always needs automatic backup set up again.
+     */
+    fun sealAutoBackupKey(password: String): ByteArray = VaultAccess.serialized {
+        val dataKey = key ?: error("Vault is locked."); authenticate(password).key.fill(0)
+        val backupKey = VaultCrypto.backupKey(password)
+        try { VaultCrypto.seal(backupKey, dataKey, autoBackupAAD) } finally { backupKey.fill(0) }
+    }
+    sealed interface Automatic {
+        /** The records are the ones the last automatic backup held ([lastDigest]). */
+        object Unchanged : Automatic
+        /** The key was sealed under an earlier data key (the password changed) or another vault's: set automatic backup up again. */
+        object KeyGone : Automatic
+        class Ready(val export: VaultExport, val digest: ByteArray) : Automatic
+    }
+    /** An automatic backup of the open vault with a key from [sealAutoBackupKey]: no password, nothing when nothing changed. */
+    fun exportAutomatic(sealedKey: ByteArray, lastDigest: ByteArray?, force: Boolean = false, instance: (decoy: Boolean) -> Long = { 0L }): Automatic = VaultAccess.serialized {
+        val dataKey = key ?: error("Vault is locked.")
+        val backupKey = try { VaultCrypto.open(sealedKey, dataKey, autoBackupAAD) } catch (_: Exception) { return@serialized Automatic.KeyGone }
+        try {
+            if (backupKey.size != VaultCrypto.BACKUP_KEY_SIZE) return@serialized Automatic.KeyGone
+            val digest = VaultCrypto.backupDigest(records, backupKey)
+            if (!force && lastDigest != null && java.security.MessageDigest.isEqual(digest, lastDigest)) return@serialized Automatic.Unchanged
+            Automatic.Ready(VaultExport.prepare(records, csv = false, activeDecoy, encode = { VaultCrypto.exportBackup(it, backupKey) }, instance = instance), digest)
+        } finally { backupKey.fill(0) }
     }
     /** Verifies the open vault's password (a counted attempt) and seals its records for another phone under a new one-time code. */
     fun exportTransfer(password: String): Pair<String, ByteArray> = VaultAccess.serialized {
