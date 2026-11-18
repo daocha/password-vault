@@ -48,10 +48,40 @@ class AutoBackupTest {
     @Test fun rapidBackupsKeepEveryVersionEvenWithinOneSecond() {
         val files = mutableMapOf<String, ByteArray>()
         val folder = AutoBackupFiles.Folder { name, bytes -> check(name !in files); files[name] = bytes }
-        val at = Instant.parse("2026-11-19T10:00:00Z")
-        repeat(20) { AutoBackupFiles.writeToFolder(folder, byteArrayOf(it.toByte()), at) }
+        // A second no other test writes at: names written in this process count as taken.
+        val at = Instant.parse("2026-11-19T10:00:07Z")
+        val names = (0 until 20).map { AutoBackupFiles.writeToFolder(folder, byteArrayOf(it.toByte()), at) }
         assertEquals(20, files.size)
         assertEquals((0..19).toSet(), files.values.map { it.single().toInt() }.toSet())
+        // Only the time names a backup; a second one within the same second ends _2, _3… and sorts after it.
+        val stem = AutoBackupFiles.name(at).removeSuffix(".pvault")
+        assertEquals(listOf("$stem.pvault") + (2..20).map { "${stem}_$it.pvault" }, names)
+        assertEquals(names.reversed(), AutoBackupFiles.newest(names, 20))
+    }
+
+    @Test fun namesHoldOnlyTheTime() {
+        val at = Instant.parse("2026-11-19T10:31:05Z")
+        val taken = mutableSetOf<String>()
+        repeat(3) { taken += AutoBackupFiles.uniqueName(at, ZoneOffset.UTC) { it in taken } }
+        assertEquals(setOf("passvault_auto_2026-11-19_10_31_05.pvault", "passvault_auto_2026-11-19_10_31_05_2.pvault", "passvault_auto_2026-11-19_10_31_05_3.pvault"), taken)
+        val folder = AutoBackupFiles.Folder { _, _ -> }
+        val written = AutoBackupFiles.writeToFolder(folder, byteArrayOf(1), Instant.parse("2031-01-02T03:04:05Z"))
+        assertTrue(written, Regex("passvault_auto_\\d{4}-\\d{2}-\\d{2}_\\d{2}_\\d{2}_\\d{2}\\.pvault").matches(written))
+    }
+
+    @Test fun settingsListsTheFiveNewestBackups() {
+        val names = listOf(
+            "holiday.jpg", "passvault_2026-11-01_09_00.pvault", "passvault_auto_2026-11-18_08_00_00.pvault", "passvault_auto_2026-11-19_10_31_05.pvault",
+            "passvault_auto_2026-11-19_10_31_05_2.pvault", "passvault_auto_2026-11-17_23_59_59_0f8e2a4c-1b7d-4c2e-9a51-3d6f8b2e7c10.pvault",
+            "passvault_auto_2026-11-19_09_00_00.pvault", "passvault_auto_2026-11-01_00_00_00.pvault", "passvault_auto_2026-11-19_09_00_00.pvault", "passvault_auto_notes.txt",
+            "passvault_auto_2026-11-19_10_31_05_10.pvault", "passvault_auto_2026-11-19_10_31_05_9.pvault", "passvault_auto_2026-11-19_10_31_05 (1).pvault",
+        )
+        assertEquals(listOf(
+            "passvault_auto_2026-11-19_10_31_05_10.pvault", "passvault_auto_2026-11-19_10_31_05_9.pvault", "passvault_auto_2026-11-19_10_31_05_2.pvault",
+            "passvault_auto_2026-11-19_10_31_05 (1).pvault", "passvault_auto_2026-11-19_10_31_05.pvault",
+        ), AutoBackupFiles.newest(names))
+        assertEquals("passvault_auto_2026-11-17_23_59_59_0f8e2a4c-1b7d-4c2e-9a51-3d6f8b2e7c10.pvault", AutoBackupFiles.newest(names, 10)[7])
+        assertEquals(emptyList<String>(), AutoBackupFiles.newest(listOf("holiday.jpg")))
     }
 
     @Test fun namesSortByAge() {

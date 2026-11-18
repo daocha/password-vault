@@ -118,6 +118,49 @@ import VaultCore
         model.lock()
     }
 
+    /// Settings → Last encrypted backup with automatic backup on: the five newest backups in its folder, newest first; an error when the
+    /// folder cannot be opened.
+    func testLastBackupListsTheNewestBackupsInTheFolder() async throws {
+        let suite = "PassVault.auto-backup-recent.\(UUID())", defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let engine = VaultEngine(storage: ModelTestStorage())
+        _ = try engine.create(password: password)
+        let sealed = try engine.sealAutoBackupKey(password: password)
+        engine.lock()
+        let model = VaultModel(engine: engine, defaults: defaults)
+        let pass = password
+        model.run { try $0.unlock(password: pass) }
+        try await waitUntil { !model.busy }
+        model.showRecentBackups()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNil(model.recentBackups, "automatic backup off: nothing to list (Settings opens the export instead)")
+
+        AutoBackupSettings(defaults: defaults).turnOn(folderBookmark: try folder.bookmarkData(), name: "Backups", sealedKey: sealed)
+        try Data([9]).write(to: folder.appendingPathComponent("holiday.jpg"))
+        let start = Date(timeIntervalSince1970: 1_795_084_265)
+        let written = try (0..<7).map { try AutoBackupFiles.write(Data([UInt8($0)]), to: folder, at: start.addingTimeInterval(Double($0) * 60)) }
+        var shown = false
+        model.showRecentBackups { shown = true }
+        try await waitUntil { shown }
+        XCTAssertEqual(model.recentBackups?.folder, "Backups")
+        XCTAssertEqual(model.recentBackups?.names, Array(written.reversed().prefix(5)))
+        model.recentBackups = nil
+
+        // The folder is gone (or access was lost): an error, not a list.
+        try FileManager.default.removeItem(at: folder)
+        shown = false
+        model.showRecentBackups { shown = true }
+        try await waitUntil { shown }
+        XCTAssertNil(model.recentBackups)
+        XCTAssertTrue(model.status.isError)
+        XCTAssertEqual(model.status.text, localizedFormat("PassVault cannot open the folder %@. Choose it again in Automatic backup.", "Backups"))
+        model.lock()
+        XCTAssertNil(model.recentBackups)
+    }
+
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(60)
         while !condition() && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }

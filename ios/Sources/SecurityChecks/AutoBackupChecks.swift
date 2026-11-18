@@ -58,6 +58,12 @@ func autoBackupChecks() throws {
     // Rapid writes use the exact same time, so this fails if filenames can collide.
     for step in 0..<3 { try AutoBackupFiles.write(Data([UInt8(step)]), to: folder, at: boundary) }
     try check(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 10, "multiple backups in the same second are all kept")
+    let stem = AutoBackupFiles.name(at: boundary).dropLast(".pvault".count)
+    // The first save above was at `boundary` too, so the three rapid ones end _2, _3 and _4.
+    try check(try AutoBackupFiles.newest(in: folder, limit: 20).filter { $0.hasPrefix(String(stem)) } == ["\(stem)_4.pvault", "\(stem)_3.pvault", "\(stem)_2.pvault", "\(stem).pvault"],
+              "backup names hold only the time, newest listed first")
+    try check(AutoBackupFiles.newest(["a.txt"] + (0..<9).map { "passvault_auto_2026-11-1\($0)_00_00_00.pvault" }) == (4..<9).reversed().map { "passvault_auto_2026-11-1\($0)_00_00_00.pvault" }, "Settings lists the five newest backups")
+    try rejects("an unreadable backup folder is an error") { _ = try AutoBackupFiles.newest(in: folder.appendingPathComponent("gone")) }
     let last = settings.lastAutomatic!
     settings.frequency = .daily
     try check(AutoBackupFiles.save(export, digest: Data([90]), to: folder, settings: settings, defaults: defaults, force: false, at: last.addingTimeInterval(86399)), "queued backup before the interval is skipped")

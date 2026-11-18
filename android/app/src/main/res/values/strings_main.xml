@@ -217,7 +217,7 @@
     <string name="auto_backup_title">Automatic backup</string>
     <string name="auto_backup_on">On · %1$s</string>
     <string name="auto_backup_body">PassVault saves an encrypted backup after every change by default, to a folder you choose once. You can also choose daily, weekly or monthly backups. Each backup is a new file and opens with your app password. PassVault itself never goes online.</string>
-    <string name="auto_backup_places">Choose a folder that another app copies off this phone: a folder in Google Drive or OneDrive, a folder your cloud app backs up (for example Baidu Netdisk folder backup), a computer sync folder, an SD card or a USB drive.</string>
+    <string name="auto_backup_places">Choose a folder that another app copies off this phone: a folder in a trusted cloud drive such as Google Drive or OneDrive, a folder on your NAS, a computer sync folder, an SD card or a USB drive.</string>
     <string name="auto_backup_choose_folder">Choose a folder</string>
     <string name="auto_backup_status_folder">Saving to the folder %1$s. Each backup is a new file; older ones stay until you delete them.</string>
     <string name="auto_backup_last">Last automatic backup: %1$s</string>
@@ -241,4 +241,8 @@
     <string name="auto_backup_weekly">Weekly</string>
     <string name="auto_backup_monthly">Monthly</string>
     <string name="auto_backup_frequency_help">Instant saves after every change. Daily, weekly and monthly wait 1, 7 or 30 days after the last successful automatic backup. Only changed contents are saved. Backups run while the vault is unlocked; overdue changes are backed up on your next unlock.</string>
+    <string name="auto_backup_recent_title">Recent automatic backups</string>
+    <string name="auto_backup_recent_body">Newest first, in %1$s:</string>
+    <string name="auto_backup_recent_none">No automatic backups in %1$s yet.</string>
+    <string name="auto_backup_recent_no_access">PassVault cannot open the folder %1$s. Choose it again in Automatic backup.</string>
 </resources>

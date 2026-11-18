@@ -205,6 +205,12 @@ Replace `CODE` with the build number printed by the build. Upload retries use th
 if processing already succeeded in App Store Connect, do not upload it again. Archive bundle ID
 and team are checked before export/upload. Xcode keeps the build number unchanged.
 
+The app embeds its AutoFill extension (`app.passvault.mobile.autofill`). Both use the app group
+`group.app.passvault.mobile` and the AutoFill Credential Provider capability (debug builds use `.debug` in all three
+names). Automatic signing registers the extension's ID, the group and the capabilities the first time it archives. The
+manual signed test build (`test-builds.yml`) needs a second provisioning profile for the extension, in the
+`IOS_AUTOFILL_PROVISIONING_PROFILE_BASE64` secret; without it the job builds the unsigned IPA.
+
 Before uploading, register the release bundle ID in Apple Developer and create its iOS app record
 in App Store Connect. After processing, test with TestFlight, complete the listing, iPhone/iPad
 screenshots, privacy policy and App Privacy answers, age rating, price/availability (leave France out; see

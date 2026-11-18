@@ -217,7 +217,7 @@
     <string name="auto_backup_title">自动备份</string>
     <string name="auto_backup_on">开 · %1$s</string>
     <string name="auto_backup_body">默认每次修改后，PassVault 都会把加密备份保存到你一次选定的文件夹。你也可以选择每天、每周或每月备份。每次备份都是一个新文件，用你的主密码打开。PassVault 本身从不联网。</string>
-    <string name="auto_backup_places">请选择一个会被其他应用复制到手机以外的文件夹：Google 云端硬盘或 OneDrive 中的文件夹、云盘应用会备份的文件夹（例如百度网盘的文件夹备份）、电脑同步文件夹、SD 卡或 U 盘。</string>
+    <string name="auto_backup_places">请选择一个会被其他应用复制到手机以外的文件夹：可信赖的网盘（如 Google 云端硬盘或 OneDrive）中的文件夹、NAS 上的文件夹、电脑同步文件夹、SD 卡或 U 盘。</string>
     <string name="auto_backup_choose_folder">选择文件夹</string>
     <string name="auto_backup_status_folder">保存到文件夹 %1$s。每次备份都是一个新文件，旧备份会一直保留，直到你删除。</string>
     <string name="auto_backup_last">上次自动备份：%1$s</string>
@@ -241,4 +241,8 @@
     <string name="auto_backup_weekly">每周</string>
     <string name="auto_backup_monthly">每月</string>
     <string name="auto_backup_frequency_help">即时模式在每次修改后备份。每天、每周和每月分别在上次成功自动备份的 1、7 或 30 天后备份，且仅在内容有变化时保存。备份在保险库解锁时运行；逾期的修改会在下次解锁时备份。</string>
+    <string name="auto_backup_recent_title">最近的自动备份</string>
+    <string name="auto_backup_recent_body">最新的在前，位于 %1$s：</string>
+    <string name="auto_backup_recent_none">%1$s 中还没有自动备份。</string>
+    <string name="auto_backup_recent_no_access">PassVault 无法打开文件夹 %1$s。请在“自动备份”中重新选择。</string>
 </resources>

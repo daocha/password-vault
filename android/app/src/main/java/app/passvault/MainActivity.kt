@@ -299,6 +299,9 @@ class MainActivity : FragmentActivity() {
     /** The result of a backup the user asked for (Back up now, or the first one after choosing the folder), shown as a dialog. */
     private class AutoBackupNotice(val saved: Boolean, val text: String)
     private var autoBackupNotice by mutableStateOf<AutoBackupNotice?>(null)
+    /** Settings → Last encrypted backup with automatic backup on: the newest backups in its folder ([AutoBackupFiles.newest]). */
+    private class RecentBackups(val folder: String, val names: List<String>)
+    private var recentBackups by mutableStateOf<RecentBackups?>(null)
     private lateinit var biometricPrompt: BiometricPrompt
     // System back walks up one screen (editor → entry → list, settings → list); on the list it leaves the app.
     // Beside the list, Back clears the list's selection before closing the entry's details, but an editor comes first.
@@ -818,7 +821,7 @@ class MainActivity : FragmentActivity() {
         fileCrypt = false; fileSource = null; fileFlow = false; encryptedOriginal = null; fileJob?.cancel(); fileProgress = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; discardPendingExport()
-        exportChoice = null; askArrived = false; sentExport = null; autoBackupNotice = null
+        exportChoice = null; askArrived = false; sentExport = null; autoBackupNotice = null; recentBackups = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
     }
@@ -1454,7 +1457,10 @@ class MainActivity : FragmentActivity() {
                 }
                 SectionTitle(stringResource(R.string.main_backup_migration))
                 Group {
-                    Row(Icons.Outlined.History, stringResource(R.string.backup_last_title), lastBackup?.let { stringResource(R.string.backup_last_value, formatUpdated(it.toString()).orEmpty(), backupAge(it)) } ?: stringResource(R.string.backup_never)) { dialog = SettingsDialog.Exporting(Export.encrypted) }
+                    Row(Icons.Outlined.History, stringResource(R.string.backup_last_title), lastBackup?.let { stringResource(R.string.backup_last_value, formatUpdated(it.toString()).orEmpty(), backupAge(it)) } ?: stringResource(R.string.backup_never)) {
+                        // With automatic backup on, the newest backups in its folder; otherwise straight to exporting one.
+                        if (autoBackups.enabled) showRecentBackups() else dialog = SettingsDialog.Exporting(Export.encrypted)
+                    }
                     val auto = remember(autoBackupState, decoySession, lastBackup) { autoBackups }
                     Row(Icons.Outlined.CloudSync, stringResource(R.string.auto_backup_title), when {
                         !auto.enabled -> stringResource(R.string.main_off)
@@ -1807,6 +1813,18 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+    /** Lists the newest automatic backups in the folder, or says PassVault cannot open it (access revoked, folder gone). */
+    private fun showRecentBackups() {
+        val settings = autoBackups
+        val location = settings.location?.takeIf { settings.enabled } ?: return
+        val epoch = generation; val decoy = decoySession
+        lifecycleScope.launch {
+            val names = withContext(Dispatchers.IO) { runCatching { AutoBackupFiles.newest(AutoBackupFiles.list(contentResolver, location)) } }
+            if (epoch != generation || !unlocked || decoy != decoySession) return@launch
+            names.onSuccess { recentBackups = RecentBackups(settings.name, it) }
+                .onFailure { messageError = true; message = getString(R.string.auto_backup_recent_no_access, settings.name) }
+        }
+    }
     /** Returns true when the next interval has not elapsed. No timer runs after locking. */
     private fun scheduleAutoBackup(settings: AutoBackupSettings): Boolean {
         autoBackupTimer?.cancel(); autoBackupTimer = null
@@ -1880,6 +1898,17 @@ class MainActivity : FragmentActivity() {
                     targets.forEach { target -> OutlinedButton(onClick = { sendExport(target) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Share, null); Text("  " + stringResource(R.string.export_send_with, target.label)) } }
                 } },
                 confirmButton = {}, dismissButton = { TextButton(onClick = ::cancelExportChoice) { Text(stringResource(R.string.main_cancel)) } })
+        }
+        recentBackups?.let { recent ->
+            AlertDialog(onDismissRequest = { recentBackups = null }, icon = { Icon(Icons.Outlined.History, null) }, title = { Text(stringResource(R.string.auto_backup_recent_title)) },
+                text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (recent.names.isEmpty()) Text(stringResource(R.string.auto_backup_recent_none, recent.folder))
+                    else {
+                        Text(stringResource(R.string.auto_backup_recent_body, recent.folder))
+                        recent.names.forEach { Text(it, style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)) }
+                    }
+                } },
+                confirmButton = { TextButton(onClick = { recentBackups = null }) { Text(stringResource(R.string.main_ok)) } })
         }
         autoBackupNotice?.let { notice ->
             AlertDialog(onDismissRequest = { autoBackupNotice = null }, icon = { Icon(if (notice.saved) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff, null) },
