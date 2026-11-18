@@ -134,10 +134,17 @@ public enum AutofillMatch {
     /// What the picker shows: with no search, the suggested logins (or all of them when none matches); with a search, every match,
     /// suggested ones first.
     public static func shown(_ logins: [VaultRecord], sites: [String], query: String) -> (records: [VaultRecord], suggested: Bool) {
-        let suggested = ordered(logins.filter { suggests($0, sites: sites) })
+        shown(logins, suggested: suggestedIDs(logins, sites: sites), query: query)
+    }
+    /// The logins `suggests` puts first, worked out once when the vault opens rather than on every keystroke of a search.
+    public static func suggestedIDs(_ logins: [VaultRecord], sites: [String]) -> Set<String> { Set(logins.filter { suggests($0, sites: sites) }.map(\.id)) }
+    public static func shown(_ logins: [VaultRecord], suggested ids: Set<String>, query: String) -> (records: [VaultRecord], suggested: Bool) {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return suggested.isEmpty ? (ordered(logins), false) : (suggested, true) }
-        let ids = Set(suggested.map(\.id)), found = ordered(logins.filter { $0.matches(trimmed) })
+        if trimmed.isEmpty {
+            let suggested = ordered(logins.filter { ids.contains($0.id) })
+            return suggested.isEmpty ? (ordered(logins), false) : (suggested, true)
+        }
+        let found = ordered(logins.filter { $0.matches(trimmed) })
         return (found.filter { ids.contains($0.id) } + found.filter { !ids.contains($0.id) }, false)
     }
     public static func username(_ record: VaultRecord) -> String? { record.fields.first { $0.kind == .username && !$0.value.isEmpty }?.value }

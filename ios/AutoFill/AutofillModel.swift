@@ -20,6 +20,8 @@ enum AutofillSettings {
     @Published private(set) var stage = Stage.loading
     /// The open vault's logins (with a username or password); empty while locked.
     @Published private(set) var logins = [VaultRecord]()
+    /// Which of them are for the site asking (`AutofillMatch.suggestedIDs`).
+    private(set) var suggested = Set<String>()
     @Published private(set) var busy = false
     @Published var message = ""
     @Published private(set) var attempts = 10
@@ -78,9 +80,13 @@ enum AutofillSettings {
         Task {
             defer { if current == generation { busy = false } }
             do {
-                let records = try await work { try action(engine) }
+                let sites = self.sites
+                let opened = try await work { () -> ([VaultRecord], Set<String>) in
+                    let logins = AutofillMatch.candidates(try action(engine))
+                    return (logins, AutofillMatch.suggestedIDs(logins, sites: sites))
+                }
                 guard current == generation else { queue.async { engine.lock() }; return }
-                logins = AutofillMatch.candidates(records); stage = .open
+                logins = opened.0; suggested = opened.1; stage = .open
             } catch {
                 let status = try? await work { () -> (Int, Bool) in engine.lock(); return ((try? engine.remainingAttempts()) ?? 0, (try? engine.isErased()) ?? false) }
                 guard current == generation else { return }
@@ -105,7 +111,7 @@ enum AutofillSettings {
     /// Locks the vault and forgets its logins. Work still running is dropped when it finishes.
     func close() {
         generation += 1
-        logins = []; confirming = nil; busy = false
+        logins = []; suggested = []; confirming = nil; busy = false
         if stage == .open { stage = .locked }
         if let engine { queue.async { engine.lock() } }
     }

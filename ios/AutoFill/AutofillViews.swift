@@ -83,7 +83,7 @@ struct AutofillPickView: View {
     @ObservedObject var model: AutofillModel
     @State private var query = ""
     var body: some View {
-        let shown = AutofillMatch.shown(model.logins, sites: model.sites, query: query)
+        let shown = AutofillMatch.shown(model.logins, suggested: model.suggested, query: query)
         List {
             Section {
                 if shown.records.isEmpty {
