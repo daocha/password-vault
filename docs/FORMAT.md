@@ -15,7 +15,7 @@ Extension: `.pvault`. All data is binary; there are no text separators. New back
 
 The first 32 bytes are authenticated additional data. Readers accept a memory cost of 64 MiB to 1 GiB and 3 to 10 passes and reject anything outside that range before doing any expensive work, so a malicious header can neither select weaker parameters nor an excessively expensive one. Because the header is authenticated and is also an input to the key, altering the cost fields yields a different key and the file fails to decrypt. They cannot be used to downgrade a file.
 
-The backup password is the app password (Android) or a separate backup password (iOS). It is normalized to Unicode NFKC and then UTF-8 encoded, with no trimming or NUL terminator. Derive a 32-byte key using libsodium `crypto_pwhash` with `crypto_pwhash_ALG_ARGON2ID13` and the header's cost (one lane). Encrypt with `crypto_aead_xchacha20poly1305_ietf_encrypt`. A portable backup has no device secret and no attempt limit, so the cost per password guess is the only protection beyond the password itself; version 2 raises it from version 1's 64 MiB / 3 passes.
+The backup password is the vault's app password at the time of export, on both platforms (the decoy vault's own password for a decoy backup). It is normalized to Unicode NFKC and then UTF-8 encoded, with no trimming or NUL terminator. Derive a 32-byte key using libsodium `crypto_pwhash` with `crypto_pwhash_ALG_ARGON2ID13` and the header's cost (one lane). Encrypt with `crypto_aead_xchacha20poly1305_ietf_encrypt`. A portable backup has no device secret and no attempt limit, so the cost per password guess is the only protection beyond the password itself; version 2 raises it from version 1's 64 MiB / 3 passes.
 
 ## Version 1 (`QVAULT01`, read only)
 
