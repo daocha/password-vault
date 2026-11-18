@@ -22,9 +22,9 @@ final class ExportFlowUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10), app.debugDescription)
         app.typeText("Wrong passphrase 9!")
         app.buttons["Export"].tap()
-        let error = app.staticTexts["Incorrect password or damaged encrypted data."].firstMatch
-        XCTAssertTrue(error.waitForExistence(timeout: 60), "the error shows inside the panel: \(app.debugDescription)")
-        XCTAssertTrue(error.isHittable, "the message is on top, not behind the sheet")
+        let errors = app.staticTexts.matching(NSPredicate(format: "label == %@", "Incorrect password or damaged encrypted data."))
+        XCTAssertTrue(errors.firstMatch.waitForExistence(timeout: 60), "the error shows: \(app.debugDescription)")
+        XCTAssertTrue(errors.allElementsBoundByIndex.contains { $0.isHittable }, "the message is on top, not behind the sheet: \(app.debugDescription)")
         XCTAssertFalse(app.buttons["Unlock vault"].exists, "a wrong password no longer locks the vault")
         XCTAssertTrue(field.exists)
 
@@ -36,9 +36,12 @@ final class ExportFlowUITests: XCTestCase {
         XCTAssertTrue(save.isHittable && send.isHittable)
         XCTAssertTrue(app.staticTexts["Save or send this backup?"].exists || app.staticTexts["SAVE OR SEND THIS BACKUP?"].exists)
         send.tap()
-        let sheet = app.otherElements["ActivityListView"], close = app.buttons["Close"]
-        XCTAssertTrue(sheet.waitForExistence(timeout: 20) || close.waitForExistence(timeout: 1), "the share sheet opens: \(app.debugDescription)")
-        if close.exists { close.tap() } else { app.swipeDown(velocity: .fast) }
+        // The share sheet's elements differ between iOS versions; any of these means it is open.
+        let marks = [app.otherElements["ActivityListView"], app.navigationBars["UIActivityContentView"], app.buttons["AirDrop"], app.cells["AirDrop"], app.buttons["Close"]]
+        let deadline = Date().addingTimeInterval(20)
+        while !marks.contains(where: \.exists) && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        XCTAssertTrue(marks.contains(where: \.exists), "the share sheet opens: \(app.debugDescription)")
+        if app.buttons["Close"].exists { app.buttons["Close"].tap() } else { app.swipeDown(velocity: .fast) }
         XCTAssertFalse(app.buttons["Unlock vault"].exists)
     }
 
