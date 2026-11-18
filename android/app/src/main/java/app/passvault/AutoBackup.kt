@@ -15,9 +15,16 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+/** The minimum time between successful automatic backups. Monthly is 30 days on both platforms. */
+enum class AutoBackupFrequency(val seconds: Long) {
+    instant(0), daily(86_400), weekly(7 * 86_400), monthly(30 * 86_400);
+
+    fun remainingMillis(last: Instant?, now: Instant): Long =
+        if (last == null || this == instant) 0 else (seconds * 1000 - java.time.Duration.between(last, now).toMillis()).coerceAtLeast(0)
+}
+
 /**
- * Automatic backups: after changes, the vault saves an encrypted backup by itself to a folder the user chose once, when it locks or the
- * user leaves the app. Each backup is a new dated file and none is ever deleted, so an entry deleted by mistake can still be found in an
+ * Automatic backups: save changes instantly by default, or after the chosen interval since the last successful backup. Each backup is a new dated file and none is ever deleted, so an entry deleted by mistake can still be found in an
  * older backup; the user removes old ones when they like. The app never goes online: the app that owns the folder (Google Drive,
  * OneDrive, a cloud app that backs up a phone folder, an SD card…) copies the file elsewhere. Same rules on iOS.
  */
@@ -37,12 +44,16 @@ class AutoBackupSettings(private val prefs: SharedPreferences, private val prefi
     /** [VaultCrypto.backupDigest] of what the last automatic backup held. */
     val lastDigest: ByteArray? get() = prefs.getString(prefix + "autoBackupDigest", null)?.let { java.util.Base64.getDecoder().decode(it) }
     val lastAutomatic: Instant? get() = prefs.getLong(prefix + "autoBackupAt", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+    var frequency: AutoBackupFrequency
+        get() = runCatching { AutoBackupFrequency.valueOf(prefs.getString(prefix + "autoBackupFrequency", null) ?: "") }.getOrDefault(AutoBackupFrequency.instant)
+        set(value) { prefs.edit().putString(prefix + "autoBackupFrequency", value.name).apply() }
+    fun remainingMillis(now: Instant = Instant.now()): Long = frequency.remainingMillis(lastAutomatic, now)
     val problem: Problem? get() = runCatching { Problem.valueOf(prefs.getString(prefix + "autoBackupProblem", null) ?: "") }.getOrNull()
 
     /** [location]: the picked folder's tree URI, as text. */
     fun turnOn(location: String, name: String, sealedKey: ByteArray) = synchronized(prefs) {
         prefs.edit().putString(prefix + "autoBackupMode", FOLDER).putString(prefix + "autoBackupUri", location).putString(prefix + "autoBackupName", name)
-            .putString(prefix + "autoBackupKey", java.util.Base64.getEncoder().encodeToString(sealedKey)).remove(prefix + "autoBackupDigest").remove(prefix + "autoBackupProblem").apply()
+            .putString(prefix + "autoBackupKey", java.util.Base64.getEncoder().encodeToString(sealedKey)).remove(prefix + "autoBackupDigest").remove(prefix + "autoBackupAt").remove(prefix + "autoBackupProblem").apply()
     }
     fun succeeded(digest: ByteArray, at: Instant) = synchronized(prefs) {
         prefs.edit().putString(prefix + "autoBackupDigest", java.util.Base64.getEncoder().encodeToString(digest)).putLong(prefix + "autoBackupAt", at.toEpochMilli()).remove(prefix + "autoBackupProblem").apply()
@@ -54,7 +65,7 @@ class AutoBackupSettings(private val prefs: SharedPreferences, private val prefi
     }
     companion object {
         private const val FOLDER = "folder"
-        val KEYS = listOf("autoBackupMode", "autoBackupUri", "autoBackupName", "autoBackupKey", "autoBackupDigest", "autoBackupAt", "autoBackupProblem")
+        val KEYS = listOf("autoBackupMode", "autoBackupUri", "autoBackupName", "autoBackupKey", "autoBackupDigest", "autoBackupAt", "autoBackupProblem", "autoBackupFrequency")
     }
 }
 
@@ -67,7 +78,8 @@ object AutoBackupFiles {
     /** Somewhere to create a new file. */
     fun interface Folder { fun create(name: String, bytes: ByteArray) }
     /** Writes [bytes] as a new file in [folder]; returns its name. */
-    fun writeToFolder(folder: Folder, bytes: ByteArray, at: Instant): String = name(at).also { folder.create(it, bytes) }
+    fun writeToFolder(folder: Folder, bytes: ByteArray, at: Instant): String =
+        (name(at).removeSuffix(".pvault") + "_" + java.util.UUID.randomUUID() + ".pvault").also { folder.create(it, bytes) }
 
     /** The folder at [uri]: a picked folder (tree URI with a persisted grant), or a plain directory (file URI, used by device tests). */
     fun folder(resolver: ContentResolver, uri: Uri): Folder =
@@ -104,6 +116,8 @@ object AutoBackupRunner {
             val result = lock.withLock {
                 try {
                     if (!force && settings.lastDigest?.let { java.security.MessageDigest.isEqual(it, ready.digest) } == true) return@withLock Result.unchanged
+                    // Recheck inside the writer lock: a preceding queued backup may have just reset the interval.
+                    if (!force && settings.remainingMillis() > 0) return@withLock Result.unchanged
                     val location = settings.location?.takeIf { settings.enabled } ?: return@withLock Result.skipped
                     val now = Instant.now()
                     AutoBackupFiles.writeToFolder(AutoBackupFiles.folder(resolver, location), ready.export.bytes, now)

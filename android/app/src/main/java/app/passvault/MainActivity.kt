@@ -142,6 +142,7 @@ class MainActivity : FragmentActivity() {
     private var remaining by mutableIntStateOf(10)
     private var erased by mutableStateOf(false)
     private var backgroundLock: Job? = null
+    private var autoBackupTimer: kotlinx.coroutines.Job? = null
     private var backgroundSince = 0L
     private var lockTimeout: Long? = null
     private var systemPickerOpen = false
@@ -777,6 +778,7 @@ class MainActivity : FragmentActivity() {
         if (vaultRetry.take() && !ready) openVault(retry = true)
         if (recoveryRetry.take()) recoverFiles(retry = true)
         autoBiometrics()
+        autoBackup(force = false)
     }
     /** Also called when asynchronous startup completes after onResume. */
     private fun autoBiometrics() {
@@ -808,6 +810,7 @@ class MainActivity : FragmentActivity() {
     }
     /** A worker may retain this activity after destruction; release its decrypted records and every transient secret at once. */
     private fun clearVaultSession() {
+        autoBackupTimer?.cancel(); autoBackupTimer = null
         generation++; unlocked = false; records = emptyList(); decoySession = false; decoyEnabled = false; decoyResettable = false; selected = emptySet(); query = ""; favorites = false; group = null; kind = null; viewing = null; editing = false; settings = false; health = false; settingsDialog = null; receiving = false;
         message = ""; messageError = false
         scannedImport = null; cameraGranted = null; imageRead = null
@@ -820,6 +823,7 @@ class MainActivity : FragmentActivity() {
         biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
     }
     override fun onDestroy() {
+        autoBackupTimer?.cancel(); autoBackupTimer = null
         updates?.close()
         clearVaultSession()
         unregisterReceiver(screenOff); discardTransfer()
@@ -831,6 +835,7 @@ class MainActivity : FragmentActivity() {
         if (!ready || busy) { cleanup(); return }
         busy = true; message = ""; messageError = false; val epoch = generation
         lifecycleScope.launch {
+            var completed = false
             try {
                 var decoy = false; var hasDecoy = false; var canResetDecoy = false; var attemptsRemaining = 10
                 val result = withContext(vaultQueue) { VaultAccess.serialized {
@@ -851,9 +856,9 @@ class MainActivity : FragmentActivity() {
                     // Only the vault that made a pending transfer may see it again.
                     sending?.let { if (it.source != fileVault() || SystemClock.elapsedRealtime() >= it.expiresAt) discardTransfer() }
                 }
-                remaining = attemptsRemaining; done()
+                remaining = attemptsRemaining; done(); completed = true
             } catch (e: Exception) { reportWorkError(e) }
-            finally { cleanup(); busy = false }
+            finally { cleanup(); busy = false; if (completed) autoBackup(force = false) }
         }
     }
     /** Debug builds: keep how long the unlock took and where in Settings → Last unlock. Release builds record nothing. */
@@ -1538,9 +1543,16 @@ class MainActivity : FragmentActivity() {
             SettingsDialog.AutoBackup -> {
                 val auto = remember(autoBackupState, lastBackup) { autoBackups }
                 AlertDialog(onDismissRequest = { dialog = null }, icon = { Icon(Icons.Outlined.CloudSync, null) }, title = { Text(stringResource(R.string.auto_backup_title)) },
-                    text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    text = { HardenWindow(); Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(stringResource(R.string.auto_backup_status_folder, auto.name))
                         Text(auto.lastAutomatic?.let { stringResource(R.string.auto_backup_last, formatUpdated(it.toString()).orEmpty()) } ?: stringResource(R.string.auto_backup_never), style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.auto_backup_frequency))
+                        AutoBackupFrequency.entries.forEach { option ->
+                            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().selectable(auto.frequency == option, onClick = { setAutoBackupFrequency(option) }).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(auto.frequency == option, null); Text("  " + stringResource(autoBackupFrequencyLabel(option)))
+                            }
+                        }
+                        Text(stringResource(R.string.auto_backup_frequency_help), style = MaterialTheme.typography.bodySmall)
                         if (auto.problem != null) Text(autoBackupProblem(auto), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         if (auto.problem != AutoBackupSettings.Problem.keyGone) OutlinedButton(onClick = { dialog = null; autoBackup(force = true, announce = true) }, Modifier.fillMaxWidth(), enabled = !busy) { Icon(Icons.Outlined.Backup, null); Text("  " + stringResource(R.string.auto_backup_now)) }
                         OutlinedButton(onClick = { dialog = SettingsDialog.AutoBackupSetup }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.FolderOpen, null); Text("  " + stringResource(R.string.auto_backup_change)) }
@@ -1767,10 +1779,12 @@ class MainActivity : FragmentActivity() {
      * file is written in the background.
      */
     private fun autoBackup(force: Boolean, announce: Boolean = false) {
+        autoBackupTimer?.cancel(); autoBackupTimer = null
         if (!::engine.isInitialized || !unlocked) return
         val settings = autoBackups
         val sealed = settings.sealedKey ?: return
         if (!settings.enabled || (!force && (busy || settings.problem == AutoBackupSettings.Problem.keyGone))) return
+        if (!force && scheduleAutoBackup(settings)) return
         val decoy = decoySession; val epoch = generation
         val result = runCatching { engine.exportAutomatic(sealed, settings.lastDigest, force) { d -> BackupStatus(prefs, if (d) "decoy." else "").instance } }.getOrNull() ?: return
         when (result) {
@@ -1780,6 +1794,7 @@ class MainActivity : FragmentActivity() {
                 lifecycleScope.launch(Dispatchers.Main) {
                     if (epoch != generation || !unlocked || decoy != decoySession) return@launch
                     loadBackupStatus(); autoBackupState++
+                    scheduleAutoBackup(settings)
                     when {
                         // Asked for: confirm in a dialog, saved or not.
                         announce && outcome == AutoBackupRunner.Result.saved ->
@@ -1792,6 +1807,24 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+    /** Returns true when the next interval has not elapsed. No timer runs after locking. */
+    private fun scheduleAutoBackup(settings: AutoBackupSettings): Boolean {
+        autoBackupTimer?.cancel(); autoBackupTimer = null
+        val wait = settings.remainingMillis()
+        if (!unlocked || !settings.enabled || settings.problem == AutoBackupSettings.Problem.keyGone || wait <= 0) return false
+        autoBackupTimer = lifecycleScope.launch { delay(wait); autoBackup(force = false) }
+        return true
+    }
+    private fun setAutoBackupFrequency(frequency: AutoBackupFrequency) {
+        autoBackups.frequency = frequency; autoBackupState++
+        autoBackup(force = false)
+    }
+    private fun autoBackupFrequencyLabel(frequency: AutoBackupFrequency): Int = when (frequency) {
+        AutoBackupFrequency.instant -> R.string.auto_backup_instant
+        AutoBackupFrequency.daily -> R.string.auto_backup_daily
+        AutoBackupFrequency.weekly -> R.string.auto_backup_weekly
+        AutoBackupFrequency.monthly -> R.string.auto_backup_monthly
+    }
     private fun autoBackupProblem(settings: AutoBackupSettings) = when (settings.problem) {
         AutoBackupSettings.Problem.keyGone -> getString(R.string.auto_backup_problem_key)
         AutoBackupSettings.Problem.noAccess -> getString(R.string.auto_backup_problem_access, settings.name)
@@ -1802,6 +1835,7 @@ class MainActivity : FragmentActivity() {
         val settings = AutoBackupSettings(prefs, prefix)
         settings.location?.let { runCatching { contentResolver.releasePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
         settings.clear(); autoBackupState++
+        autoBackupTimer?.cancel(); autoBackupTimer = null
     }
     private fun cancelExportChoice() { exportChoice = null; discardPendingExport(); messageError = false; message = getString(R.string.main_export_cancelled) }
     private fun saveExport() {

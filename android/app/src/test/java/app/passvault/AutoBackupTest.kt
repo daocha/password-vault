@@ -9,6 +9,51 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 class AutoBackupTest {
+    @Test fun frequencyDefaultsToInstantAndBelongsToEachVault() {
+        val prefs = preferences(); val settings = AutoBackupSettings(prefs); val decoy = AutoBackupSettings(prefs, "decoy.")
+        assertEquals(AutoBackupFrequency.instant, settings.frequency)
+        settings.frequency = AutoBackupFrequency.weekly
+        assertEquals(AutoBackupFrequency.weekly, AutoBackupSettings(prefs).frequency)
+        assertEquals(AutoBackupFrequency.instant, decoy.frequency)
+        settings.turnOn("content://backups", "Backups", byteArrayOf(1))
+        assertEquals(AutoBackupFrequency.weekly, settings.frequency)
+        settings.clear()
+        assertEquals(AutoBackupFrequency.instant, settings.frequency)
+        prefs.edit().putString("autoBackupFrequency", "invalid").apply()
+        assertEquals(AutoBackupFrequency.instant, settings.frequency)
+    }
+
+    @Test fun intervalsUseTheLastSuccessfulBackupWithAnInclusiveBoundary() {
+        val last = Instant.parse("2026-11-19T10:00:00Z")
+        for (frequency in AutoBackupFrequency.entries) {
+            assertEquals(0L, frequency.remainingMillis(null, last))
+            if (frequency == AutoBackupFrequency.instant) {
+                assertEquals(0L, frequency.remainingMillis(last, last.minusSeconds(60)))
+                continue
+            }
+            assertEquals(frequency.seconds * 1000, frequency.remainingMillis(last, last))
+            assertEquals(1L, frequency.remainingMillis(last, last.plusSeconds(frequency.seconds).minusMillis(1)))
+            assertEquals(0L, frequency.remainingMillis(last, last.plusSeconds(frequency.seconds)))
+            assertEquals(0L, frequency.remainingMillis(last, last.plusSeconds(frequency.seconds + 1)))
+            assertEquals((frequency.seconds + 60) * 1000, frequency.remainingMillis(last, last.minusSeconds(60)))
+        }
+        val settings = AutoBackupSettings(preferences())
+        settings.frequency = AutoBackupFrequency.daily
+        settings.succeeded(byteArrayOf(1), last)
+        settings.failed(AutoBackupSettings.Problem.writeFailed)
+        assertEquals(last, settings.lastAutomatic)
+        assertEquals(86_399_000L, settings.remainingMillis(last.plusSeconds(1)))
+    }
+
+    @Test fun rapidBackupsKeepEveryVersionEvenWithinOneSecond() {
+        val files = mutableMapOf<String, ByteArray>()
+        val folder = AutoBackupFiles.Folder { name, bytes -> check(name !in files); files[name] = bytes }
+        val at = Instant.parse("2026-11-19T10:00:00Z")
+        repeat(20) { AutoBackupFiles.writeToFolder(folder, byteArrayOf(it.toByte()), at) }
+        assertEquals(20, files.size)
+        assertEquals((0..19).toSet(), files.values.map { it.single().toInt() }.toSet())
+    }
+
     @Test fun namesSortByAge() {
         val at = Instant.parse("2026-11-19T10:31:05Z")
         assertEquals("passvault_auto_2026-11-19_10_31_05.pvault", AutoBackupFiles.name(at, ZoneOffset.UTC))

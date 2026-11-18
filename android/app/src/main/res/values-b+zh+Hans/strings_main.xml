@@ -216,7 +216,7 @@
     <string name="export_sent_not_counted">未计为备份。</string>
     <string name="auto_backup_title">自动备份</string>
     <string name="auto_backup_on">开 · %1$s</string>
-    <string name="auto_backup_body">每次修改后，当你锁定 PassVault 或离开应用时，它会自动把加密备份保存到你一次选定的文件夹。每次备份都是一个新文件，用你的主密码打开。PassVault 本身从不联网。</string>
+    <string name="auto_backup_body">默认每次修改后，PassVault 都会把加密备份保存到你一次选定的文件夹。你也可以选择每天、每周或每月备份。每次备份都是一个新文件，用你的主密码打开。PassVault 本身从不联网。</string>
     <string name="auto_backup_places">请选择一个会被其他应用复制到手机以外的文件夹：Google 云端硬盘或 OneDrive 中的文件夹、云盘应用会备份的文件夹（例如百度网盘的文件夹备份）、电脑同步文件夹、SD 卡或 U 盘。</string>
     <string name="auto_backup_choose_folder">选择文件夹</string>
     <string name="auto_backup_status_folder">保存到文件夹 %1$s。每次备份都是一个新文件，旧备份会一直保留，直到你删除。</string>
@@ -235,4 +235,10 @@
     <string name="auto_backup_problem_write">上一次自动备份未能保存。PassVault 会在下次重试。</string>
     <string name="auto_backup_done_title">备份已保存</string>
     <string name="auto_backup_failed_title">备份未保存</string>
+    <string name="auto_backup_frequency">备份频率</string>
+    <string name="auto_backup_instant">即时</string>
+    <string name="auto_backup_daily">每天</string>
+    <string name="auto_backup_weekly">每周</string>
+    <string name="auto_backup_monthly">每月</string>
+    <string name="auto_backup_frequency_help">即时模式在每次修改后备份。每天、每周和每月分别在上次成功自动备份的 1、7 或 30 天后备份，且仅在内容有变化时保存。备份在保险库解锁时运行；逾期的修改会在下次解锁时备份。</string>
 </resources>

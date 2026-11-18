@@ -216,7 +216,7 @@
     <string name="export_sent_not_counted">Not counted as a backup.</string>
     <string name="auto_backup_title">Automatic backup</string>
     <string name="auto_backup_on">On · %1$s</string>
-    <string name="auto_backup_body">After you change something, PassVault saves an encrypted backup by itself when you lock it or leave the app, to a folder you choose once. Each backup is a new file and opens with your app password. PassVault itself never goes online.</string>
+    <string name="auto_backup_body">PassVault saves an encrypted backup after every change by default, to a folder you choose once. You can also choose daily, weekly or monthly backups. Each backup is a new file and opens with your app password. PassVault itself never goes online.</string>
     <string name="auto_backup_places">Choose a folder that another app copies off this phone: a folder in Google Drive or OneDrive, a folder your cloud app backs up (for example Baidu Netdisk folder backup), a computer sync folder, an SD card or a USB drive.</string>
     <string name="auto_backup_choose_folder">Choose a folder</string>
     <string name="auto_backup_status_folder">Saving to the folder %1$s. Each backup is a new file; older ones stay until you delete them.</string>
@@ -235,4 +235,10 @@
     <string name="auto_backup_problem_write">The last automatic backup could not be saved. PassVault tries again next time.</string>
     <string name="auto_backup_done_title">Backup saved</string>
     <string name="auto_backup_failed_title">Backup not saved</string>
+    <string name="auto_backup_frequency">Frequency</string>
+    <string name="auto_backup_instant">Instant</string>
+    <string name="auto_backup_daily">Daily</string>
+    <string name="auto_backup_weekly">Weekly</string>
+    <string name="auto_backup_monthly">Monthly</string>
+    <string name="auto_backup_frequency_help">Instant saves after every change. Daily, weekly and monthly wait 1, 7 or 30 days after the last successful automatic backup. Only changed contents are saved. Backups run while the vault is unlocked; overdue changes are backed up on your next unlock.</string>
 </resources>

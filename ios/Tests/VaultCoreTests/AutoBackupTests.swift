@@ -11,6 +11,50 @@ final class AutoBackupTests: XCTestCase {
     }
     private func named(_ name: String) -> VaultRecord { var record = VaultRecord(); record.name = name; return record }
 
+    func testFrequencyDefaultsPersistenceAndIntervalBoundaries() throws {
+        let suite = "PassVault.frequency.\(UUID())", defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AutoBackupSettings(defaults: defaults), decoy = AutoBackupSettings(defaults: defaults, decoy: true)
+        XCTAssertEqual(settings.frequency, .instant)
+        settings.frequency = .weekly
+        XCTAssertEqual(AutoBackupSettings(defaults: defaults).frequency, .weekly)
+        XCTAssertEqual(decoy.frequency, .instant)
+        settings.turnOn(folderBookmark: Data([1]), name: "Backups", sealedKey: Data([2]))
+        XCTAssertEqual(settings.frequency, .weekly)
+        settings.clear()
+        XCTAssertEqual(settings.frequency, .instant)
+        defaults.set("invalid", forKey: "autoBackupFrequency")
+        XCTAssertEqual(settings.frequency, .instant)
+        let last = Date(timeIntervalSince1970: 1_795_084_265)
+        for frequency in AutoBackupFrequency.allCases {
+            XCTAssertEqual(frequency.remaining(since: nil, now: last), 0)
+            if frequency == .instant {
+                XCTAssertEqual(frequency.remaining(since: last, now: last.addingTimeInterval(-60)), 0)
+                continue
+            }
+            XCTAssertEqual(frequency.remaining(since: last, now: last), frequency.seconds)
+            XCTAssertEqual(frequency.remaining(since: last, now: last.addingTimeInterval(frequency.seconds - 1)), 1)
+            XCTAssertEqual(frequency.remaining(since: last, now: last.addingTimeInterval(frequency.seconds)), 0)
+            XCTAssertEqual(frequency.remaining(since: last, now: last.addingTimeInterval(frequency.seconds + 1)), 0)
+            XCTAssertEqual(frequency.remaining(since: last, now: last.addingTimeInterval(-60)), frequency.seconds + 60)
+        }
+        settings.succeeded(digest: Data([1]), at: last)
+        settings.failed(.writeFailed)
+        XCTAssertEqual(settings.lastAutomatic, last)
+    }
+
+    func testRapidBackupsKeepEveryVersionEvenWithinOneSecond() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let at = Date()
+        for step in 0..<20 { try AutoBackupFiles.write(Data([UInt8(step)]), to: folder, at: at) }
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        XCTAssertEqual(files.count, 20)
+        let bytes = try files.map { try Data(contentsOf: folder.appendingPathComponent($0)).first! }
+        XCTAssertEqual(Set(bytes), Set((0..<20).map { UInt8($0) }))
+    }
+
     func testNamesMatchAndroidAndSortByAge() {
         let at = Date(timeIntervalSince1970: 1_795_084_265) // 2026-11-19 10:31:05 UTC
         XCTAssertEqual(AutoBackupFiles.name(at: at, timeZone: TimeZone(identifier: "UTC")!), "passvault_auto_2026-11-19_10_31_05.pvault")
@@ -129,7 +173,7 @@ final class AutoBackupTests: XCTestCase {
         XCTAssertTrue(source.contains("model.autoBackups.failed(.keyGone)"), "a password change pauses automatic backups")
         XCTAssertTrue(source.contains("panel = .autoBackup\n        model.autoBackup(force: true, announce: true)"), "choosing the folder shows the panel with Back up now")
         let english = try String(contentsOf: app.appendingPathComponent("en.lproj/Localizable.strings"), encoding: .utf8)
-        let keys = ["Automatic backup", "On · %@", "Choose a folder", "Back up now", "Choose another folder", "Saved to %@ at %@.", "Backup saved", "Backup not saved",
+        let keys = ["Frequency", "Instant", "Daily", "Weekly", "Monthly", "Automatic backup", "On · %@", "Choose a folder", "Back up now", "Choose another folder", "Saved to %@ at %@.", "Backup saved", "Backup not saved",
                     "No automatic backup saved yet.", "Paused: your app password changed. Choose the folder again to resume.", "Paused: PassVault can no longer open %@. Choose the folder again.",
                     "The last automatic backup could not be saved. PassVault tries again next time.", "Saving to the folder %@. Each backup is a new file; older ones stay until you delete them."]
         for language in ["en", "zh-Hans", "zh-Hant"] {

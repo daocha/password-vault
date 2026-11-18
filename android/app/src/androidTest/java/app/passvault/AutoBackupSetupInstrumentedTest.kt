@@ -13,6 +13,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.security.KeyStore
+import java.time.Instant
 
 /**
  * Setting up automatic backup through the screen's own code, as the Settings buttons do: the password check and key sealing run through
@@ -109,12 +110,37 @@ class AutoBackupSetupInstrumentedTest {
 
             // Back up now: another file, confirmed again; the first one stays.
             instrumentation.runOnMainSync { MainActivity::class.java.getDeclaredMethod("setAutoBackupNotice", Class.forName("app.passvault.MainActivity\$AutoBackupNotice")).apply { isAccessible = true }.invoke(activity, null) }
-            Thread.sleep(1100) // a new second, so a new name
             instrumentation.runOnMainSync { call(activity, "autoBackup", Boolean::class.javaPrimitiveType!! to true, Boolean::class.javaPrimitiveType!! to true) }
             waitFor("Back up now is confirmed in a dialog") { notice() != null }
             assertTrue(saved(notice()))
             assertEquals(2, target.listFiles()!!.size)
             assertNotNull("it counts for the backup reminder", BackupStatus(context.getSharedPreferences("settings", Activity.MODE_PRIVATE)).lastBackup)
+
+            assertEquals(AutoBackupFrequency.instant, settings.frequency)
+            val initialDigest = settings.lastDigest!!
+            val added = VaultRecord(name = "Mail")
+            instrumentation.runOnMainSync {
+                call(activity, "saveRecord", VaultRecord::class.java to added, Function0::class.java to {})
+            }
+            waitFor("instant backs up a saved change without locking or leaving") { target.listFiles()!!.size == 3 && settings.lastDigest?.contentEquals(initialDigest) == false }
+            val last = settings.lastAutomatic!!
+            instrumentation.runOnMainSync { call(activity, "setAutoBackupFrequency", AutoBackupFrequency::class.java to AutoBackupFrequency.daily) }
+            val deferred = VaultRecord(name = "Archive")
+            instrumentation.runOnMainSync { call(activity, "saveRecord", VaultRecord::class.java to deferred, Function0::class.java to {}) }
+            waitFor("the deferred edit finishes") { var done = false; instrumentation.runOnMainSync { done = getter(activity, "Busy") == false }; done }
+            assertEquals("daily waits for the interval", 3, target.listFiles()!!.size)
+            assertEquals(last, settings.lastAutomatic)
+            settings.succeeded(settings.lastDigest!!, Instant.now().minusSeconds(86400).plusMillis(300))
+            instrumentation.runOnMainSync { call(activity, "setAutoBackupFrequency", AutoBackupFrequency::class.java to AutoBackupFrequency.daily) }
+            waitFor("the daily timer backs up changed contents at its boundary") { target.listFiles()!!.size == 4 && settings.lastAutomatic!!.isAfter(last) }
+            assertTrue("a backup includes the deferred edit", target.listFiles()!!.any { file -> VaultCrypto.importBackup(file.readBytes(), password).any { it.name == "Archive" } })
+            instrumentation.runOnMainSync {
+                MainActivity::class.java.getDeclaredMethod("setAutoBackupNotice", Class.forName("app.passvault.MainActivity\$AutoBackupNotice")).apply { isAccessible = true }.invoke(activity, null)
+                call(activity, "autoBackup", Boolean::class.javaPrimitiveType!! to true, Boolean::class.javaPrimitiveType!! to true)
+            }
+            waitFor("Back up now bypasses the daily interval") { notice() != null }
+            assertTrue(saved(notice()))
+            assertEquals(5, target.listFiles()!!.size)
         } finally {
             // The system save picker opened by the set-up; the emulator's lock screen can keep Back from reaching it.
             for (pkg in listOf("com.google.android.documentsui", "com.android.documentsui")) instrumentation.uiAutomation.executeShellCommand("am force-stop $pkg").close()

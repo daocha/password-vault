@@ -17,7 +17,7 @@ The first 32 bytes are authenticated additional data. Readers accept a memory co
 
 The backup password is the vault's app password at the time of export, on both platforms (the decoy vault's own password for a decoy backup). It is normalized to Unicode NFKC and then UTF-8 encoded, with no trimming or NUL terminator. Derive a 32-byte key using libsodium `crypto_pwhash` with `crypto_pwhash_ALG_ARGON2ID13` and the header's cost (one lane). Encrypt with `crypto_aead_xchacha20poly1305_ietf_encrypt`. A portable backup has no device secret and no attempt limit, so the cost per password guess is the only protection beyond the password itself; version 2 raises it from version 1's 64 MiB / 3 passes.
 
-Automatic backups are ordinary version 2 files. To make them without asking for the password each time, the app derives the key once when automatic backup is set up and reuses that header (cost and salt) and key for every automatic backup, with a fresh random nonce each time. A reader cannot tell them apart from manual backups. Both apps name them `passvault_auto_yyyy-MM-dd_HH_mm_ss.pvault` (local time), one new file per backup, and never delete any.
+Automatic backups are ordinary version 2 files. To make them without asking for the password each time, the app derives the key once when automatic backup is set up and reuses that header (cost and salt) and key for every automatic backup, with a fresh random nonce each time. A reader cannot tell them apart from manual backups. Both apps name them `passvault_auto_yyyy-MM-dd_HH_mm_ss_UUID.pvault` (local time, with a random UUID so multiple changes in one second keep separate files; older files without the suffix still open), one new file per backup, and never delete any.
 
 ## Version 1 (`QVAULT01`, read only)
 

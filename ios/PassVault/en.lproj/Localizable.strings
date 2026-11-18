@@ -464,7 +464,13 @@
 "Encrypted backup exported." = "Encrypted backup exported.";
 "Plaintext CSV exported. Protect or delete this file after migration." = "Plaintext CSV exported. Protect or delete this file after migration.";
 "Saving to the folder %@. Each backup is a new file; older ones stay until you delete them." = "Saving to the folder %@. Each backup is a new file; older ones stay until you delete them.";
-"After you change something, PassVault saves an encrypted backup by itself when you lock it or leave the app, to a folder you choose once. Each backup is a new file and opens with your app password. Choose a folder that another app copies off this phone, such as a folder in iCloud Drive, Google Drive or OneDrive. PassVault itself never goes online." = "After you change something, PassVault saves an encrypted backup by itself when you lock it or leave the app, to a folder you choose once. Each backup is a new file and opens with your app password. Choose a folder that another app copies off this phone, such as a folder in iCloud Drive, Google Drive or OneDrive. PassVault itself never goes online.";
+"PassVault saves an encrypted backup after every change by default, to a folder you choose once. You can also choose daily, weekly or monthly backups. Each backup is a new file and opens with your app password. Choose a folder that another app copies off this phone, such as a folder in iCloud Drive, Google Drive or OneDrive. PassVault itself never goes online." = "PassVault saves an encrypted backup after every change by default, to a folder you choose once. You can also choose daily, weekly or monthly backups. Each backup is a new file and opens with your app password. Choose a folder that another app copies off this phone, such as a folder in iCloud Drive, Google Drive or OneDrive. PassVault itself never goes online.";
 "Saved to %@ at %@." = "Saved to %@ at %@.";
 "Backup saved" = "Backup saved";
 "Backup not saved" = "Backup not saved";
+"Frequency" = "Frequency";
+"Instant" = "Instant";
+"Daily" = "Daily";
+"Weekly" = "Weekly";
+"Monthly" = "Monthly";
+"Instant saves after every change. Daily, weekly and monthly wait 1, 7 or 30 days after the last successful automatic backup. Only changed contents are saved. Backups run while the vault is unlocked; overdue changes are backed up on your next unlock." = "Instant saves after every change. Daily, weekly and monthly wait 1, 7 or 30 days after the last successful automatic backup. Only changed contents are saved. Backups run while the vault is unlocked; overdue changes are backed up on your next unlock.";

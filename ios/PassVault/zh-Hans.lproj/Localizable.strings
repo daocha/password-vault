@@ -464,7 +464,13 @@
 "Encrypted backup exported." = "已导出加密备份。";
 "Plaintext CSV exported. Protect or delete this file after migration." = "已导出明文 CSV。迁移完成后请妥善保管或删除此文件。";
 "Saving to the folder %@. Each backup is a new file; older ones stay until you delete them." = "保存到文件夹 %@。每次备份都是一个新文件，旧备份会一直保留，直到你删除。";
-"After you change something, PassVault saves an encrypted backup by itself when you lock it or leave the app, to a folder you choose once. Each backup is a new file and opens with your app password. Choose a folder that another app copies off this phone, such as a folder in iCloud Drive, Google Drive or OneDrive. PassVault itself never goes online." = "每次修改后，当你锁定 PassVault 或离开应用时，它会自动把加密备份保存到你一次选定的文件夹。每次备份都是一个新文件，用你的主密码打开。请选择一个会被其他应用复制到手机以外的文件夹，例如 iCloud 云盘、Google 云端硬盘或 OneDrive 中的文件夹。PassVault 本身从不联网。";
+"PassVault saves an encrypted backup after every change by default, to a folder you choose once. You can also choose daily, weekly or monthly backups. Each backup is a new file and opens with your app password. Choose a folder that another app copies off this phone, such as a folder in iCloud Drive, Google Drive or OneDrive. PassVault itself never goes online." = "默认每次修改后，PassVault 都会把加密备份保存到你一次选定的文件夹。你也可以选择每天、每周或每月备份。每次备份都是一个新文件，用你的主密码打开。请选择一个会被其他应用复制到手机以外的文件夹，例如 iCloud 云盘、Google 云端硬盘或 OneDrive 中的文件夹。PassVault 本身从不联网。";
 "Saved to %@ at %@." = "已于 %2$@ 保存到 %1$@。";
 "Backup saved" = "备份已保存";
 "Backup not saved" = "备份未保存";
+"Frequency" = "备份频率";
+"Instant" = "即时";
+"Daily" = "每天";
+"Weekly" = "每周";
+"Monthly" = "每月";
+"Instant saves after every change. Daily, weekly and monthly wait 1, 7 or 30 days after the last successful automatic backup. Only changed contents are saved. Backups run while the vault is unlocked; overdue changes are backed up on your next unlock." = "即时模式在每次修改后备份。每天、每周和每月分别在上次成功自动备份的 1、7 或 30 天后备份，且仅在内容有变化时保存。备份在保险库解锁时运行；逾期的修改会在下次解锁时备份。";
