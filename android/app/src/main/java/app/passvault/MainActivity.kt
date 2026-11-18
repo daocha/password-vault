@@ -275,6 +275,16 @@ class MainActivity : FragmentActivity() {
     /** Owned here only until the save picker returns; a running write owns its own snapshot. */
     private var pendingExport: VaultExport? = null
     private fun discardPendingExport() { pendingExport?.clear(); pendingExport = null }
+    /** The nearby-sharing apps offered for [pendingExport] while the user chooses between saving and sending it (encrypted backups only). */
+    private var exportChoice by mutableStateOf<List<NearbyShare.Target>?>(null)
+    /** A backup handed to a sharing app. Sharing apps do not report whether the file arrived, so the user is asked ([askArrived]). */
+    private var sentExport: VaultExport? = null
+    private var askArrived by mutableStateOf(false)
+    private val sendBackup = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        systemPickerOpen = false
+        // The copy stays in the cache until answered (or the next export or start): the sharing app may still be reading it.
+        if (sentExport != null && unlocked) askArrived = true
+    }
     private lateinit var biometricPrompt: BiometricPrompt
     // System back walks up one screen (editor → entry → list, settings → list); on the list it leaves the app.
     // Beside the list, Back clears the list's selection before closing the entry's details, but an editor comes first.
@@ -387,6 +397,7 @@ class MainActivity : FragmentActivity() {
     private fun clearVaultHistory(decoy: Boolean) {
         BackupStatus(prefs, if (decoy) "decoy." else "").clear()
         fileNotices.forgetBefore(fileVault(decoy))
+        BackupShareFiles.sweep(cacheDir)
     }
     /** The file chosen to encrypt or decrypt, waiting for the user to pick where the result goes. */
     private var fileSource: FileCrypt.Picked? = null
@@ -593,6 +604,8 @@ class MainActivity : FragmentActivity() {
         windowWide = EntrySplit.isWide(super.getResources().configuration); windowShort = EntrySplit.isShort(super.getResources().configuration); windowHealthBeside = EntrySplit.healthBeside(super.getResources().configuration)
         // Allow screenshots only in the debug APK; keep release and emulator QA screens protected.
         if (BuildConfig.BUILD_TYPE != "debug") window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        // A backup copy left from sending one before the app was closed. Not after a restart in the middle of sending (saved state).
+        if (savedInstanceState == null) lifecycleScope.launch(Dispatchers.IO) { BackupShareFiles.sweep(cacheDir) }
         // Keep autofill services and content capture (screen-context features) from reading or saving what is typed here.
         window.decorView.importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         window.decorView.importantForContentCapture = android.view.View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
@@ -667,7 +680,7 @@ class MainActivity : FragmentActivity() {
                                     } })
                             }
                         }
-                        if (unlocked) ImportDialogs()
+                        if (unlocked) { ImportDialogs(); ExportDialogs() }
                         if (unlocked) FileDialogs()
                         if (unlocked && recoveryUnavailable) AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Default.Warning, null) },
                             title = { Text(stringResource(R.string.files_attention_title)) },
@@ -785,6 +798,7 @@ class MainActivity : FragmentActivity() {
         fileCrypt = false; fileSource = null; fileFlow = false; encryptedOriginal = null; fileJob?.cancel(); fileProgress = null
         backgroundLock?.cancel(); backgroundLock = null; biometricAutoPrompted = false
         importPreview = null; importBytes?.fill(0); importBytes = null; importKeyFile?.fill(0); importKeyFile = null; discardPendingExport()
+        exportChoice = null; askArrived = false; sentExport = null
         if (::biometricPrompt.isInitialized) biometricPrompt.cancelAuthentication()
         biometricEpoch = null; enablingBiometric = false; biometricCandidate?.fill(0); biometricCandidate = null
     }
@@ -1653,12 +1667,64 @@ class MainActivity : FragmentActivity() {
                 remaining = attemptsRemaining
                 val snapshot = checkNotNull(prepared)
                 discardPendingExport(); pendingExport = snapshot; prepared = null
-                if (!launchPicker { if (snapshot.csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) discardPendingExport()
+                // An encrypted backup can also go straight to a nearby device; without a nearby-sharing app it is saved as before.
+                val targets = if (snapshot.csv) emptyList() else withContext(Dispatchers.IO) { NearbyShare.targets(packageManager) }
+                if (targets.isNotEmpty()) exportChoice = targets
+                else if (!launchPicker { if (snapshot.csv) csvExport.launch(exportFileName("csv")) else encryptedExport.launch(exportFileName("pvault")) }) discardPendingExport()
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             // After a lock, a wrong password still counted (and may have erased the vault): the unlock screen must show it.
             catch (e: Exception) { if (epoch == generation) reportWorkError(e) else refreshUnlockScreen() }
             finally { prepared?.clear(); busy = false }
         }
+    }
+    private fun cancelExportChoice() { exportChoice = null; discardPendingExport(); messageError = false; message = getString(R.string.main_export_cancelled) }
+    private fun saveExport() {
+        exportChoice = null
+        if (pendingExport == null) return
+        if (!launchPicker { encryptedExport.launch(exportFileName("pvault")) }) discardPendingExport()
+    }
+    /** Hands the prepared backup to [target] only, as a copy in the app's cache that only that app may read. */
+    private fun sendExport(target: NearbyShare.Target) {
+        exportChoice = null
+        val snapshot = pendingExport ?: return; pendingExport = null
+        val name = exportFileName("pvault"); val epoch = generation
+        lifecycleScope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) { BackupShareFiles.write(cacheDir, name, snapshot.bytes) }
+                snapshot.clear()
+                if (epoch != generation || !unlocked) { withContext(Dispatchers.IO) { BackupShareFiles.sweep(cacheDir) }; return@launch }
+                sentExport = snapshot
+                if (!launchPicker { sendBackup.launch(NearbyShare.intent(BackupShareFiles.uri(this@MainActivity, file), name, target)) }) {
+                    sentExport = null; withContext(Dispatchers.IO) { BackupShareFiles.sweep(cacheDir) }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { snapshot.clear(); throw e }
+            catch (_: Exception) { snapshot.clear(); withContext(Dispatchers.IO) { BackupShareFiles.sweep(cacheDir) }; if (epoch == generation && unlocked) { messageError = true; message = getString(R.string.main_export_failed) } }
+        }
+    }
+    /** Only a backup the user saw arrive counts, like a saved file. */
+    private fun answerArrived(arrived: Boolean) {
+        askArrived = false
+        val snapshot = sentExport ?: return; sentExport = null
+        lifecycleScope.launch(Dispatchers.IO) { BackupShareFiles.sweep(cacheDir) }
+        if (arrived) { snapshot.recordBackup(prefs, Instant.now()); loadBackupStatus() }
+        messageError = arrived && snapshot.weakPassword
+        message = getString(if (!arrived) R.string.export_sent_not_counted else if (snapshot.weakPassword) R.string.export_sent_weak else R.string.export_sent_done)
+    }
+    @Composable private fun ExportDialogs() {
+        exportChoice?.let { targets ->
+            AlertDialog(onDismissRequest = ::cancelExportChoice, icon = { Icon(Icons.Outlined.EnhancedEncryption, null) }, title = { Text(stringResource(R.string.export_choice_title)) },
+                text = { HardenWindow(); Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(stringResource(R.string.export_choice_body))
+                    Text(stringResource(R.string.export_send_warning), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = ::saveExport, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Save, null); Text("  " + stringResource(R.string.export_save_file)) }
+                    targets.forEach { target -> OutlinedButton(onClick = { sendExport(target) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Share, null); Text("  " + stringResource(R.string.export_send_with, target.label)) } }
+                } },
+                confirmButton = {}, dismissButton = { TextButton(onClick = ::cancelExportChoice) { Text(stringResource(R.string.main_cancel)) } })
+        }
+        if (askArrived) AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Outlined.Share, null) }, title = { Text(stringResource(R.string.export_arrived_title)) },
+            text = { Text(stringResource(R.string.export_arrived_body)) },
+            confirmButton = { TextButton(onClick = { answerArrived(true) }) { Text(stringResource(R.string.export_arrived_yes)) } },
+            dismissButton = { TextButton(onClick = { answerArrived(false) }) { Text(stringResource(R.string.export_arrived_no)) } })
     }
     private fun exportError(e: Exception) = when (e) {
         is FileCrypt.LeftBehind -> getString(R.string.main_export_left_behind)

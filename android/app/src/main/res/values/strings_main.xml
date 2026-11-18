@@ -202,4 +202,16 @@
     <string name="main_language_english">English</string>
     <string name="main_language_zh_hans">简体中文</string>
     <string name="main_language_zh_hant">繁體中文</string>
+    <string name="export_choice_title">Save or send this backup?</string>
+    <string name="export_choice_body">Save it to a file, or send it straight to your own phone, tablet or computer nearby.</string>
+    <string name="export_send_warning">Send it only to a device you own or trust. Anyone who gets this file can keep trying to guess your app password.</string>
+    <string name="export_save_file">Save to a file</string>
+    <string name="export_send_with">Send with %1$s</string>
+    <string name="export_arrived_title">Did the backup arrive?</string>
+    <string name="export_arrived_body">It counts as a backup only if the other device received the file.</string>
+    <string name="export_arrived_yes">Yes, it arrived</string>
+    <string name="export_arrived_no">No</string>
+    <string name="export_sent_done">Encrypted backup sent.</string>
+    <string name="export_sent_weak">Encrypted backup sent, but your app password is easy to guess: someone who gets this file could crack it. Change the password in Settings, send a new backup, and delete this one.</string>
+    <string name="export_sent_not_counted">Not counted as a backup.</string>
 </resources>

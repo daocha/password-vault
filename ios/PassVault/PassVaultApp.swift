@@ -51,6 +51,8 @@ import AVFoundation
         engine = initialized
         erased = (try? initialized?.isErased()) ?? false
         loadBackupStatus()
+        // A backup copy left from sending one before the app was closed.
+        BackupShare.sweep(in: FileManager.default.temporaryDirectory)
     }
     func loadBackupStatus() {
         lastBackup = backups.lastBackup; backupSnapshotAt = backups.snapshotAt
@@ -188,6 +190,7 @@ import AVFoundation
         do {
             try engine.resetErasedVault()
             BackupStatus(defaults: backupPreferences).clear(); forgetDecoyBackups(); loadBackupStatus()
+            BackupShare.sweep(in: FileManager.default.temporaryDirectory)
             biometricEnabled = false; erased = false; exists = false; attempts = 10; show("Create a new vault, then import your backup.", error: false)
         }
         catch { show(error.localizedDescription) }
@@ -465,6 +468,8 @@ struct TransferView: View {
     @State private var importing = false
     @State private var exporting = false
     @State private var document: ExportDocument?
+    /// An encrypted backup is ready: save it to Files or send it to a nearby device.
+    @State private var choosingDestination = false
     @State private var pendingImport: [VaultRecord]?
     @State private var receiving = false
     @State private var decoyPassword = ""
@@ -716,6 +721,13 @@ struct TransferView: View {
                 .confirmationDialog("Remove the decoy vault and everything in it? Your real vault is not affected.", isPresented: $removingDecoy, titleVisibility: .visible) {
                     Button("Remove decoy vault", role: .destructive) { let current = password; password = ""; model.run({ try $0.removeDecoy(password: current); return nil }, done: { model.hasDecoy = false; model.canResetDecoy = false; model.forgetDecoyBackups(); model.show("Decoy vault removed.", error: false) }) }
                 }
+                .confirmationDialog("Save or send this backup?", isPresented: $choosingDestination, titleVisibility: .visible) {
+                    Button("Save to Files") { DispatchQueue.main.async { exporting = true } }
+                    Button("Send to a nearby device") { sendBackup() }
+                    Button("Cancel", role: .cancel) { document = nil }
+                } message: {
+                    Text("Send it only to a device you own or trust, with AirDrop. Anyone who gets this file can keep trying to guess your app password.")
+                }
                 .fileExporter(isPresented: $exporting, document: document, contentType: csv ? .commaSeparatedText : .data, defaultFilename: exportFileName(csv ? "csv" : "pvault")) { [exported = document?.exported] result in
                     document = nil
                     switch result {
@@ -758,6 +770,21 @@ struct TransferView: View {
         default: model.show("Camera access is needed to scan. Allow it in Settings, or use a transfer file.")
         }
     }
+    /// Hands a copy of the prepared backup to the trimmed share sheet. It counts as a backup when iOS reports the share completed.
+    private func sendBackup() {
+        guard let exported = document?.exported else { return }
+        document = nil
+        let temporary = FileManager.default.temporaryDirectory
+        do {
+            let file = try BackupShare.write(exported.data, name: exportFileName("pvault"), in: temporary)
+            DispatchQueue.main.async {
+                BackupShareSheet.present(file) { completed in
+                    BackupShare.sweep(in: temporary)
+                    if completed { model.recordBackup(exported); model.show("Encrypted backup sent.", error: false) }
+                }
+            }
+        } catch { model.show(error.localizedDescription) }
+    }
     private func export() {
         guard !model.busy, let engine = model.engine else { return }
         let pass = password, isCSV = csv, defaults = model.backupPreferences
@@ -765,7 +792,10 @@ struct TransferView: View {
         Task {
             do {
                 let exported = try await Task.detached { try engine.prepareExport(password: pass, csv: isCSV, instance: { BackupStatus(defaults: defaults, decoy: $0).instance }) }.value
-                if model.unlocked { document = ExportDocument(data: exported.data, exported: exported); exporting = true }
+                if model.unlocked {
+                    document = ExportDocument(data: exported.data, exported: exported)
+                    if isCSV { exporting = true } else { choosingDestination = true }
+                }
             } catch { model.show(error.localizedDescription); model.lock(); model.attempts = (try? engine.remainingAttempts()) ?? 0; model.erased = (try? engine.isErased()) ?? false }
             model.busy = false
         }

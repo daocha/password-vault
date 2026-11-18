@@ -440,3 +440,8 @@
 "No entry selected" = "No entry selected";
 "Choose an entry from the list, or add a new one." = "Choose an entry from the list, or add a new one.";
 "Choose an entry from the report to see it here." = "Choose an entry from the report to see it here.";
+"Save or send this backup?" = "Save or send this backup?";
+"Save to Files" = "Save to Files";
+"Send to a nearby device" = "Send to a nearby device";
+"Send it only to a device you own or trust, with AirDrop. Anyone who gets this file can keep trying to guess your app password." = "Send it only to a device you own or trust, with AirDrop. Anyone who gets this file can keep trying to guess your app password.";
+"Encrypted backup sent." = "Encrypted backup sent.";
