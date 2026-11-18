@@ -31,7 +31,7 @@ This repository is a native implementation under development, not an audited or 
 | File encryption (Android) | Encrypts any file to a key kept in the vault, as a standard age v1 file saved wherever the user chooses; the vault holds only the key, so it travels with backups and transfers. New keys are post-quantum (ML-KEM-768 + X25519), so a computer needs age 1.3.0 or later; existing age keys can be added. Checked against the official age tools in CI, in both directions. Decrypts files from the `age` tool (binary or armored) and checks the header before asking where to save; damaged or cancelled output is deleted. Tested against the age test kit (`fixtures/age-testkit`). iOS does not encrypt or decrypt files: imported keys are preserved for encrypted backups and transfers, shown read-only with an unsupported-feature warning, and excluded from CSV as secure notes. Both platforms warn before deleting keys. See [FILE-ENCRYPTION.md](FILE-ENCRYPTION.md) |
 | CSV migration | Supplied CSV tested; legacy metadata and unknown custom payloads preserved |
 | Encrypted backup | Same documented Argon2id/XChaCha20-Poly1305 file format on both platforms |
-| Export authorization | Requires current app password (a counted attempt) for every export, including CSV; Android encrypts backups with the app password |
+| Export authorization | Requires current app password (a counted attempt) for every export, including CSV; both apps encrypt backups with that app password |
 | Import safety | Bounded parse, full authentication before import, append confirmation |
 | 10 failures | Durable reservation before password checking; erasure tombstone precedes key/blob cleanup |
 | Recovery after wipe | Explicitly create a new vault, then restore an independent export |
