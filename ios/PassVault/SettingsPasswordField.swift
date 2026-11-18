@@ -24,6 +24,8 @@ struct SettingsPasswordField: UIViewControllerRepresentable {
 
     final class Controller: UIViewController {
         let field = Field()
+        /// Shows or hides the typed password, like the eye on every other password box.
+        let eye = UIButton(type: .system)
         var text: Binding<String>
 
         init(text: Binding<String>) {
@@ -46,7 +48,25 @@ struct SettingsPasswordField: UIViewControllerRepresentable {
             field.spellCheckingType = .no
             field.text = text.wrappedValue
             field.addTarget(self, action: #selector(edited), for: .editingChanged)
+            eye.tintColor = .secondaryLabel
+            eye.frame = CGRect(x: 0, y: 0, width: 40, height: 34)
+            eye.addTarget(self, action: #selector(toggleShown), for: .touchUpInside)
+            field.rightView = eye
+            field.rightViewMode = .always
+            setShown(false)
             view = field
+        }
+
+        @objc func toggleShown() { setShown(field.isSecureTextEntry) }
+
+        func setShown(_ shown: Bool) {
+            if field.isSecureTextEntry == shown {
+                field.isSecureTextEntry = !shown
+                // A secure box that gets the keyboard back clears itself on the next key. Typing the text in again keeps it.
+                if !shown, field.isFirstResponder, let existing = field.text, !existing.isEmpty { field.text = ""; field.insertText(existing); edited() }
+            }
+            eye.setImage(UIImage(systemName: shown ? "eye.slash" : "eye"), for: .normal)
+            eye.accessibilityLabel = localized(shown ? "Hide password" : "Show password")
         }
 
         override func viewDidAppear(_ animated: Bool) {
