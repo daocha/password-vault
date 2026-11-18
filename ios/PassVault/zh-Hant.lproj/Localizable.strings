@@ -447,3 +447,5 @@
 "Encrypted backup sent." = "已傳送加密備份。";
 "Show password" = "顯示密碼";
 "Hide password" = "隱藏密碼";
+"Encrypted backup exported." = "已匯出加密備份。";
+"Plaintext CSV exported. Protect or delete this file after migration." = "已匯出純文字 CSV。遷移完成後請妥善保管或刪除此檔案。";

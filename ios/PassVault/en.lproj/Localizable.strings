@@ -447,3 +447,5 @@
 "Encrypted backup sent." = "Encrypted backup sent.";
 "Show password" = "Show password";
 "Hide password" = "Hide password";
+"Encrypted backup exported." = "Encrypted backup exported.";
+"Plaintext CSV exported. Protect or delete this file after migration." = "Plaintext CSV exported. Protect or delete this file after migration.";
