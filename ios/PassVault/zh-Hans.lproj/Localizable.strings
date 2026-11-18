@@ -440,3 +440,5 @@
 "No entry selected" = "未选择条目";
 "Choose an entry from the list, or add a new one." = "从列表中选择一个条目，或添加新条目。";
 "Choose an entry from the report to see it here." = "从报告中选择一个条目，在此查看。";
+"Show password" = "显示密码";
+"Hide password" = "隐藏密码";

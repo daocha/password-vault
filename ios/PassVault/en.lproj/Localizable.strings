@@ -440,3 +440,5 @@
 "No entry selected" = "No entry selected";
 "Choose an entry from the list, or add a new one." = "Choose an entry from the list, or add a new one.";
 "Choose an entry from the report to see it here." = "Choose an entry from the report to see it here.";
+"Show password" = "Show password";
+"Hide password" = "Hide password";
