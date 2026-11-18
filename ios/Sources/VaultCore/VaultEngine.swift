@@ -97,7 +97,7 @@ public final class VaultEngine: @unchecked Sendable {
     private var records = [VaultRecord]()
     /// Whether the open vault is the decoy one. Every operation acts on the open vault only.
     private var activeDecoy = false
-    /// Set by each password or biometric unlock in debug builds only (release builds leave it nil), for the timing message and Settings row. Read under the engine's lock: the app reads it on the main thread.
+    /// Set by each password or biometric unlock in debug builds only (release builds leave it nil), for the Settings row. Read under the engine's lock: the app reads it on the main thread.
     private var unlockTiming: UnlockTiming?
     public var lastUnlockTiming: UnlockTiming? { serialized { unlockTiming } }
     private var hashingMilliseconds = 0

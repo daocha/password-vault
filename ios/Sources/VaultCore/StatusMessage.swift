@@ -1,6 +1,6 @@
 import Foundation
 
-/// The one-line message the app shows over the vault (errors, confirmations, the debug unlock timing). Mirrors Android's
+/// The one-line message the app shows over the vault (errors, confirmations, details requested in Settings). Mirrors Android's
 /// snackbar: it closes with OK or by itself after `displaySeconds`, and errors are marked as errors.
 /// Each `show` gets a new `serial`, so a timer started for an earlier message never hides a newer one, even one with the same text.
 public struct StatusMessage: Equatable, Sendable {

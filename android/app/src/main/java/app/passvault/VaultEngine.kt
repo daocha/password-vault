@@ -89,7 +89,7 @@ class VaultEngine(private val storage: ProtectedStorage) {
     /** Whether the open vault is the decoy one. Every operation acts on the open vault only. */
     private var activeDecoy = false
     private var loadedBlob: String? = null
-    /** Set by each password or biometric unlock in debug builds, for the timing message and the Settings row. */
+    /** Set by each password or biometric unlock in debug builds, for the Settings row. */
     @Volatile var lastUnlockTiming: UnlockTiming? = null
         private set
     private var hashingMillis = 0L

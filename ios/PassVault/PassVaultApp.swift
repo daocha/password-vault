@@ -14,7 +14,7 @@ import AVFoundation
     var message: String { status.text }
     /// How long a message stays up; tests shorten it.
     var messageSeconds = StatusMessage.displaySeconds
-    /// Debug builds: the last unlock's timing, shown after unlocking and kept in Settings.
+    /// Debug builds: the last unlock's timing, kept in Settings.
     @Published var unlockSummary = ""
     @Published var attempts = 10
     @Published var erased = false
@@ -205,13 +205,13 @@ import AVFoundation
         }
     }
     func dismissMessage() { status.dismiss() }
-    /// Debug builds: how long the unlock took and where (also kept in Settings → Last unlock). Release builds show nothing.
+    /// Debug builds: keep how long the unlock took and where in Settings → Last unlock. Release builds record nothing.
     /// The engine's own timing, plus everything until the vault is on screen (the status checks that follow the unlock).
-    func showUnlockTiming(since started: UInt64) {
+    func recordUnlockTiming(since started: UInt64) {
         #if DEBUG
         guard let timing = engine?.lastUnlockTiming else { return }
         unlockSummary = "\(timing); vault shown after \((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000) ms"
-        print("PassVault: \(unlockSummary)"); show(unlockSummary, error: false)
+        print("PassVault: \(unlockSummary)")
         #endif
     }
     func autoUnlockWithBiometrics() {
@@ -220,7 +220,7 @@ import AVFoundation
         guard protectedDataAvailable, exists, !erased, !unlocked, !busy, biometricEnabled, !biometricAutoPrompted else { return }
         biometricAutoPrompted = true
         let started = DispatchTime.now().uptimeNanoseconds
-        run({ try $0.unlockBiometric() }, done: { [weak self] in self?.showUnlockTiming(since: started) })
+        run({ try $0.unlockBiometric() }, done: { [weak self] in self?.recordUnlockTiming(since: started) })
     }
     /// A device lock always overrides the background delay, as screen-off does on Android.
     func deviceDidLock() {
@@ -394,10 +394,10 @@ struct UnlockView: View {
                         let value = password; password = ""; confirmation = ""
                         let exists = model.exists
                         let started = DispatchTime.now().uptimeNanoseconds
-                        model.run({ engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }, done: { if exists { model.showUnlockTiming(since: started) } })
+                        model.run({ engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }, done: { if exists { model.recordUnlockTiming(since: started) } })
                     }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
-                        if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { let started = DispatchTime.now().uptimeNanoseconds; model.run({ try $0.unlockBiometric() }, done: { model.showUnlockTiming(since: started) }) } }
+                        if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { let started = DispatchTime.now().uptimeNanoseconds; model.run({ try $0.unlockBiometric() }, done: { model.recordUnlockTiming(since: started) }) } }
                         Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
                     }
                 }

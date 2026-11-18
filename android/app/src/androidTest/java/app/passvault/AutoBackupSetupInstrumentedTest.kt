@@ -70,6 +70,11 @@ class AutoBackupSetupInstrumentedTest {
             instrumentation.runOnMainSync {
                 MainActivity::class.java.getDeclaredMethod("setRecords", List::class.java).apply { isAccessible = true }.invoke(activity, records)
                 MainActivity::class.java.getDeclaredMethod("setUnlocked", Boolean::class.javaPrimitiveType).apply { isAccessible = true }.invoke(activity, true)
+                // Unlock timing stays available in Settings without replacing the current status message.
+                val message = getter(activity, "Message")
+                call(activity, "recordUnlockTiming", Long::class.javaPrimitiveType!! to SystemClock.elapsedRealtime())
+                assertTrue((getter(activity, "UnlockSummary") as String).isNotEmpty())
+                assertEquals(message, getter(activity, "Message"))
                 // What the "Choose a folder" button runs: a counted password check and the sealed key, then the folder picker.
                 call(activity, "setUpAutoBackup", String::class.java to password)
             }
