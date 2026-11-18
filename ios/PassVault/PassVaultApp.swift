@@ -323,9 +323,9 @@ struct UnlockView: View {
                         Text("The local vault has been erased. You can create a new one and restore an exported backup.")
                         Button("Start a new vault") { resetConfirmation = true }
                     }
-                    SecureField("Master passphrase", text: $password).font(.system(size: 15)).textContentType(.password)
+                    PasswordInput(label: "Master passphrase", text: $password, contentType: .password)
                     if !model.exists {
-                        SecureField("Repeat passphrase", text: $confirmation).font(.system(size: 15))
+                        PasswordInput(label: "Repeat passphrase", text: $confirmation)
                         PasswordMismatch(password: password, repeated: confirmation)
                         Text(localized(VaultCrypto.passwordProblem(password) ?? VaultCrypto.passwordRule) + " " + localized("There is no password reset or cloud recovery.")).font(.footnote)
                         Toggle("I understand: 10 failed password attempts erase the local vault", isOn: $acknowledge)
@@ -662,8 +662,8 @@ struct TransferView: View {
                         if model.hasDecoy {
                             // A new password for the decoy, for when it is forgotten; what is in the decoy is kept.
                             if model.canResetDecoy {
-                                SecureField("New decoy password", text: $decoyPassword).font(.system(size: 15))
-                                SecureField("Repeat decoy password", text: $confirmDecoy).font(.system(size: 15))
+                                PasswordInput(label: "New decoy password", text: $decoyPassword)
+                                PasswordInput(label: "Repeat decoy password", text: $confirmDecoy)
                                 PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
                                 if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
                                 Button("Change decoy password") {
@@ -675,8 +675,8 @@ struct TransferView: View {
                             }
                             Button("Remove decoy vault", role: .destructive) { removingDecoy = true }.disabled(password.isEmpty)
                         } else {
-                            SecureField("Decoy password", text: $decoyPassword).font(.system(size: 15))
-                            SecureField("Repeat decoy password", text: $confirmDecoy).font(.system(size: 15))
+                            PasswordInput(label: "Decoy password", text: $decoyPassword)
+                            PasswordInput(label: "Repeat decoy password", text: $confirmDecoy)
                             PasswordMismatch(password: decoyPassword, repeated: confirmDecoy)
                             if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
                             Button("Set up decoy vault") {
@@ -689,8 +689,8 @@ struct TransferView: View {
                     }
                 case .changePassword:
                     Section("Change app password") {
-                        SecureField("New app password", text: $newPassword).font(.system(size: 15))
-                        SecureField("Repeat new app password", text: $confirmNew).font(.system(size: 15))
+                        PasswordInput(label: "New app password", text: $newPassword)
+                        PasswordInput(label: "Repeat new app password", text: $confirmNew)
                         PasswordMismatch(password: newPassword, repeated: confirmNew)
                         Button("Change password") {
                             let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
@@ -832,7 +832,7 @@ struct DecryptImportView: View {
                 Section {
                     // The transfer code is read off another screen, so it is typed in the clear.
                     if transfer { TransferCodeField(code: $password) }
-                    else { SecureField(keepass ? "Database password" : "File password", text: $password).font(.system(size: 15)) }
+                    else { PasswordInput(label: keepass ? "Database password" : "File password", text: $password) }
                     if keepass {
                         if keyFile == nil { Button("Choose key file", systemImage: "key") { choosingKey = true } }
                         else { HStack { Label("Key file chosen", systemImage: "key.fill"); Spacer(); Button("Remove") { keyFile = nil } } }

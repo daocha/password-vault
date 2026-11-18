@@ -445,3 +445,5 @@
 "Send to a nearby device" = "傳送到附近的裝置";
 "Send it only to a device you own or trust, with AirDrop. Anyone who gets this file can keep trying to guess your app password." = "請用 AirDrop，只傳送到你自己或你信任的裝置。拿到這個檔案的人可以不斷嘗試猜測你的主密碼。";
 "Encrypted backup sent." = "已傳送加密備份。";
+"Show password" = "顯示密碼";
+"Hide password" = "隱藏密碼";

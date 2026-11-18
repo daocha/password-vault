@@ -445,3 +445,5 @@
 "Send to a nearby device" = "发送到附近的设备";
 "Send it only to a device you own or trust, with AirDrop. Anyone who gets this file can keep trying to guess your app password." = "请用隔空投送，只发送到你自己或你信任的设备。拿到这个文件的人可以不断尝试猜测你的主密码。";
 "Encrypted backup sent." = "已发送加密备份。";
+"Show password" = "显示密码";
+"Hide password" = "隐藏密码";

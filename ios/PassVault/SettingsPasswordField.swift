@@ -3,6 +3,7 @@ import UIKit
 
 /// Keep the secure field and its initial keyboard focus in the presented sheet's UIKit hierarchy.
 /// A FocusState owned by the presenting settings view can leave a nested sheet unfocused.
+/// The field sits in a `PasswordBox`, so it has the same eye as every other password box.
 struct SettingsPasswordField: UIViewControllerRepresentable {
     @Binding var text: String
 
@@ -19,11 +20,12 @@ struct SettingsPasswordField: UIViewControllerRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: Controller, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 200, height: max(34, uiViewController.field.intrinsicContentSize.height))
+        CGSize(width: proposal.width ?? 200, height: uiViewController.box.intrinsicContentSize.height)
     }
 
     final class Controller: UIViewController {
-        let field = Field()
+        let box = PasswordBox(field: Field())
+        var field: UITextField { box.field }
         var text: Binding<String>
 
         init(text: Binding<String>) {
@@ -33,20 +35,12 @@ struct SettingsPasswordField: UIViewControllerRepresentable {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
         override func loadView() {
-            field.isSecureTextEntry = true
             field.textContentType = .password
             field.placeholder = localized("Current app password")
             field.accessibilityLabel = localized("Current app password")
-            field.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 15))
-            field.adjustsFontForContentSizeCategory = true
-            field.textColor = .label
-            field.backgroundColor = .clear
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-            field.spellCheckingType = .no
             field.text = text.wrappedValue
             field.addTarget(self, action: #selector(edited), for: .editingChanged)
-            view = field
+            view = box
         }
 
         override func viewDidAppear(_ animated: Bool) {
