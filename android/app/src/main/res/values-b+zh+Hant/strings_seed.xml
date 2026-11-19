@@ -45,10 +45,12 @@
     <string name="seed_no_word">沒有以「%1$s」開頭的 BIP-39 單字。</string>
     <string name="seed_passphrase_label">BIP-39 密語（選填）</string>
     <string name="seed_passphrase_hint">選填的「第 25 個單字」。若你的錢包未使用，請留空。</string>
+    <string name="seed_passphrase_recommend">新錢包建議設定：密語（「第 25 個單字」）可在這些單字外洩時仍保護資產。請在錢包 App 中輸入相同的密語，並另行抄寫保存；遺失它將無法找回資產。</string>
     <string name="seed_notes_optional">備註（選填）</string>
     <string name="seed_err_word_count">請輸入 12 或 24 個單字（目前 %1$d 個）。</string>
     <string name="seed_err_unknown">不是 BIP-39 單字：%1$s</string>
     <string name="seed_err_checksum">檢查碼不符，請檢查單字及其順序。</string>
+    <string name="seed_err_randomness">此裝置的隨機數產生器未通過安全檢查，因此沒有產生助記詞。請再試一次；若持續發生，請勿在此裝置上產生助記詞。</string>
     <string name="seed_err_key_empty">請輸入私鑰。</string>
     <string name="seed_err_key_spaces">私鑰不可包含空格或換行。</string>
     <string name="seed_err_key_short">長度太短，不像是私鑰。</string>

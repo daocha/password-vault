@@ -45,10 +45,12 @@
     <string name="seed_no_word">No BIP-39 word starts with “%1$s”.</string>
     <string name="seed_passphrase_label">BIP-39 passphrase (optional)</string>
     <string name="seed_passphrase_hint">The optional “25th word”. Leave empty if your wallet doesn\'t use one.</string>
+    <string name="seed_passphrase_recommend">Recommended for a new wallet: a passphrase (the “25th word”) keeps the funds safe even if these words leak. Enter the same passphrase in your wallet app and write it down separately: without it, the funds can\'t be recovered.</string>
     <string name="seed_notes_optional">Notes (optional)</string>
     <string name="seed_err_word_count">Enter 12 or 24 words (%1$d so far).</string>
     <string name="seed_err_unknown">Not BIP-39 words: %1$s</string>
     <string name="seed_err_checksum">Checksum mismatch — check the words and their order.</string>
+    <string name="seed_err_randomness">This device\'s random number generator failed a safety check, so no phrase was made. Try again. If this keeps happening, don\'t create seed phrases on this device.</string>
     <string name="seed_err_key_empty">Enter the private key.</string>
     <string name="seed_err_key_spaces">A private key has no spaces or line breaks.</string>
     <string name="seed_err_key_short">Too short to be a private key.</string>

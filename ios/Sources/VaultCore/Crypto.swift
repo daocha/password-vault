@@ -54,6 +54,8 @@ public enum VaultCrypto {
     public static func random(_ count: Int) -> Data {
         precondition(initialized && count > 0)
         var bytes = [UInt8](repeating: 0, count: count)
+        // Data copies the bytes; wipe the temporary buffer so only the returned copy holds the key material.
+        defer { sodium_memzero(&bytes, count) }
         randombytes_buf(&bytes, count)
         return Data(bytes)
     }

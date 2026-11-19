@@ -335,7 +335,11 @@ struct SeedEditorForm: View {
                             outlined(localized("BIP-39 passphrase (optional)"), filled: !passphrase.isEmpty) {
                                 HStack { SeedInput(title: "BIP-39 passphrase (optional)", text: $draft.form.passphrase, secure: !passphraseShown).frame(maxWidth: .infinity); eye(passphraseShown) { passphraseShown.toggle() } }
                             }
-                            Text("The optional “25th word”. Leave empty if your wallet doesn't use one.").font(.caption).foregroundStyle(Color.aOnSurfaceVariant).padding(.horizontal, 12)
+                            // A new wallet is a good moment to add one: it protects the funds even if the words leak.
+                            Text(LocalizedStringKey(mode == "generate"
+                                ? "Recommended for a new wallet: a passphrase (the “25th word”) keeps the funds safe even if these words leak. Enter the same passphrase in your wallet app and write it down separately: without it, the funds can't be recovered."
+                                : "The optional “25th word”. Leave empty if your wallet doesn't use one."))
+                                .font(.caption).foregroundStyle(Color.aOnSurfaceVariant).padding(.horizontal, 12)
                         }
                     }
                     outlined(localized("Notes (optional)"), filled: !notes.isEmpty) { SeedInput(title: "Notes (optional)", text: $draft.form.notes).frame(minHeight: 44) }
