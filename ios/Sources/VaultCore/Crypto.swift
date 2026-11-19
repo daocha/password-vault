@@ -139,6 +139,32 @@ public enum VaultCrypto {
         defer { key.resetBytes(in: 0..<key.count) }
         return try header + seal(Records.encode(records), key: key, aad: header)
     }
+    /// A key for automatic backups, derived once from the app password so that later backups need no password: the backup header (cost
+    /// and salt) followed by the Argon2id key, `backupKeySize` bytes. Files made with it are ordinary backups that open with the same
+    /// password; they share one salt, and each has its own random nonce. Same as Android's `VaultCrypto.backupKey`.
+    public static func backupKey(password: String) throws -> Data {
+        guard !password.isEmpty, PasswordText.normalize(password).utf8.count <= PasswordText.maxBytes else { throw VaultError.invalid("Unsupported password.") }
+        let profile = KdfProfile.backup, salt = random(16)
+        var key = try passwordKey(password, salt: salt, profile: profile)
+        defer { key.resetBytes(in: 0..<key.count) }
+        return BackupFormat.header(profile: profile, salt: salt) + key
+    }
+    public static let backupKeySize = 64
+    public static func exportBackup(_ records: [VaultRecord], backupKey: Data) throws -> Data {
+        guard backupKey.count == backupKeySize else { throw VaultError.invalid("Invalid backup key.") }
+        let header = Data(backupKey.prefix(32))
+        var key = Data(backupKey.suffix(32)); defer { key.resetBytes(in: 0..<key.count) }
+        _ = try BackupFormat.parse(header)
+        return try header + seal(Records.encode(records), key: key, aad: header)
+    }
+    /// Tells whether the records changed since the last automatic backup without storing anything readable: keyed with the backup key.
+    public static func backupDigest(_ records: [VaultRecord], backupKey: Data) throws -> Data {
+        guard backupKey.count == backupKeySize else { throw VaultError.invalid("Invalid backup key.") }
+        let input = Data("PassVault/auto-backup-digest/v1".utf8) + (try Records.canonical(records))
+        var output = [UInt8](repeating: 0, count: 32)
+        guard crypto_generichash(&output, 32, Array(input), UInt64(input.count), Array(backupKey.suffix(32)), 32) == 0 else { throw VaultError.invalid("Digest failed.") }
+        return Data(output)
+    }
     public static func importBackup(_ data: Data, password: String) throws -> [VaultRecord] {
         let parsed = try BackupFormat.parse(data)
         guard data.count >= parsed.size + 40, data.count <= Records.maxBytes + parsed.size + 40 else { throw VaultError.invalid("Unsupported or oversized encrypted backup.") }

@@ -14,7 +14,7 @@ import AVFoundation
     var message: String { status.text }
     /// How long a message stays up; tests shorten it.
     var messageSeconds = StatusMessage.displaySeconds
-    /// Debug builds: the last unlock's timing, shown after unlocking and kept in Settings.
+    /// Debug builds: the last unlock's timing, kept in Settings.
     @Published var unlockSummary = ""
     @Published var attempts = 10
     @Published var erased = false
@@ -63,11 +63,81 @@ import AVFoundation
         exported.recordBackup(defaults: backupPreferences); loadBackupStatus()
     }
     /// The removed decoy's backup history and reminder choice.
-    func forgetDecoyBackups() { BackupStatus(defaults: backupPreferences, decoy: true).clear() }
+    func forgetDecoyBackups() { BackupStatus(defaults: backupPreferences, decoy: true).clear(); AutoBackupSettings(defaults: backupPreferences, decoy: true).clear(); autoBackupRevision += 1 }
+    /// The open vault's automatic backup settings (the decoy has its own).
+    var autoBackups: AutoBackupSettings { AutoBackupSettings(defaults: backupPreferences, decoy: decoy) }
+    /// Bumped whenever automatic backup settings or results change, so Settings shows them.
+    @Published var autoBackupRevision = 0
+    private var autoBackupTimer: Task<Void, Never>?
+    /// The result of a backup the user asked for (Back up now, or the first one after choosing the folder), shown as an alert.
+    struct AutoBackupNotice: Identifiable { let id = UUID(); let saved: Bool; let text: String }
+    @Published var autoBackupNotice: AutoBackupNotice?
+    func autoBackupProblem(_ settings: AutoBackupSettings) -> String {
+        switch settings.problem {
+        case .keyGone?: localized("Paused: your app password changed. Choose the folder again to resume.")
+        case .noAccess?: localizedFormat("Paused: PassVault can no longer open %@. Choose the folder again.", settings.name)
+        default: localized("The last automatic backup could not be saved. PassVault tries again next time.")
+        }
+    }
+    /// Saves an automatic backup of the open vault if it changed since the last one (`force`: even if not). Encrypts here (milliseconds:
+    /// the key was derived when it was set up), so a lock right after still finds the vault open; the file is written in the background.
+    func autoBackup(force: Bool = false, announce: Bool = false) {
+        autoBackupTimer?.cancel(); autoBackupTimer = nil
+        guard unlocked, let engine else { return }
+        let settings = autoBackups
+        guard settings.enabled, let sealed = settings.sealedKey, let bookmark = settings.folderBookmark else { return }
+        if !force && (busy || settings.problem == .keyGone) { return }
+        if !force && scheduleAutoBackup(settings) { return }
+        let defaults = backupPreferences
+        guard let result = try? engine.exportAutomatic(sealedKey: sealed, lastDigest: settings.lastDigest, force: force, instance: { BackupStatus(defaults: defaults, decoy: $0).instance }) else { return }
+        switch result {
+        case .unchanged: break
+        case .keyGone:
+            settings.failed(.keyGone); autoBackupRevision += 1
+            if announce { autoBackupNotice = AutoBackupNotice(saved: false, text: autoBackupProblem(settings)) }
+        case .ready(let export, let digest):
+            let current = generation
+            AutoBackupWriter.write(export, digest: digest, bookmark: bookmark, settings: settings, defaults: defaults, force: force) { [weak self] saved in
+                guard let self else { return }
+                self.loadBackupStatus(); self.autoBackupRevision += 1
+                guard current == self.generation, self.unlocked else { return }
+                self.scheduleAutoBackup(settings)
+                if announce {
+                    // Asked for: confirm in an alert, saved or not.
+                    let at = settings.lastAutomatic?.formatted(date: .abbreviated, time: .standard) ?? ""
+                    self.autoBackupNotice = AutoBackupNotice(saved: saved, text: saved ? localizedFormat("Saved to %@ at %@.", settings.name, at) : self.autoBackupProblem(settings))
+                } else if !saved {
+                    // On its own (locking, leaving): only a failure is mentioned.
+                    self.show(self.autoBackupProblem(settings))
+                }
+            }
+        }
+    }
+    /// Recheck at the interval boundary while unlocked. A locked or suspended app catches up on its next unlock or foreground visit.
+    @discardableResult private func scheduleAutoBackup(_ settings: AutoBackupSettings) -> Bool {
+        autoBackupTimer?.cancel(); autoBackupTimer = nil
+        let wait = settings.remaining()
+        guard unlocked, settings.enabled, settings.problem != .keyGone, wait > 0 else { return false }
+        autoBackupTimer = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) } catch { return }
+            self?.autoBackup()
+        }
+        return true
+    }
+    func setAutoBackupFrequency(_ frequency: AutoBackupFrequency) {
+        autoBackups.frequency = frequency; autoBackupRevision += 1
+        autoBackup()
+    }
+    func turnOffAutoBackup() {
+        autoBackups.clear(); autoBackupRevision += 1
+        autoBackupTimer?.cancel(); autoBackupTimer = nil
+    }
     func snoozeBackup() { backups.snoozedUntil = Date().addingTimeInterval(Double(BackupReminder.snoozeDays) * 86400); loadBackupStatus() }
     func setBackupInterval(_ days: Int) { backups.intervalDays = days; loadBackupStatus() }
     var backupDue: Bool { BackupReminder.due(records, lastBackup: lastBackup, intervalDays: backupIntervalDays, snoozedUntil: backupSnoozedUntil, snapshotAt: backupSnapshotAt) }
     func lock() {
+        autoBackup()
+        autoBackupTimer?.cancel(); autoBackupTimer = nil
         SecretClipboard.clearOnLock(); backgroundedAt = nil
         generation += 1; unlocked = false; records = []; decoy = false; hasDecoy = false; canResetDecoy = false
         if let sending, Date() >= sending.expiresAt { self.sending = nil }
@@ -89,6 +159,7 @@ import AVFoundation
         guard !busy, let engine else { return }
         busy = true; dismissMessage(); let current = generation, locking = pendingLock
         Task {
+            var completed = false
             do {
                 let result = try await Task.detached { _ = await locking?.value; return try work(engine) }.value
                 guard generation == current else {
@@ -108,9 +179,10 @@ import AVFoundation
                     if let sending, sending.decoy != decoy || Date() >= sending.expiresAt { self.sending = nil }
                 }
                 biometricEnabled = (try? engine.biometricsEnabled()) ?? false
-                attempts = try engine.remainingAttempts(); done?()
+                attempts = try engine.remainingAttempts(); done?(); completed = true
             } catch { failed(error) }
             busy = false
+            if completed { autoBackup() }
         }
     }
     /// A failed action: its message, and the attempts left. As on Android, a wrong password in an open vault leaves it open (the attempt
@@ -128,6 +200,8 @@ import AVFoundation
         // A password or biometric unlock can still be running. Invalidate it even though
         // there is no visible session yet, as Android does when its activity stops.
         guard unlocked else { if busy { lock() }; return }
+        // Leaving the app saves changes to the automatic backup folder now, in case the app is closed before it locks.
+        autoBackup()
         switch AppSettings.shared.autoLock.delay {
         case 0?: lock()
         case nil: break // Only locking the device does it.
@@ -141,6 +215,7 @@ import AVFoundation
         if unlocked, let since = backgroundedAt, let delay = AppSettings.shared.autoLock.delay, Date().timeIntervalSince(since) >= delay { lock() }
         backgroundedAt = nil
         autoUnlockWithBiometrics()
+        autoBackup()
     }
     /// Whether VoiceOver or Switch Control is on: messages then stay until OK. Tests replace it.
     var assistiveTechnology: () -> Bool = { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
@@ -157,13 +232,13 @@ import AVFoundation
         }
     }
     func dismissMessage() { status.dismiss() }
-    /// Debug builds: how long the unlock took and where (also kept in Settings → Last unlock). Release builds show nothing.
+    /// Debug builds: keep how long the unlock took and where in Settings → Last unlock. Release builds record nothing.
     /// The engine's own timing, plus everything until the vault is on screen (the status checks that follow the unlock).
-    func showUnlockTiming(since started: UInt64) {
+    func recordUnlockTiming(since started: UInt64) {
         #if DEBUG
         guard let timing = engine?.lastUnlockTiming else { return }
         unlockSummary = "\(timing); vault shown after \((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000) ms"
-        print("PassVault: \(unlockSummary)"); show(unlockSummary, error: false)
+        print("PassVault: \(unlockSummary)")
         #endif
     }
     func autoUnlockWithBiometrics() {
@@ -172,7 +247,7 @@ import AVFoundation
         guard protectedDataAvailable, exists, !erased, !unlocked, !busy, biometricEnabled, !biometricAutoPrompted else { return }
         biometricAutoPrompted = true
         let started = DispatchTime.now().uptimeNanoseconds
-        run({ try $0.unlockBiometric() }, done: { [weak self] in self?.showUnlockTiming(since: started) })
+        run({ try $0.unlockBiometric() }, done: { [weak self] in self?.recordUnlockTiming(since: started) })
     }
     /// A device lock always overrides the background delay, as screen-off does on Android.
     func deviceDidLock() {
@@ -193,7 +268,7 @@ import AVFoundation
         guard let engine else { return }
         do {
             try engine.resetErasedVault()
-            BackupStatus(defaults: backupPreferences).clear(); forgetDecoyBackups(); loadBackupStatus()
+            BackupStatus(defaults: backupPreferences).clear(); AutoBackupSettings(defaults: backupPreferences).clear(); forgetDecoyBackups(); loadBackupStatus()
             BackupShare.sweep(in: FileManager.default.temporaryDirectory)
             biometricEnabled = false; erased = false; exists = false; attempts = 10; show("Create a new vault, then import your backup.", error: false)
         }
@@ -346,10 +421,10 @@ struct UnlockView: View {
                         let value = password; password = ""; confirmation = ""
                         let exists = model.exists
                         let started = DispatchTime.now().uptimeNanoseconds
-                        model.run({ engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }, done: { if exists { model.showUnlockTiming(since: started) } })
+                        model.run({ engine in try exists ? engine.unlock(password: value) : engine.create(password: value) }, done: { if exists { model.recordUnlockTiming(since: started) } })
                     }.disabled(password.isEmpty || (!model.exists && (!samePassword(password, confirmation) || !acknowledge)))
                     if model.exists {
-                        if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { let started = DispatchTime.now().uptimeNanoseconds; model.run({ try $0.unlockBiometric() }, done: { model.showUnlockTiming(since: started) }) } }
+                        if model.biometricEnabled { Button("Unlock with Face ID / Touch ID", systemImage: "faceid") { let started = DispatchTime.now().uptimeNanoseconds; model.run({ try $0.unlockBiometric() }, done: { model.recordUnlockTiming(since: started) }) } }
                         Text("\(model.attempts) password attempts remaining").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
                     }
                 }
@@ -445,11 +520,11 @@ struct ExportDocument: FileDocument {
 }
 /// One focused settings dialog at a time; passwords are cleared whenever it closes.
 private enum VaultSettingsPanel: String, Identifiable {
-    case language, autoLock, biometrics, decoy, changePassword, generator, clipboard, backupReminder, send, exportEncrypted, exportCSV
+    case language, autoLock, biometrics, decoy, changePassword, generator, clipboard, backupReminder, send, exportEncrypted, exportCSV, autoBackupSetup, autoBackup
     var id: String { rawValue }
     var requiresPassword: Bool {
         switch self {
-        case .biometrics, .decoy, .changePassword, .send, .exportEncrypted, .exportCSV: true
+        case .biometrics, .decoy, .changePassword, .send, .exportEncrypted, .exportCSV, .autoBackupSetup: true
         default: false
         }
     }
@@ -466,6 +541,7 @@ private enum VaultSettingsPanel: String, Identifiable {
         case .send: "Send to another phone"
         case .exportEncrypted: "Export encrypted backup"
         case .exportCSV: "Export plaintext CSV"
+        case .autoBackupSetup, .autoBackup: "Automatic backup"
         }
     }
 }
@@ -482,6 +558,9 @@ struct TransferView: View {
     @State private var document: ExportDocument?
     /// An encrypted backup is ready: save it to Files or send it to a nearby device.
     @State private var choosingDestination = false
+    /// Automatic backup set up with the app password, waiting for the user to pick the folder.
+    @State private var choosingFolder = false
+    @State private var pendingAutoKey: Data?
     @State private var pendingImport: [VaultRecord]?
     @State private var receiving = false
     @State private var decoyPassword = ""
@@ -551,6 +630,10 @@ struct TransferView: View {
                 }
                 Section {
                     settingsRow("Last encrypted backup", icon: "clock.arrow.circlepath", summary: model.lastBackup.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never") { open(.exportEncrypted) }
+                    let auto = model.autoBackups
+                    settingsRow("Automatic backup", icon: "arrow.triangle.2.circlepath.icloud", summary: !auto.enabled ? "Off" : auto.problem != nil ? model.autoBackupProblem(auto) : localizedFormat("On · %@", auto.name)) {
+                        open(auto.enabled ? .autoBackup : .autoBackupSetup)
+                    }.id(model.autoBackupRevision)
                     settingsRow("Backup reminder", icon: "bell.badge", summary: backupIntervalLabel(model.backupIntervalDays)) { open(.backupReminder) }
                     settingsRow("Import file", icon: "folder", summary: "Backups and exports from other password managers") { importing = true }
                     settingsRow("Send to another phone", icon: "iphone.and.arrow.forward") { open(.send) }
@@ -659,6 +742,29 @@ struct TransferView: View {
                             choice(option.label, selected: settings.clipboardClear == option) { settings.clipboardClear = option; self.panel = nil }
                         }
                     } footer: { Text("Copied values stay on this device only and are never shared through Universal Clipboard.") }
+                case .autoBackupSetup:
+                    Section {
+                        Button("Choose a folder") { setUpAutoBackup() }.disabled(password.isEmpty)
+                    } header: { Text("Automatic backup") } footer: {
+                        Text("PassVault saves an encrypted backup after every change by default, to a folder you choose once. You can also choose daily, weekly or monthly backups. Each backup is a new file and opens with your app password. Choose a folder that another app copies off this phone, such as a folder in iCloud Drive, Google Drive or OneDrive. PassVault itself never goes online.")
+                    }
+                case .autoBackup:
+                    let auto = model.autoBackups
+                    Section {
+                        Text(localizedFormat("Saving to the folder %@. Each backup is a new file; older ones stay until you delete them.", auto.name)).font(.footnote)
+                        Text(auto.lastAutomatic.map { localizedFormat("Last automatic backup: %@", $0.formatted(date: .abbreviated, time: .shortened)) } ?? localized("No automatic backup saved yet.")).font(.footnote)
+                        Picker("Frequency", selection: Binding(get: { auto.frequency }, set: { model.setAutoBackupFrequency($0) })) {
+                            Text("Instant").tag(AutoBackupFrequency.instant)
+                            Text("Daily").tag(AutoBackupFrequency.daily)
+                            Text("Weekly").tag(AutoBackupFrequency.weekly)
+                            Text("Monthly").tag(AutoBackupFrequency.monthly)
+                        }
+                        Text("Instant saves after every change. Daily, weekly and monthly wait 1, 7 or 30 days after the last successful automatic backup. Only changed contents are saved. Backups run while the vault is unlocked; overdue changes are backed up on your next unlock.").font(.footnote)
+                        if auto.problem != nil { Text(model.autoBackupProblem(auto)).font(.footnote).foregroundStyle(.red) }
+                        if auto.problem != .keyGone { Button("Back up now") { model.autoBackup(force: true, announce: true) } }
+                        Button("Choose another folder") { self.panel = .autoBackupSetup }
+                        Button("Turn off", role: .destructive) { model.turnOffAutoBackup(); model.show("Automatic backup turned off. Backups already saved are kept.", error: false); self.panel = nil }
+                    }.id(model.autoBackupRevision)
                 case .backupReminder:
                     Section {
                         ForEach(BackupReminder.intervals, id: \.self) { days in
@@ -682,7 +788,12 @@ struct TransferView: View {
                                 if !decoyPassword.isEmpty { Text(LocalizedStringKey(VaultCrypto.passwordProblem(decoyPassword) ?? "Meets the password rules.")).font(.footnote) }
                                 Button("Change decoy password") {
                                     let current = password, next = decoyPassword; password = ""; decoyPassword = ""; confirmDecoy = ""
-                                    model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: { model.show("Decoy password changed.", error: false) })
+                                    model.run({ try $0.resetDecoyPassword(password: current, decoyPassword: next); return nil }, done: {
+                                        // The decoy keeps its data key, so its automatic backups would still use the old decoy password: set them up again.
+                                        let decoyBackups = AutoBackupSettings(defaults: model.backupPreferences, decoy: true)
+                                        if decoyBackups.enabled { decoyBackups.failed(.keyGone) }
+                                        model.show("Decoy password changed.", error: false)
+                                    })
                                 }.disabled(password.isEmpty || VaultCrypto.passwordProblem(decoyPassword) != nil || !samePassword(decoyPassword, confirmDecoy))
                             } else {
                                 Text("This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again.").font(.footnote)
@@ -708,7 +819,7 @@ struct TransferView: View {
                         PasswordMismatch(password: newPassword, repeated: confirmNew)
                         Button("Change password") {
                             let current = password, next = newPassword; password = ""; newPassword = ""; confirmNew = ""
-                            model.run { try $0.changePassword(current: current, new: next); return nil }
+                            model.run({ try $0.changePassword(current: current, new: next); return nil }, done: { if model.autoBackups.enabled { model.autoBackups.failed(.keyGone); model.autoBackupRevision += 1 } })
                         }.disabled(password.isEmpty || VaultCrypto.passwordProblem(newPassword) != nil || !samePassword(newPassword, confirmNew))
                         Text(LocalizedStringKey(model.decoy ? "Existing exported backups keep their original password." : "Existing exported backups keep their original password. Changing it turns off Face ID / Touch ID; enable it again in Settings.")).font(.footnote)
                     }
@@ -755,6 +866,12 @@ struct TransferView: View {
                 }
         }
         .statusBar(model)
+        // On the navigation stack, not on the form that carries the export's file exporter: one view with both can present only one.
+        .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in finishAutoSetup(result) }
+        .alert(model.autoBackupNotice?.saved == false ? "Backup not saved" : "Backup saved",
+               isPresented: Binding(get: { model.autoBackupNotice != nil }, set: { if !$0 { model.autoBackupNotice = nil } }), presenting: model.autoBackupNotice) { _ in
+            Button("OK") { model.autoBackupNotice = nil }
+        } message: { notice in Text(notice.text) }
         .interactiveDismissDisabled(model.busy)
         .presentationDetents(panel.requiresPassword ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
@@ -803,6 +920,46 @@ struct TransferView: View {
                 }
             }
         } catch { model.show(error.localizedDescription) }
+    }
+    /// Checks the app password (a counted attempt), derives the backup key once, then lets the user pick the folder.
+    private func setUpAutoBackup() {
+        guard !model.busy, let engine = model.engine else { return }
+        let pass = password; password = ""; model.busy = true
+        Task {
+            do {
+                let sealed = try await Task.detached { try engine.sealAutoBackupKey(password: pass) }.value
+                if model.unlocked {
+                    pendingAutoKey = sealed
+                    if let folder = uiTestBackupFolder() { finishAutoSetup(.success(folder)) } else { choosingFolder = true }
+                }
+            } catch { model.failed(error) }
+            model.busy = false
+        }
+    }
+    /// UI tests cannot drive the system folder picker, so a debug build launched by one names a folder in its own temporary directory.
+    /// Release builds never read it.
+    private func uiTestBackupFolder() -> URL? {
+        #if DEBUG
+        if let name = ProcessInfo.processInfo.environment["PASSVAULT_UI_TEST_BACKUP_FOLDER"], !name.isEmpty, !name.contains("/") {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent(name, isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            return folder
+        }
+        #endif
+        return nil
+    }
+    private func finishAutoSetup(_ result: Result<URL, Error>) {
+        guard let key = pendingAutoKey else { return }
+        pendingAutoKey = nil
+        guard model.unlocked, case .success(let folder) = result else { model.show("Automatic backup not set up.", error: false); return }
+        let access = folder.startAccessingSecurityScopedResource()
+        defer { if access { folder.stopAccessingSecurityScopedResource() } }
+        guard let bookmark = try? folder.bookmarkData() else { model.show("This folder cannot be used for automatic backups. Choose another one."); return }
+        model.autoBackups.turnOn(folderBookmark: bookmark, name: folder.lastPathComponent, sealedKey: key)
+        model.autoBackupRevision += 1
+        // Straight to the automatic backup panel, with Back up now, as on Android.
+        panel = .autoBackup
+        model.autoBackup(force: true, announce: true)
     }
     private func export() {
         guard !model.busy, let engine = model.engine else { return }
