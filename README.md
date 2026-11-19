@@ -2,7 +2,7 @@
 
 <img src="assets/banner.png" alt="PassVault: your passwords, your control" width="720" />
 
-# 🔐 PassVault &nbsp; <a href="https://play.google.com/store/apps/details?id=app.passvault.mobile"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="60" align="absmiddle"></a>
+# 🔐 PassVault &nbsp; <a href="https://play.google.com/store/apps/details?id=app.passvault.mobile"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="60" align="absmiddle"></a> <a href="https://apps.apple.com/app/id6829495518"><img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store" height="54" align="absmiddle"></a>
 
 **Your passwords, on your phone, and nowhere else.**
 
