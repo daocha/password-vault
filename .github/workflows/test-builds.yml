@@ -39,14 +39,17 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
-      # A signed, installable IPA needs an Apple distribution certificate and provisioning profile.
-      # Without them the job still produces an unsigned IPA (must be re-signed before it installs).
+      # A signed, installable IPA needs an Apple distribution certificate and two provisioning profiles: one for the app
+      # (app.passvault.mobile) and one for its AutoFill extension (app.passvault.mobile.autofill), both with the app group
+      # group.app.passvault.mobile and the AutoFill Credential Provider capability. Without them the job still produces an
+      # unsigned IPA (must be re-signed before it installs).
       - name: Build IPA
         working-directory: ios
         env:
           CERT_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
           CERT_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          AUTOFILL_PROFILE_BASE64: ${{ secrets.IOS_AUTOFILL_PROVISIONING_PROFILE_BASE64 }}
           TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
           EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'ad-hoc' }}
         run: |
@@ -54,10 +57,10 @@ jobs:
           version="${GITHUB_REF_NAME//\//-}"
           out="$RUNNER_TEMP/out"; mkdir -p "$out"
           archive="$RUNNER_TEMP/PassVault.xcarchive"
-          if [ -n "${CERT_BASE64:-}" ] && [ -n "${PROFILE_BASE64:-}" ] && [ -n "${TEAM_ID:-}" ]; then
+          if [ -n "${CERT_BASE64:-}" ] && [ -n "${PROFILE_BASE64:-}" ] && [ -n "${AUTOFILL_PROFILE_BASE64:-}" ] && [ -n "${TEAM_ID:-}" ]; then
             keychain="$RUNNER_TEMP/build.keychain-db"; kcpass="$(uuidgen)"
             # Remove the signing material even when a later command fails.
-            trap 'security delete-keychain "$keychain" 2>/dev/null || true; rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/profile.mobileprovision"' EXIT
+            trap 'security delete-keychain "$keychain" 2>/dev/null || true; rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/autofill.mobileprovision"' EXIT
             security create-keychain -p "$kcpass" "$keychain"
             security set-keychain-settings -lut 21600 "$keychain"
             security unlock-keychain -p "$kcpass" "$keychain"
@@ -66,13 +69,18 @@ jobs:
             security set-key-partition-list -S apple-tool:,apple: -k "$kcpass" "$keychain"
             security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
             mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-            echo "$PROFILE_BASE64" | base64 -d > "$RUNNER_TEMP/profile.mobileprovision"
-            uuid=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -)
-            profile_name=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract Name raw -)
-            cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            install_profile() { # base64 profile, file name; prints the profile's name
+              echo "$1" | base64 -d > "$RUNNER_TEMP/$2"
+              uuid=$(security cms -D -i "$RUNNER_TEMP/$2" | plutil -extract UUID raw -)
+              cp "$RUNNER_TEMP/$2" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+              security cms -D -i "$RUNNER_TEMP/$2" | plutil -extract Name raw -
+            }
+            profile_name=$(install_profile "$PROFILE_BASE64" profile.mobileprovision)
+            autofill_profile_name=$(install_profile "$AUTOFILL_PROFILE_BASE64" autofill.mobileprovision)
+            # Each target names its own profile (project.yml): one PROVISIONING_PROFILE_SPECIFIER would give the extension the app's.
             xcodebuild -project PassVault.xcodeproj -scheme PassVault -configuration Release -destination 'generic/platform=iOS' \
               -archivePath "$archive" archive DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual \
-              CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="$profile_name"
+              CODE_SIGN_IDENTITY="Apple Distribution" PASSVAULT_APP_PROFILE="$profile_name" PASSVAULT_AUTOFILL_PROFILE="$autofill_profile_name"
             opts="$RUNNER_TEMP/ExportOptions.plist"
             plutil -create xml1 "$opts"
             plutil -insert method -string "$EXPORT_METHOD" "$opts"
@@ -80,6 +88,7 @@ jobs:
             plutil -insert signingStyle -string manual "$opts"
             plutil -insert provisioningProfiles -dictionary "$opts"
             plutil -insert 'provisioningProfiles.app\.passvault\.mobile' -string "$profile_name" "$opts"
+            plutil -insert 'provisioningProfiles.app\.passvault\.mobile\.autofill' -string "$autofill_profile_name" "$opts"
             xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export"
             cp "$RUNNER_TEMP"/export/*.ipa "$out/PassVault-$version.ipa"
           else

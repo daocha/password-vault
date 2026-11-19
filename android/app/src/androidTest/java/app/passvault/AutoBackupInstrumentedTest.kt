@@ -90,6 +90,19 @@ class AutoBackupInstrumentedTest {
             assertEquals(setOf(first, second), folder.list()!!.toSet())
             assertArrayEquals(byteArrayOf(1), File(folder, first).readBytes())
             assertArrayEquals(byteArrayOf(2, 3), File(folder, second).readBytes())
+            // Two in the same second: the second one's name ends _2, and neither replaces the other.
+            val third = AutoBackupFiles.writeToFolder(target, byteArrayOf(4), start.plusSeconds(60))
+            assertEquals(second.removeSuffix(".pvault") + "_2.pvault", third)
+            assertArrayEquals(byteArrayOf(2, 3), File(folder, second).readBytes())
+            File(folder, "holiday.jpg").writeBytes(byteArrayOf(9))
+            val uri = android.net.Uri.fromFile(folder)
+            assertEquals(listOf(third, second, first), AutoBackupFiles.newest(AutoBackupFiles.list(context.contentResolver, uri)))
+            // A folder PassVault cannot read any more is an error, not an empty list.
+            folder.deleteRecursively()
+            assertThrows(SecurityException::class.java) { AutoBackupFiles.list(context.contentResolver, uri) }
+            // A picked folder without a persisted grant is refused before it is read.
+            val tree = android.provider.DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:PassVaultNoGrant")
+            assertThrows(SecurityException::class.java) { AutoBackupFiles.list(context.contentResolver, tree) }
         } finally { folder.deleteRecursively() }
     }
 }

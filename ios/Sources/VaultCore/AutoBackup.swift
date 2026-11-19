@@ -75,28 +75,74 @@ public struct AutoBackupSettings {
 
 /// Automatic backup files: a new dated file each time in the chosen folder. Nothing is deleted. Same names as Android's `AutoBackupFiles`.
 public enum AutoBackupFiles {
+    private static let prefix = "passvault_auto_", fileExtension = ".pvault"
+    /// How many backups Settings lists.
+    public static let recent = 5
     /// e.g. passvault_auto_2026-11-19_10_31_05.pvault, in local time: names sort by age.
     public static func name(at date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = timeZone; formatter.dateFormat = "yyyy-MM-dd_HH_mm_ss"
-        return "passvault_auto_\(formatter.string(from: date)).pvault"
+        return prefix + formatter.string(from: date) + fileExtension
+    }
+    /// `name(at:)`, or, when that is `taken` (a second backup within the same second), the same name ending _2, _3… before the extension.
+    /// These still sort after the first one.
+    public static func uniqueName(at date: Date, timeZone: TimeZone = .current, taken: (String) -> Bool) throws -> String {
+        let first = name(at: date, timeZone: timeZone)
+        if !taken(first) { return first }
+        let stem = first.dropLast(fileExtension.count)
+        for count in 2...10_000 where !taken("\(stem)_\(count)\(fileExtension)") { return "\(stem)_\(count)\(fileExtension)" }
+        throw VaultError.invalid("Too many backups in one second.")
+    }
+    /// Whether `name` is an automatic backup's file name (also the longer names earlier test builds gave them).
+    public static func isAutomatic(_ name: String) -> Bool { name.hasPrefix(prefix) && name.hasSuffix(fileExtension) }
+    /// The newest `limit` automatic backups among `names` (a folder's files), newest first: by the time in the name, then by the number
+    /// a second backup within the same second ends with (so _10 comes after _9).
+    public static func newest(_ names: [String], limit: Int = recent) -> [String] {
+        Array(Set(names.filter(isAutomatic)).sorted { a, b in
+            let x = age(a), y = age(b)
+            return x.time != y.time ? x.time > y.time : x.count != y.count ? x.count > y.count : a > b
+        }.prefix(limit))
+    }
+    /// The time written in an automatic backup's name and its number within that second: 1 for none, N for "_N", N+1 for " (N)" (a
+    /// copy a folder's app renamed). Longer names from earlier test builds count as 1.
+    private static func age(_ name: String) -> (time: Substring, count: Int) {
+        let rest = name.dropFirst(prefix.count).dropLast(fileExtension.count)
+        let time = rest.prefix(19), tail = rest.dropFirst(time.count)
+        if tail.hasPrefix("_"), let number = Int(tail.dropFirst()), number > 0 { return (time, number) }
+        if tail.hasPrefix(" ("), tail.hasSuffix(")"), let number = Int(tail.dropFirst(2).dropLast()), number >= 0 { return (time, number + 1) }
+        return (time, 1)
+    }
+    /// The newest automatic backups in `folder` (whose security-scoped access the caller holds). Throws when it cannot be read.
+    public static func newest(in folder: URL, limit: Int = recent) throws -> [String] {
+        var coordination: NSError?, result: Result<[String], Error> = .success([])
+        NSFileCoordinator().coordinate(readingItemAt: folder, options: [], error: &coordination) { url in
+            result = Result { try FileManager.default.contentsOfDirectory(atPath: url.path) }
+        }
+        if let coordination { throw coordination }
+        return newest(try result.get().map(downloadedName), limit: limit)
+    }
+    /// iCloud Drive can list a file that is not downloaded yet as a hidden placeholder, ".name.icloud": the backup's own name.
+    static func downloadedName(_ name: String) -> String {
+        name.hasPrefix(".") && name.hasSuffix(".icloud") && name.count > 8 ? String(name.dropFirst().dropLast(7)) : name
     }
     /// Writes `data` as a new file in `folder` (coordinated, so a cloud folder's app sees a whole file). Returns the new file's name.
-    /// The caller holds the folder's security-scoped access.
+    /// The caller holds the folder's security-scoped access and writes one backup at a time (`save`).
     @discardableResult public static func write(_ data: Data, to folder: URL, at date: Date = Date()) throws -> String {
-        let name = String(name(at: date).dropLast(7)) + "_" + UUID().uuidString.lowercased() + ".pvault", file = folder.appendingPathComponent(name)
-        guard !FileManager.default.fileExists(atPath: file.path) else { throw VaultError.invalid("A backup with this name already exists.") }
+        let name = try uniqueName(at: date) { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) }
+        let file = folder.appendingPathComponent(name)
         var coordination: NSError?, failure: Error?
         NSFileCoordinator().coordinate(writingItemAt: file, options: .forReplacing, error: &coordination) { url in
             do {
+                // Never replaces a file: one made between the check above and here fails this backup instead.
                 #if os(iOS)
                 try data.write(to: url, options: [.withoutOverwriting, .completeFileProtectionUntilFirstUserAuthentication])
                 #else
                 try data.write(to: url, options: .withoutOverwriting)
                 #endif
             } catch {
-                // A partial file must not look like a complete backup (as on Android).
-                failure = error; try? FileManager.default.removeItem(at: url)
+                // A partial file must not look like a complete backup (as on Android). A file that already existed is not ours to delete.
+                failure = error
+                if (error as? CocoaError)?.code != .fileWriteFileExists { try? FileManager.default.removeItem(at: url) }
             }
         }
         if let error = coordination ?? failure { throw error }

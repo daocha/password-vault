@@ -6,6 +6,19 @@ options:
 configs:
   Debug: debug
   Release: release
+settings:
+  base:
+    # Every target's version. The App Store build passes the release's own on the command line (scripts/build-ios-app-store.sh),
+    # which replaces these for the app and the AutoFill extension alike; other builds use these. iOS will not install an app
+    # whose extension has no CFBundleVersion, and App Store Connect rejects an extension whose version differs from the app's.
+    MARKETING_VERSION: '1.0'
+    CURRENT_PROJECT_VERSION: '1'
+  configs:
+    # The app's bundle ID. The AutoFill extension's is this plus ".autofill", and both share the app group group.<this>.
+    Debug:
+      PASSVAULT_APP_ID: app.passvault.mobile.debug
+    Release:
+      PASSVAULT_APP_ID: app.passvault.mobile
 packages:
   VaultCore:
     path: .
@@ -16,9 +29,12 @@ targets:
     sources: [PassVault]
     dependencies:
       - package: VaultCore
+      - target: PassVaultAutoFill
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.passvault.mobile
+        # Manually signed builds name each target's profile (test-builds.yml); automatic signing leaves them empty.
+        PROVISIONING_PROFILE_SPECIFIER: $(PASSVAULT_APP_PROFILE)
         SWIFT_VERSION: '5.9'
         TARGETED_DEVICE_FAMILY: '1,2'
         GENERATE_INFOPLIST_FILE: YES
@@ -37,6 +53,34 @@ targets:
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: app.passvault.mobile.debug
+          INFOPLIST_KEY_CFBundleDisplayName: PassVault Dev
+
+  # AutoFill: fills logins in other apps and Safari from the shared vault (see AutoFill/CredentialProviderViewController.swift).
+  PassVaultAutoFill:
+    type: app-extension
+    platform: iOS
+    sources:
+      - AutoFill
+      - PassVault/KeychainStorage.swift
+      - PassVault/PasswordInput.swift
+    dependencies:
+      - package: VaultCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PASSVAULT_APP_ID).autofill
+        PRODUCT_NAME: PassVaultAutoFill
+        PROVISIONING_PROFILE_SPECIFIER: $(PASSVAULT_AUTOFILL_PROFILE)
+        SWIFT_VERSION: '5.9'
+        TARGETED_DEVICE_FAMILY: '1,2'
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: AutoFill/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: PassVault
+        INFOPLIST_KEY_NSFaceIDUsageDescription: Unlock your vault with Face ID.
+        CODE_SIGN_ENTITLEMENTS: AutoFill/AutoFill.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+      configs:
+        Debug:
           INFOPLIST_KEY_CFBundleDisplayName: PassVault Dev
 
   PassVaultAppTests:

@@ -7,6 +7,10 @@ import VaultCore
     AppSettings.shared.language.bundle().localizedString(forKey: key, value: nil, table: nil)
 }
 
+/// An error's message in the app's language: PassVault's own messages are their English text, which is also their localization key.
+/// Other errors keep the system's text.
+@MainActor func localizedError(_ error: Error) -> String { localized(error.localizedDescription) }
+
 @MainActor func localizedFormat(_ key: String, _ arguments: CVarArg...) -> String {
     String(format: localized(key), locale: AppSettings.shared.language.locale, arguments: arguments)
 }
@@ -67,8 +71,14 @@ enum ClipboardClear: String, CaseIterable, Identifiable {
     static let shared = AppSettings()
     private let defaults = UserDefaults.standard
     private let appearance = AppearancePreferences()
-    @Published var theme: AppTheme { didSet { appearance.theme = theme; applyInterfaceStyle() } }
-    @Published var language: AppLanguage { didSet { appearance.language = language } }
+    @Published var theme: AppTheme { didSet { appearance.theme = theme; shareWithAutofill(); applyInterfaceStyle() } }
+    @Published var language: AppLanguage { didSet { appearance.language = language; shareWithAutofill() } }
+    /// AutoFill shows the same language and appearance; it reads them from the app group (nonsecret).
+    private func shareWithAutofill() {
+        guard let shared = SharedVault.preferences else { return }
+        let copy = AppearancePreferences(defaults: shared)
+        copy.theme = theme; copy.language = language
+    }
     /// Sets the style on every window, so sheets and covers follow the chosen theme at once. SwiftUI's preferredColorScheme alone left presented screens (the settings sheet holding this picker) and the root on the old style.
     func applyInterfaceStyle() {
         let style: UIUserInterfaceStyle = switch theme { case .system: .unspecified; case .light: .light; case .dark: .dark }
@@ -103,6 +113,7 @@ enum ClipboardClear: String, CaseIterable, Identifiable {
                                        symbols: defaults.object(forKey: "genSymbols") as? Bool ?? true)
         if !options.letters && !options.numbers && !options.symbols { options = GeneratorOptions() }
         generator = options
+        shareWithAutofill()
     }
 }
 

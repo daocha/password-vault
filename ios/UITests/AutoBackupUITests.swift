@@ -37,5 +37,16 @@ final class AutoBackupUITests: XCTestCase {
         XCTAssertTrue(saved.waitForExistence(timeout: 30), "Back up now is confirmed: \(app.debugDescription)")
         saved.buttons["OK"].tap()
         XCTAssertFalse(app.alerts["Backup not saved"].exists)
+
+        // With automatic backup on, Last encrypted backup lists the newest backups in the folder instead of opening the export.
+        app.buttons["settings.panel.done"].tap()
+        let last = app.buttons["settings.lastBackup"]
+        XCTAssertTrue(app.scrollUntilHittable(last), app.debugDescription)
+        last.tap()
+        let recent = app.alerts["Recent automatic backups"]
+        XCTAssertTrue(recent.waitForExistence(timeout: 15), "the newest backups are listed: \(app.debugDescription)")
+        XCTAssertTrue(recent.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "passvault_auto_")).firstMatch.exists, app.debugDescription)
+        XCTAssertFalse(app.secureTextFields["Current app password"].exists, "the export panel did not open")
+        recent.buttons["OK"].tap()
     }
 }

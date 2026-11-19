@@ -23,7 +23,8 @@ final class ExportFlowUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10), app.debugDescription)
         app.typeText("Wrong passphrase 9!")
         app.buttons["Export"].tap()
-        let errors = app.staticTexts.matching(NSPredicate(format: "label == %@", "Incorrect password or damaged encrypted data."))
+        // As on Android: the attempts left before the vault is erased.
+        let errors = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Incorrect password. ", "attempts left before this vault is erased."))
         XCTAssertTrue(errors.firstMatch.waitForExistence(timeout: 60), "the error shows: \(app.debugDescription)")
         XCTAssertTrue(errors.allElementsBoundByIndex.contains { $0.isHittable }, "the message is on top, not behind the sheet: \(app.debugDescription)")
         XCTAssertFalse(app.buttons["Unlock vault"].exists, "a wrong password no longer locks the vault")

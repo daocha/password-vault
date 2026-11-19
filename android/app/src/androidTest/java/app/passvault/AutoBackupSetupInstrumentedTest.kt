@@ -141,6 +141,23 @@ class AutoBackupSetupInstrumentedTest {
             waitFor("Back up now bypasses the daily interval") { notice() != null }
             assertTrue(saved(notice()))
             assertEquals(5, target.listFiles()!!.size)
+
+            // Settings → Last encrypted backup: with automatic backup on, the newest backups in its folder instead of the export dialog.
+            File(target, "holiday.jpg").writeBytes(byteArrayOf(9))
+            repeat(2) { AutoBackupFiles.writeToFolder(AutoBackupFiles.folder(context.contentResolver, Uri.fromFile(target)), byteArrayOf(1), Instant.parse("2020-01-01T00:00:00Z")) }
+            fun recent(): Any? { var value: Any? = null; instrumentation.runOnMainSync { value = getter(activity, "RecentBackups") }; return value }
+            instrumentation.runOnMainSync { call(activity, "showRecentBackups") }
+            waitFor("the newest backups are listed") { recent() != null }
+            @Suppress("UNCHECKED_CAST") val listed = recent()!!.javaClass.getDeclaredMethod("getNames").apply { isAccessible = true }.invoke(recent()) as List<String>
+            val newestFive = target.list()!!.filter { it.startsWith("passvault_auto_") }.sortedDescending().take(5)
+            assertEquals(newestFive, listed)
+            assertTrue("the 2020 backups are older than the five shown", listed.none { it.contains("2020-01-01") })
+            instrumentation.runOnMainSync { MainActivity::class.java.getDeclaredMethod("setRecentBackups", Class.forName("app.passvault.MainActivity\$RecentBackups")).apply { isAccessible = true }.invoke(activity, null) }
+            // A folder PassVault can no longer open is an error message, not a list.
+            target.deleteRecursively()
+            instrumentation.runOnMainSync { call(activity, "showRecentBackups") }
+            waitFor("an unreadable folder is reported") { var shown = ""; instrumentation.runOnMainSync { shown = getter(activity, "Message") as String }; shown == context.getString(R.string.auto_backup_recent_no_access, target.name) }
+            assertNull(recent())
         } finally {
             // The system save picker opened by the set-up; the emulator's lock screen can keep Back from reaching it.
             for (pkg in listOf("com.google.android.documentsui", "com.android.documentsui")) instrumentation.uiAutomation.executeShellCommand("am force-stop $pkg").close()

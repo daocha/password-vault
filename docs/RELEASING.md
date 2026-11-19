@@ -180,7 +180,8 @@ keys out of Git. The `.p8` key path must exist on the machine running the releas
 ```
 
 The App Store build takes `versionName` and `versionCode` from `android/app/build.gradle.kts` and
-passes them to Xcode as `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. App Store versions must
+passes them to Xcode as `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`, for the app and its AutoFill extension
+alike (other builds use the `1.0` (1) fallback in `ios/project.yml`); the build stops if they differ in the archive. App Store versions must
 have three numeric components without a beta suffix. The current single-component build number
 must be 1–9999, and every new uploaded build needs an unused, increasing number. To rebuild the same
 version after an upload, increase the version code in a branch and merge that metadata through a PR.
@@ -204,6 +205,12 @@ For iOS-only builds or to retry a failed upload, upload the **existing** archive
 Replace `CODE` with the build number printed by the build. Upload retries use the same archive;
 if processing already succeeded in App Store Connect, do not upload it again. Archive bundle ID
 and team are checked before export/upload. Xcode keeps the build number unchanged.
+
+The app embeds its AutoFill extension (`app.passvault.mobile.autofill`). Both use the app group
+`group.app.passvault.mobile` and the AutoFill Credential Provider capability (debug builds use `.debug` in all three
+names). Automatic signing registers the extension's ID, the group and the capabilities the first time it archives. The
+manual signed test build (`test-builds.yml`) needs a second provisioning profile for the extension, in the
+`IOS_AUTOFILL_PROVISIONING_PROFILE_BASE64` secret; without it the job builds the unsigned IPA.
 
 Before uploading, register the release bundle ID in Apple Developer and create its iOS app record
 in App Store Connect. After processing, test with TestFlight, complete the listing, iPhone/iPad

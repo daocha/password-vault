@@ -48,18 +48,63 @@ final class AutoBackupTests: XCTestCase {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let at = Date()
-        for step in 0..<20 { try AutoBackupFiles.write(Data([UInt8(step)]), to: folder, at: at) }
+        let names = try (0..<20).map { try AutoBackupFiles.write(Data([UInt8($0)]), to: folder, at: at) }
         let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
         XCTAssertEqual(files.count, 20)
         let bytes = try files.map { try Data(contentsOf: folder.appendingPathComponent($0)).first! }
         XCTAssertEqual(Set(bytes), Set((0..<20).map { UInt8($0) }))
+        // Only the time names a backup; a second one within the same second ends _2, _3… and sorts after it.
+        let stem = AutoBackupFiles.name(at: at).dropLast(".pvault".count)
+        XCTAssertEqual(names, ["\(stem).pvault"] + (2...20).map { "\(stem)_\($0).pvault" })
+        XCTAssertEqual(try AutoBackupFiles.newest(in: folder, limit: 20), names.reversed())
     }
 
-    func testNamesMatchAndroidAndSortByAge() {
+    func testNamesMatchAndroidAndSortByAge() throws {
         let at = Date(timeIntervalSince1970: 1_795_084_265) // 2026-11-19 10:31:05 UTC
-        XCTAssertEqual(AutoBackupFiles.name(at: at, timeZone: TimeZone(identifier: "UTC")!), "passvault_auto_2026-11-19_10_31_05.pvault")
-        let names = (1...8).map { AutoBackupFiles.name(at: at.addingTimeInterval(Double($0) * 3600), timeZone: TimeZone(identifier: "UTC")!) }
+        let utc = TimeZone(identifier: "UTC")!
+        XCTAssertEqual(AutoBackupFiles.name(at: at, timeZone: utc), "passvault_auto_2026-11-19_10_31_05.pvault")
+        let names = (1...8).map { AutoBackupFiles.name(at: at.addingTimeInterval(Double($0) * 3600), timeZone: utc) }
         XCTAssertEqual(names.shuffled().sorted(), names)
+        var taken = Set<String>()
+        for _ in 0..<3 { taken.insert(try AutoBackupFiles.uniqueName(at: at, timeZone: utc) { taken.contains($0) }) }
+        XCTAssertEqual(taken, ["passvault_auto_2026-11-19_10_31_05.pvault", "passvault_auto_2026-11-19_10_31_05_2.pvault", "passvault_auto_2026-11-19_10_31_05_3.pvault"])
+    }
+
+    /// The same list as Android's `settingsListsTheFiveNewestBackups`.
+    func testSettingsListsTheFiveNewestBackups() throws {
+        let names = ["holiday.jpg", "passvault_2026-11-01_09_00.pvault", "passvault_auto_2026-11-18_08_00_00.pvault", "passvault_auto_2026-11-19_10_31_05.pvault",
+                     "passvault_auto_2026-11-19_10_31_05_2.pvault", "passvault_auto_2026-11-17_23_59_59_0f8e2a4c-1b7d-4c2e-9a51-3d6f8b2e7c10.pvault",
+                     "passvault_auto_2026-11-19_09_00_00.pvault", "passvault_auto_2026-11-01_00_00_00.pvault", "passvault_auto_2026-11-19_09_00_00.pvault", "passvault_auto_notes.txt",
+            "passvault_auto_2026-11-19_10_31_05_10.pvault", "passvault_auto_2026-11-19_10_31_05_9.pvault", "passvault_auto_2026-11-19_10_31_05 (1).pvault"]
+        XCTAssertEqual(AutoBackupFiles.newest(names), [
+            "passvault_auto_2026-11-19_10_31_05_10.pvault", "passvault_auto_2026-11-19_10_31_05_9.pvault", "passvault_auto_2026-11-19_10_31_05_2.pvault",
+            "passvault_auto_2026-11-19_10_31_05 (1).pvault", "passvault_auto_2026-11-19_10_31_05.pvault"])
+        XCTAssertEqual(AutoBackupFiles.newest(names, limit: 10)[7], "passvault_auto_2026-11-17_23_59_59_0f8e2a4c-1b7d-4c2e-9a51-3d6f8b2e7c10.pvault")
+        XCTAssertEqual(AutoBackupFiles.newest(["holiday.jpg"]), [])
+        // A backup iCloud Drive has not downloaded yet is listed under its own name.
+        XCTAssertEqual(AutoBackupFiles.downloadedName(".passvault_auto_2026-11-19_10_31_05.pvault.icloud"), "passvault_auto_2026-11-19_10_31_05.pvault")
+        XCTAssertEqual(AutoBackupFiles.downloadedName("passvault_auto_2026-11-19_10_31_05.pvault"), "passvault_auto_2026-11-19_10_31_05.pvault")
+        let placeholders = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: placeholders, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: placeholders) }
+        try Data().write(to: placeholders.appendingPathComponent(".passvault_auto_2026-11-19_10_31_05.pvault.icloud"))
+        try Data().write(to: placeholders.appendingPathComponent("passvault_auto_2026-11-18_10_31_05.pvault"))
+        XCTAssertEqual(try AutoBackupFiles.newest(in: placeholders), ["passvault_auto_2026-11-19_10_31_05.pvault", "passvault_auto_2026-11-18_10_31_05.pvault"])
+        // A folder that cannot be read is an error, not an empty list.
+        let gone = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        XCTAssertThrowsError(try AutoBackupFiles.newest(in: gone))
+    }
+
+    /// A file that appears under the chosen name just before writing is neither replaced nor deleted.
+    func testABackupNeverReplacesOrDeletesAnExistingFile() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let at = Date(), first = folder.appendingPathComponent(AutoBackupFiles.name(at: at))
+        try Data([7]).write(to: first)
+        let name = try AutoBackupFiles.write(Data([8]), to: folder, at: at)
+        XCTAssertNotEqual(name, first.lastPathComponent)
+        XCTAssertEqual(try Data(contentsOf: first), Data([7]))
     }
 
     /// The "changed since the last backup" digest must not depend on dictionary order: JSONEncoder writes `legacy` in whatever order the

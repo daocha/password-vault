@@ -1,7 +1,8 @@
 import Foundation
 
 public enum VaultError: Error, LocalizedError {
-    case invalid(String), authentication, locked, erased, newerBackup, newerVault
+    /// `cancelled`: the user cancelled Face ID or Touch ID. Nothing to report, as on Android, which stays quiet when its prompt is cancelled.
+    case invalid(String), authentication, locked, erased, newerBackup, newerVault, cancelled
     public var errorDescription: String? {
         switch self {
         case .invalid(let message): return message
@@ -10,6 +11,7 @@ public enum VaultError: Error, LocalizedError {
         case .erased: return "The local vault was erased after 10 failed attempts. Restore an encrypted backup to a new vault."
         case .newerBackup: return "This backup was made by a newer version of PassVault. Update the app and try again."
         case .newerVault: return "Your vault was saved by a newer version of PassVault. Update the app to open it."
+        case .cancelled: return "Cancelled."
         }
     }
 }
