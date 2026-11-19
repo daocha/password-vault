@@ -63,6 +63,7 @@ targets:
       - AutoFill
       - PassVault/KeychainStorage.swift
       - PassVault/PasswordInput.swift
+      - PassVault/AutofillIdentitySync.swift
     dependencies:
       - package: VaultCore
     settings:

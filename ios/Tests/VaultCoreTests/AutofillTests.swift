@@ -125,8 +125,26 @@ final class AutofillExtensionTests: XCTestCase {
             XCTAssertNotNil(english[key], key)
         }
         // The app's own strings for its AutoFill panel.
-        let app = try table("PassVault/zh-Hant.lproj/Localizable.strings")
-        for key in ["AutoFill", "Open AutoFill settings", "Unlock your password vault"] { XCTAssertNotNil(app[key], key) }
+        let autofillPanel = ["AutoFill", "On", "Off", "Open AutoFill settings", "Show logins above the keyboard",
+                             "Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault.", "AutoFill cannot open your vault yet. Close PassVault and open it again.",
+                             "PassVault asks for your app password or Face ID / Touch ID before every fill.", "Unlock your password vault"]
+        for language in ["en", "zh-Hans", "zh-Hant"] {
+            let app = try table("PassVault/\(language).lproj/Localizable.strings")
+            for key in autofillPanel { XCTAssertNotNil(app[key], "\(language): \(key)") }
+        }
+        // The panel is the Settings button and one line, not a walkthrough of iOS Settings.
+        let appSource = try String(contentsOf: ios.appendingPathComponent("PassVault/PassVaultApp.swift"), encoding: .utf8)
+        XCTAssertFalse(appSource.contains("1. Open Settings"))
+    }
+
+    func testIOSIsGivenOnlyTheSiteAndUsernameOfFillableLogins() {
+        var bank = VaultRecord(); bank.website = "https://login.bank.co.uk/x"; bank.fields[0].value = "me"; bank.fields[1].value = "secret"
+        var noUser = VaultRecord(); noUser.name = "Agoda"; noUser.website = "agoda.com"; noUser.fields[1].value = "pw"
+        var noSite = VaultRecord(); noSite.name = "Booking"; noSite.fields[0].value = "me"; noSite.fields[1].value = "pw"
+        var card = VaultRecord(); card.type = "card"; card.website = "bank.com"; card.fields[0].value = "me"; card.fields[1].value = "1234"
+        XCTAssertEqual(AutofillIdentities.entries([bank, noUser, noSite, card]), [AutofillIdentities.Entry(domain: "bank.co.uk", user: "me", recordID: bank.id),
+                                                                                  AutofillIdentities.Entry(domain: "agoda.com", user: "Agoda", recordID: noUser.id)])
+        XCTAssertEqual(AutofillIdentities.skipped([bank, noUser, noSite, card]), [.init(reason: .noWebsite, names: ["Booking"])])
     }
 
     func testTheExtensionIsAPasswordProviderSharingOnlyTheAppGroup() throws {

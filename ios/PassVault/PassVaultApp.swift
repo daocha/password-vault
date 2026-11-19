@@ -56,6 +56,8 @@ import AVFoundation
         } catch { show(error.localizedDescription) }
         engine = initialized
         erased = (try? initialized?.isErased()) ?? false
+        // With "Show logins above the keyboard" off, iOS keeps no PassVault logins (also clears any left from when it was on).
+        if suppliedEngine == nil && !AppSettings.shared.autofillShowLogins { AutofillIdentitySync.clear() }
         loadBackupStatus()
         // A backup copy left from sending one before the app was closed.
         BackupShare.sweep(in: FileManager.default.temporaryDirectory)
@@ -201,6 +203,7 @@ import AVFoundation
                 }
                 if let result {
                     records = result; unlocked = true; exists = true
+                    if AppSettings.shared.autofillShowLogins { AutofillIdentitySync.update(result) }
                     // Each vault keeps its own backup history, so the decoy shows only its own.
                     decoy = engine.isDecoy(); hasDecoy = (try? engine.hasDecoy()) ?? false; canResetDecoy = (try? engine.canResetDecoy()) ?? false; loadBackupStatus()
                     // Only the vault that made a pending transfer may see it again.
@@ -220,6 +223,7 @@ import AVFoundation
         if closed { lock() }
         attempts = (try? engine?.remainingAttempts()) ?? 0
         erased = (try? engine?.isErased()) ?? false
+        if erased { AutofillIdentitySync.clear() }
         // Face ID or Touch ID cancelled by the user: nothing to report, as on Android.
         if case VaultError.cancelled? = error as? VaultError { return }
         show(Self.failureMessage(error, attempts: attempts, erased: erased))
@@ -303,6 +307,7 @@ import AVFoundation
         guard let engine else { return }
         do {
             try engine.resetErasedVault()
+            AutofillIdentitySync.clear()
             BackupStatus(defaults: backupPreferences).clear(); AutoBackupSettings(defaults: backupPreferences).clear(); forgetDecoyBackups(); loadBackupStatus()
             BackupShare.sweep(in: FileManager.default.temporaryDirectory)
             biometricEnabled = false; erased = false; exists = false; attempts = 10; show("Create a new vault, then import your backup.", error: false)
@@ -673,7 +678,7 @@ struct TransferView: View {
                         }.disabled(model.busy || !biometrics.canToggle(enabled: model.biometricEnabled)).accessibilityIdentifier("settings.biometrics")
                         .onChange(of: phase) { _, now in if now == .active { biometrics = .current() } }
                     }
-                    settingsRow("AutoFill", icon: "rectangle.and.pencil.and.ellipsis", summary: autofillOn ? "PassVault fills logins in other apps and Safari" : "Off. Turn on in iOS Settings to fill logins in other apps and Safari") { open(.autofill) }
+                    settingsRow("AutoFill", icon: "rectangle.and.pencil.and.ellipsis", summary: autofillOn ? "On" : "Off") { open(.autofill) }
                         .accessibilityIdentifier("settings.autofill")
                     settingsRow("Change app password", icon: "key") { open(.changePassword) }
                     if !model.decoy {
@@ -840,13 +845,21 @@ struct TransferView: View {
                     }.id(model.autoBackupRevision)
                 case .autofill:
                     Section {
-                        Text("1. Open Settings → General → AutoFill & Passwords and turn on PassVault.")
-                        Text("2. In a login form, tap Passwords above the keyboard, then PassVault.")
-                        Text("3. Unlock with your app password or Face ID / Touch ID, choose the login and confirm where it goes.")
                         Button("Open AutoFill settings") { Task { try? await ASSettingsHelper.openCredentialProviderAppSettings() } }
                         if !model.autofillReady { Text("AutoFill cannot open your vault yet. Close PassVault and open it again.").font(.footnote).foregroundStyle(.red) }
+                        Toggle("Show logins above the keyboard", isOn: $settings.autofillShowLogins)
+                            .onChange(of: settings.autofillShowLogins) { _, on in if on && model.unlocked { AutofillIdentitySync.update(model.records) } }
+                            .accessibilityIdentifier("settings.autofillShowLogins")
+                        Text("Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault.").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
+                        if settings.autofillShowLogins && model.unlocked {
+                            // iOS offers PassVault only on sites it holds a login for: say which logins it does not get, and why.
+                            Text(localizedFormat("%lld logins shown above the keyboard.", AutofillIdentities.entries(model.records).count)).font(.footnote)
+                            ForEach(AutofillIdentities.skipped(model.records), id: \.reason) { skipped in
+                                Text(localizedFormat(skipped.reason.rawValue, skipped.names.joined(separator: ", "))).font(.footnote).foregroundStyle(.orange)
+                            }
+                        }
                     } header: { Text(LocalizedStringKey(autofillOn ? "On" : "Off")) } footer: {
-                        Text("PassVault never shows your logins above the keyboard, so usernames and websites stay in the encrypted vault. AutoFill uses the same app password and attempt count as the app, and the vault locks again as soon as a login is filled.")
+                        Text("PassVault asks for your app password or Face ID / Touch ID before every fill.")
                     }
                 case .backupReminder:
                     Section {

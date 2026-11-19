@@ -150,3 +150,45 @@ public enum AutofillMatch {
     public static func username(_ record: VaultRecord) -> String? { record.fields.first { $0.kind == .username && !$0.value.isEmpty }?.value }
     public static func password(_ record: VaultRecord) -> String? { record.fields.first { $0.kind == .password && !$0.value.isEmpty }?.value }
 }
+
+/// What iOS may show above the keyboard for each login when the user turns on "Show logins above the keyboard": the login's site (its
+/// registrable domain), its username (the entry's name when it has none) and the record's ID. Never a password, a note or any other
+/// field. iOS offers PassVault on a page only when it holds one of these for that site, so the AutoFill settings list the logins left
+/// out and why (`skipped`).
+public enum AutofillIdentities {
+    public struct Entry: Equatable {
+        public let domain: String, user: String, recordID: String
+        public init(domain: String, user: String, recordID: String) { self.domain = domain; self.user = user; self.recordID = recordID }
+    }
+    /// Why a login is not given to iOS. The raw values are the settings' text (localization keys).
+    public enum Skip: String, CaseIterable {
+        case noWebsite = "Not shown, no website: %@"
+        case badWebsite = "Not shown, website not recognized: %@"
+        case noPassword = "Not shown, no password: %@"
+    }
+    public static func entries(_ records: [VaultRecord]) -> [Entry] {
+        AutofillMatch.candidates(records).compactMap { record in
+            guard skip(record) == nil, let domain = AutofillDomains.host(record.website).flatMap(AutofillDomains.registrable) else { return nil }
+            let name = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return Entry(domain: domain, user: AutofillMatch.username(record) ?? (name.isEmpty ? domain : name), recordID: record.id)
+        }
+    }
+    public static func skip(_ record: VaultRecord) -> Skip? {
+        if record.website.trimmingCharacters(in: .whitespaces).isEmpty { return .noWebsite }
+        if AutofillDomains.host(record.website).flatMap(AutofillDomains.registrable) == nil { return .badWebsite }
+        if AutofillMatch.password(record) == nil { return .noPassword }
+        return nil
+    }
+    public struct Skipped: Equatable {
+        public let reason: Skip, names: [String]
+        public init(reason: Skip, names: [String]) { self.reason = reason; self.names = names }
+    }
+    /// The logins left out, by reason, as entry names sorted as the picker lists them.
+    public static func skipped(_ records: [VaultRecord]) -> [Skipped] {
+        let logins = AutofillMatch.ordered(AutofillMatch.candidates(records))
+        return Skip.allCases.compactMap { reason in
+            let names = logins.filter { skip($0) == reason }.map(\.name)
+            return names.isEmpty ? nil : Skipped(reason: reason, names: names)
+        }
+    }
+}
