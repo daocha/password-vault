@@ -97,6 +97,11 @@ enum ClipboardClear: String, CaseIterable, Identifiable {
     @Published var allowCopy: Bool { didSet { defaults.set(allowCopy, forKey: "allowCopy"); if !allowCopy { SecretClipboard.clear() } } }
     @Published var clipboardClear: ClipboardClear { didSet { defaults.set(clipboardClear.rawValue, forKey: "clipboardClear") } }
     @Published var clearClipboardOnLock: Bool { didSet { defaults.set(clearClipboardOnLock, forKey: "clearClipOnLock") } }
+    /// Gives iOS each login's site and username so it offers PassVault above the keyboard (`AutofillIdentitySync`). Off by default.
+    @Published var autofillShowLogins: Bool { didSet {
+        defaults.set(autofillShowLogins, forKey: AutofillIdentitySync.settingKey)
+        if !autofillShowLogins { AutofillIdentitySync.clear() }
+    } }
     @Published var generator: GeneratorOptions { didSet {
         defaults.set(generator.length, forKey: "genLength"); defaults.set(generator.letters, forKey: "genLetters")
         defaults.set(generator.numbers, forKey: "genNumbers"); defaults.set(generator.symbols, forKey: "genSymbols")
@@ -108,6 +113,7 @@ enum ClipboardClear: String, CaseIterable, Identifiable {
         allowCopy = defaults.object(forKey: "allowCopy") as? Bool ?? true
         clipboardClear = defaults.string(forKey: "clipboardClear").flatMap(ClipboardClear.init) ?? .m1
         clearClipboardOnLock = defaults.object(forKey: "clearClipOnLock") as? Bool ?? true
+        autofillShowLogins = defaults.bool(forKey: AutofillIdentitySync.settingKey)
         var options = GeneratorOptions(length: (defaults.object(forKey: "genLength") as? Int ?? 10).clamped(GeneratorOptions.minLength, GeneratorOptions.maxLength),
                                        letters: defaults.object(forKey: "genLetters") as? Bool ?? true, numbers: defaults.object(forKey: "genNumbers") as? Bool ?? true,
                                        symbols: defaults.object(forKey: "genSymbols") as? Bool ?? true)

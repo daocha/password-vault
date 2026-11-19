@@ -150,3 +150,20 @@ public enum AutofillMatch {
     public static func username(_ record: VaultRecord) -> String? { record.fields.first { $0.kind == .username && !$0.value.isEmpty }?.value }
     public static func password(_ record: VaultRecord) -> String? { record.fields.first { $0.kind == .password && !$0.value.isEmpty }?.value }
 }
+
+/// What iOS may show above the keyboard for each login when the user turns on "Show logins above the keyboard": the login's site (its
+/// registrable domain), its username and the record's ID. Never a password, a note or any other field. Only logins with a website,
+/// a username and a password are listed; the rest stay reachable from the Passwords button.
+public enum AutofillIdentities {
+    public struct Entry: Equatable {
+        public let domain: String, user: String, recordID: String
+        public init(domain: String, user: String, recordID: String) { self.domain = domain; self.user = user; self.recordID = recordID }
+    }
+    public static func entries(_ records: [VaultRecord]) -> [Entry] {
+        AutofillMatch.candidates(records).compactMap { record in
+            guard AutofillMatch.password(record) != nil, let user = AutofillMatch.username(record),
+                  let host = AutofillDomains.host(record.website), let domain = AutofillDomains.registrable(host) else { return nil }
+            return Entry(domain: domain, user: user, recordID: record.id)
+        }
+    }
+}

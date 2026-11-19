@@ -59,7 +59,7 @@ enum AutofillSettings {
                 }
                 guard current == generation else { return }
                 engine = opened.0
-                if opened.erased { stage = .unavailable(localized(VaultError.erased.localizedDescription)) }
+                if opened.erased { AutofillIdentitySync.clear(); stage = .unavailable(localized(VaultError.erased.localizedDescription)) }
                 else if !opened.exists { stage = .unavailable(localized("Create your vault in PassVault first.")) }
                 else {
                     attempts = opened.attempts; biometricEnabled = opened.biometric; stage = .locked
@@ -92,7 +92,7 @@ enum AutofillSettings {
                 guard current == generation else { return }
                 let (left, erased) = status ?? (0, false)
                 attempts = left
-                if erased { stage = .unavailable(localized(VaultError.erased.localizedDescription)); return }
+                if erased { AutofillIdentitySync.clear(); stage = .unavailable(localized(VaultError.erased.localizedDescription)); return }
                 // Face ID or Touch ID cancelled, to type the password instead: nothing to report, as in the app and on Android.
                 if case VaultError.cancelled? = error as? VaultError { return }
                 // As in the app: a wrong password says how many attempts are left before the vault is erased.

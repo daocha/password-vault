@@ -484,11 +484,8 @@
 "No automatic backups in %@ yet." = "%@ 中還沒有自動備份。";
 "PassVault cannot open the folder %@. Choose it again in Automatic backup." = "PassVault 無法開啟資料夾 %@。請在「自動備份」中重新選擇。";
 "AutoFill" = "自動填入";
-"PassVault fills logins in other apps and Safari" = "PassVault 會在其他應用程式和 Safari 中填入登入資料";
-"Off. Turn on in iOS Settings to fill logins in other apps and Safari" = "已關閉。在 iOS 設定中開啟後可在其他應用程式和 Safari 中填入登入資料";
-"1. Open Settings → General → AutoFill & Passwords and turn on PassVault." = "1. 開啟「設定 → 一般 → 自動填寫與密碼」，開啟 PassVault。";
-"2. In a login form, tap Passwords above the keyboard, then PassVault." = "2. 在登入表單中，點一下鍵盤上方的「密碼」，然後選擇 PassVault。";
-"3. Unlock with your app password or Face ID / Touch ID, choose the login and confirm where it goes." = "3. 使用主密碼或 Face ID / Touch ID 解鎖，選擇登入資料並確認填入到哪裡。";
 "Open AutoFill settings" = "開啟自動填入設定";
+"Show logins above the keyboard" = "在鍵盤上方顯示登入資料";
+"Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault." = "iOS 需要此項才會在登入表單中提供 PassVault。開啟後，iOS 會在加密保險庫之外保存每筆登入資料的網站和使用者名稱。密碼仍只保存在保險庫中。";
 "AutoFill cannot open your vault yet. Close PassVault and open it again." = "自動填入暫時無法開啟你的保險庫。請關閉 PassVault 後重新開啟。";
-"PassVault never shows your logins above the keyboard, so usernames and websites stay in the encrypted vault. AutoFill uses the same app password and attempt count as the app, and the vault locks again as soon as a login is filled." = "PassVault 從不在鍵盤上方顯示你的登入資料，因此使用者名稱和網站都留在加密保險庫中。自動填入使用與應用程式相同的主密碼和嘗試次數，填入登入資料後保險庫會立即重新鎖定。";
+"PassVault asks for your app password or Face ID / Touch ID before every fill." = "每次填入前，PassVault 都會要求輸入主密碼或使用 Face ID / Touch ID。";

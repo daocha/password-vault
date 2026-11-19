@@ -47,6 +47,15 @@ func autofillChecks() throws {
     try check(shown.suggested && shown.records.map(\.name) == ["Bank"], "the site's logins are suggested")
     try check(AutofillMatch.shown(logins, sites: AutofillMatch.sites(["https://other.example"]), query: "").records.count == 2, "no match lists every login")
 
+    // "Show logins above the keyboard": site and username only, for logins that can be filled.
+    var noUser = VaultRecord(); noUser.name = "No user"; noUser.website = "nouser.example"; noUser.fields[1].value = "pw"
+    var noSite = VaultRecord(); noSite.name = "No site"; noSite.fields[0].value = "me"; noSite.fields[1].value = "pw"
+    var noPassword = VaultRecord(); noPassword.name = "No password"; noPassword.website = "nopw.example"; noPassword.fields[0].value = "me"
+    var suffixOnly = VaultRecord(); suffixOnly.name = "Suffix"; suffixOnly.website = "co.uk"; suffixOnly.fields[0].value = "me"; suffixOnly.fields[1].value = "pw"
+    let entries = AutofillIdentities.entries([bank, mail, card, noUser, noSite, noPassword, suffixOnly])
+    try check(entries == [AutofillIdentities.Entry(domain: "bank.com", user: "me", recordID: bank.id)], "iOS is given each fillable login's registrable domain and username only")
+    try check(!Mirror(reflecting: entries[0]).children.contains { ($0.value as? String) == "secret" }, "no password is given to iOS")
+
     // The app and AutoFill on one vault: saves and unlocks never interleave, so the vault always opens.
     let password = "A lengthy test passphrase 1!", storage = LockedStorage()
     let app = VaultEngine(storage: storage), autofill = VaultEngine(storage: storage, sequentialKeys: true)
@@ -76,4 +85,28 @@ func autofillChecks() throws {
     DispatchQueue.global().async { lock.run { order.append("app"); held.signal(); Thread.sleep(forTimeInterval: 0.2); order.append("app done") }; done.signal() }
     held.wait(); other.run { order.append("autofill") }; done.wait()
     try check(order == ["app", "app done", "autofill"], "AutoFill waits for the app's transaction")
+
+    // The app's AutoFill panel: the button that opens iOS Settings and one line, translated, with no walkthrough of iOS Settings.
+    let ios = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let appSource = try String(contentsOf: ios.appendingPathComponent("PassVault/PassVaultApp.swift"), encoding: .utf8)
+    try check(appSource.contains("ASSettingsHelper.openCredentialProviderAppSettings()") && !appSource.contains("1. Open Settings")
+              && !appSource.contains("tap Passwords above the keyboard"), "the AutoFill panel opens iOS Settings instead of describing it")
+    try check(appSource.contains("if AppSettings.shared.autofillShowLogins { AutofillIdentitySync.update(result) }")
+              && appSource.contains("if erased { AutofillIdentitySync.clear() }") && appSource.contains("!AppSettings.shared.autofillShowLogins { AutofillIdentitySync.clear() }"),
+              "the app gives iOS logins only with the switch on, and removes them when erased or off")
+    let settingsSource = try String(contentsOf: ios.appendingPathComponent("PassVault/AppSettings.swift"), encoding: .utf8)
+    try check(settingsSource.contains("autofillShowLogins = defaults.bool(forKey: AutofillIdentitySync.settingKey)")
+              && settingsSource.contains("if !autofillShowLogins { AutofillIdentitySync.clear() }"), "the switch is off by default and turning it off removes the logins")
+    let extensionSource = try String(contentsOf: ios.appendingPathComponent("AutoFill/AutofillModel.swift"), encoding: .utf8)
+    let project = try String(contentsOf: ios.appendingPathComponent("project.yml"), encoding: .utf8)
+    try check(extensionSource.components(separatedBy: "AutofillIdentitySync.clear()").count == 3 && project.contains("- PassVault/AutofillIdentitySync.swift"),
+              "AutoFill removes the logins when it finds or causes an erased vault")
+    for language in ["en", "zh-Hans", "zh-Hant"] {
+        let strings = try String(contentsOf: ios.appendingPathComponent("PassVault/\(language).lproj/Localizable.strings"), encoding: .utf8)
+        for key in ["On", "Off", "Open AutoFill settings", "Show logins above the keyboard",
+                    "Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault.", "AutoFill cannot open your vault yet. Close PassVault and open it again.",
+                    "PassVault asks for your app password or Face ID / Touch ID before every fill."] {
+            try check(strings.contains("\"\(key)\" = "), "AutoFill panel text translated (\(language)): \(key)")
+        }
+    }
 }
