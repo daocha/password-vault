@@ -19,7 +19,8 @@ final class ModelTestStorage: VaultStorage {
     func saveBiometricKey(_ data: Data) throws { biometric = data }
     func readBiometricKey() throws -> Data {
         biometricReads += 1
-        guard !cancelBiometric, let biometric else { throw VaultError.locked }
+        if cancelBiometric { throw VaultError.cancelled }
+        guard let biometric else { throw VaultError.locked }
         return biometric
     }
     func hasBiometricKey() throws -> Bool { biometric != nil }
@@ -54,6 +55,7 @@ final class ModelTestStorage: VaultStorage {
         await waitForWork(model)
         XCTAssertFalse(model.unlocked)
         XCTAssertEqual(model.attempts, 10)
+        XCTAssertFalse(model.status.isShowing, "cancelling Face ID shows no error, as on Android")
         model.didBecomeActive() // Face ID's inactive/active transition must not reopen its prompt.
         XCTAssertFalse(model.busy)
         XCTAssertEqual(storage.biometricReads, 1)

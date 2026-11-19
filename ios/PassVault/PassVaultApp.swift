@@ -220,6 +220,8 @@ import AVFoundation
         if closed { lock() }
         attempts = (try? engine?.remainingAttempts()) ?? 0
         erased = (try? engine?.isErased()) ?? false
+        // Face ID or Touch ID cancelled by the user: nothing to report, as on Android.
+        if case VaultError.cancelled? = error as? VaultError { return }
         show(Self.failureMessage(error, attempts: attempts, erased: erased))
     }
     /// The message for a failed action, in the app's language. A wrong app password says how many attempts are left, as on Android.

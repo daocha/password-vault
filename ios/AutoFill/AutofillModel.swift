@@ -93,6 +93,8 @@ enum AutofillSettings {
                 let (left, erased) = status ?? (0, false)
                 attempts = left
                 if erased { stage = .unavailable(localized(VaultError.erased.localizedDescription)); return }
+                // Face ID or Touch ID cancelled, to type the password instead: nothing to report, as in the app and on Android.
+                if case VaultError.cancelled? = error as? VaultError { return }
                 // As in the app: a wrong password says how many attempts are left before the vault is erased.
                 if case VaultError.authentication? = error as? VaultError { message = localizedFormat("Incorrect password. %lld attempts left before this vault is erased.", left) }
                 else { message = localized(error.localizedDescription) }

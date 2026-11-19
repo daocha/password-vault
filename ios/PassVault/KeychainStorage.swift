@@ -195,6 +195,8 @@ final class KeychainStorage: VaultStorage {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
+        // The user closed the Face ID / Touch ID prompt (to type the password instead): not an error to show.
+        if biometric && status == errSecUserCanceled { throw VaultError.cancelled }
         guard status == errSecSuccess, let item = result as? [String: Any], let data = item[kSecValueData as String] as? Data else {
             throw VaultError.invalid("Protected storage is unavailable or authentication was cancelled (\(status)).")
         }

@@ -15,7 +15,9 @@ final class MemoryStorage: VaultStorage {
     func removeBlobs(keeping ids: Set<String>) throws { blobs = blobs.filter { ids.contains($0.key) } }
     func hasBlobs() throws -> Bool { !blobs.isEmpty }
     func saveBiometricKey(_ data: Data) throws { biometric = data }
-    func readBiometricKey() throws -> Data { guard let biometric else { throw VaultError.locked }; return biometric }
+    /// Stands for the user closing the Face ID / Touch ID prompt (`KeychainStorage` throws `VaultError.cancelled`).
+    var cancelBiometric = false
+    func readBiometricKey() throws -> Data { if cancelBiometric { throw VaultError.cancelled }; guard let biometric else { throw VaultError.locked }; return biometric }
     func deleteBiometricKey() throws { biometric = nil }
 }
 final class VaultCoreTests: XCTestCase {
