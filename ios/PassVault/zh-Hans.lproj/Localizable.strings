@@ -273,6 +273,7 @@
 "Read QR code from a screenshot" = "从截图读取二维码";
 "Receive from another phone" = "从另一部手机接收";
 "Received %lld of %lld" = "已接收 %lld / %lld";
+"Recommended for a new wallet: a passphrase (the “25th word”) keeps the funds safe even if these words leak. Enter the same passphrase in your wallet app and write it down separately: without it, the funds can't be recovered." = "新钱包建议设置：密码短语（“第 25 个单词”）可在这些单词泄露时仍保护资产。请在钱包应用中输入相同的密码短语，并另行抄写保存；遗失它将无法找回资产。";
 "Remind on" = "提醒日期";
 "Remove" = "移除";
 "Remove decoy vault" = "移除诱饵密码库";
@@ -337,6 +338,7 @@
 "This 2FA entry is damaged and cannot make codes." = "此两步验证条目已损坏，无法生成验证码。";
 "This backup was made by a newer version of PassVault. Update the app and try again." = "此备份由更新版本的 PassVault 创建。请更新应用后重试。";
 "This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again." = "此诱饵保险库由旧测试版本创建，无法在此更改密码。请移除后重新设置。";
+"This device's random number generator failed a safety check, so no phrase was made. Try again. If this keeps happening, don't create seed phrases on this device." = "此设备的随机数生成器未通过安全检查，因此没有生成助记词。请重试；如果反复出现，请不要在此设备上生成助记词。";
 "This vault is too large for QR codes. Save a transfer file instead." = "此密码库太大，无法用二维码传输。请改为保存传输文件。";
 "Title" = "标题";
 "Too short to be a private key." = "长度太短，不像是私钥。";

@@ -45,10 +45,12 @@
     <string name="seed_no_word">没有以“%1$s”开头的 BIP-39 单词。</string>
     <string name="seed_passphrase_label">BIP-39 密码短语（可选）</string>
     <string name="seed_passphrase_hint">可选的“第 25 个单词”。如果你的钱包未使用，请留空。</string>
+    <string name="seed_passphrase_recommend">新钱包建议设置：密码短语（“第 25 个单词”）可在这些单词泄露时仍保护资产。请在钱包应用中输入相同的密码短语，并另行抄写保存；遗失它将无法找回资产。</string>
     <string name="seed_notes_optional">备注（可选）</string>
     <string name="seed_err_word_count">请输入 12 或 24 个单词（目前 %1$d 个）。</string>
     <string name="seed_err_unknown">不是 BIP-39 单词：%1$s</string>
     <string name="seed_err_checksum">校验和不匹配，请检查单词及其顺序。</string>
+    <string name="seed_err_randomness">此设备的随机数生成器未通过安全检查，因此没有生成助记词。请重试；如果反复出现，请不要在此设备上生成助记词。</string>
     <string name="seed_err_key_empty">请输入私钥。</string>
     <string name="seed_err_key_spaces">私钥不能包含空格或换行。</string>
     <string name="seed_err_key_short">长度太短，不像是私钥。</string>

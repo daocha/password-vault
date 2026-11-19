@@ -40,6 +40,7 @@ do {
     try entryPaneChecks()
     try listParityChecks()
     try seedChecks()
+    try seedEntropyChecks()
     try fileKeyChecks()
     try autofillChecks()
     let password = "A lengthy test passphrase 1!"

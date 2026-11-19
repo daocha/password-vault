@@ -273,6 +273,7 @@
 "Read QR code from a screenshot" = "Read QR code from a screenshot";
 "Receive from another phone" = "Receive from another phone";
 "Received %lld of %lld" = "Received %lld of %lld";
+"Recommended for a new wallet: a passphrase (the “25th word”) keeps the funds safe even if these words leak. Enter the same passphrase in your wallet app and write it down separately: without it, the funds can't be recovered." = "Recommended for a new wallet: a passphrase (the “25th word”) keeps the funds safe even if these words leak. Enter the same passphrase in your wallet app and write it down separately: without it, the funds can't be recovered.";
 "Remind on" = "Remind on";
 "Remove" = "Remove";
 "Remove decoy vault" = "Remove decoy vault";
@@ -337,6 +338,7 @@
 "This 2FA entry is damaged and cannot make codes." = "This 2FA entry is damaged and cannot make codes.";
 "This backup was made by a newer version of PassVault. Update the app and try again." = "This backup was made by a newer version of PassVault. Update the app and try again.";
 "This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again." = "This decoy vault was set up by an earlier test version, so its password cannot be changed here. Remove it and set it up again.";
+"This device's random number generator failed a safety check, so no phrase was made. Try again. If this keeps happening, don't create seed phrases on this device." = "This device's random number generator failed a safety check, so no phrase was made. Try again. If this keeps happening, don't create seed phrases on this device.";
 "This vault is too large for QR codes. Save a transfer file instead." = "This vault is too large for QR codes. Save a transfer file instead.";
 "Title" = "Title";
 "Too short to be a private key." = "Too short to be a private key.";
