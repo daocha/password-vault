@@ -151,8 +151,9 @@ public enum AutofillMatch {
     public static func password(_ record: VaultRecord) -> String? { record.fields.first { $0.kind == .password && !$0.value.isEmpty }?.value }
 }
 
-/// What iOS may show above the keyboard for each login when the user turns on "Show logins above the keyboard": the login's site (its
-/// registrable domain), its username (the entry's name when it has none) and the record's ID. Never a password, a note or any other
+/// What iOS may show above the keyboard for each login when the user turns on "Show logins above the keyboard": the login's site, its
+/// username (the entry's name when it has none) and the record's ID. iOS matches the page's host exactly, so each login is listed under
+/// its registrable domain, that domain with "www.", and the host saved in its website when that is another one (account.example.com). Never a password, a note or any other
 /// field. iOS offers PassVault on a page only when it holds one of these for that site, so the AutoFill settings list the logins left
 /// out and why (`skipped`).
 public enum AutofillIdentities {
@@ -167,12 +168,19 @@ public enum AutofillIdentities {
         case noPassword = "Not shown, no password: %@"
     }
     public static func entries(_ records: [VaultRecord]) -> [Entry] {
-        AutofillMatch.candidates(records).compactMap { record in
-            guard skip(record) == nil, let domain = AutofillDomains.host(record.website).flatMap(AutofillDomains.registrable) else { return nil }
+        AutofillMatch.candidates(records).flatMap { record -> [Entry] in
+            guard skip(record) == nil, let host = AutofillDomains.host(record.website), let domain = AutofillDomains.registrable(host) else { return [] }
             let name = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            return Entry(domain: domain, user: AutofillMatch.username(record) ?? (name.isEmpty ? domain : name), recordID: record.id)
+            let user = AutofillMatch.username(record) ?? (name.isEmpty ? domain : name)
+            // An IP address is its own host: no www. form.
+            let isAddress = domain == host && (host.contains(":") || host.allSatisfy { ("0"..."9").contains($0) || $0 == "." })
+            var seen = Set<String>()
+            return ([domain] + (isAddress ? [] : ["www." + domain]) + [host]).filter { seen.insert($0).inserted }
+                .map { Entry(domain: $0, user: user, recordID: record.id) }
         }
     }
+    /// How many logins `entries` gives iOS (each under one or more hosts).
+    public static func count(_ records: [VaultRecord]) -> Int { Set(entries(records).map(\.recordID)).count }
     public static func skip(_ record: VaultRecord) -> Skip? {
         if record.website.trimmingCharacters(in: .whitespaces).isEmpty { return .noWebsite }
         if AutofillDomains.host(record.website).flatMap(AutofillDomains.registrable) == nil { return .badWebsite }
