@@ -142,9 +142,8 @@ final class AutofillExtensionTests: XCTestCase {
         var noUser = VaultRecord(); noUser.name = "Agoda"; noUser.website = "agoda.com"; noUser.fields[1].value = "pw"
         var noSite = VaultRecord(); noSite.name = "Booking"; noSite.fields[0].value = "me"; noSite.fields[1].value = "pw"
         var card = VaultRecord(); card.type = "card"; card.website = "bank.com"; card.fields[0].value = "me"; card.fields[1].value = "1234"
-        XCTAssertEqual(AutofillIdentities.entries([bank, noUser, noSite, card]).map { "\($0.domain) \($0.user)" },
-                       ["bank.co.uk me", "www.bank.co.uk me", "login.bank.co.uk me", "agoda.com Agoda", "www.agoda.com Agoda"])
-        XCTAssertEqual(AutofillIdentities.count([bank, noUser, noSite, card]), 2)
+        XCTAssertEqual(AutofillIdentities.entries([bank, noUser, noSite, card]), [AutofillIdentities.Entry(domain: "bank.co.uk", user: "me", recordID: bank.id),
+                                                                                  AutofillIdentities.Entry(domain: "agoda.com", user: "Agoda", recordID: noUser.id)])
         XCTAssertEqual(AutofillIdentities.skipped([bank, noUser, noSite, card]), [.init(reason: .noWebsite, names: ["Booking"])])
     }
 

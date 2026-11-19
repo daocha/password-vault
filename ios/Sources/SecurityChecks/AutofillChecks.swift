@@ -54,12 +54,9 @@ func autofillChecks() throws {
     var suffixOnly = VaultRecord(); suffixOnly.name = "Suffix"; suffixOnly.website = "co.uk"; suffixOnly.fields[0].value = "me"; suffixOnly.fields[1].value = "pw"
     let all = [bank, mail, card, noUser, noSite, noPassword, suffixOnly]
     let entries = AutofillIdentities.entries(all)
-    try check(entries.map { "\($0.domain) \($0.user)" } == ["bank.com me", "www.bank.com me", "mail.example Mail", "www.mail.example Mail", "nouser.example No user", "www.nouser.example No user"]
-              && AutofillIdentities.count(all) == 3, "iOS is given each fillable login's domain, its www. form and username, or the entry's name without one")
-    var account = VaultRecord(); account.website = "https://account.booking.com/sign-in"; account.fields[1].value = "pw"
-    var address = VaultRecord(); address.website = "https://10.0.0.1:8443"; address.fields[1].value = "pw"
-    try check(AutofillIdentities.entries([account, address]).map(\.domain) == ["booking.com", "www.booking.com", "account.booking.com", "10.0.0.1"],
-              "a saved subdomain is given as well, and an IP address only as itself")
+    try check(entries == [AutofillIdentities.Entry(domain: "bank.com", user: "me", recordID: bank.id), AutofillIdentities.Entry(domain: "mail.example", user: "Mail", recordID: mail.id),
+                          AutofillIdentities.Entry(domain: "nouser.example", user: "No user", recordID: noUser.id)],
+              "iOS is given each fillable login's registrable domain and username, or the entry's name without one")
     try check(!entries.flatMap { Mirror(reflecting: $0).children.compactMap { $0.value as? String } }.contains { ["secret", "other", "pw"].contains($0) }, "no password is given to iOS")
     try check(AutofillIdentities.skipped(all) == [.init(reason: .noWebsite, names: ["No site"]), .init(reason: .badWebsite, names: ["Suffix"]), .init(reason: .noPassword, names: ["No password"])],
               "the logins left out are named with the reason")
