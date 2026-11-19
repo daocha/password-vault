@@ -6,22 +6,8 @@ final class LocalizationTests: XCTestCase {
     func testLanguageSwitchUpdatesPresentedSettingsAndSurvivesRelaunch() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.buttons["Create vault"].waitForExistence(timeout: 15), app.debugDescription)
-        do {
-            let password = "Simulator test password 1!"
-            app.secureTextFields["Master passphrase"].tap()
-            app.secureTextFields["Master passphrase"].typeText(password)
-            app.secureTextFields["Repeat passphrase"].tap()
-            app.secureTextFields["Repeat passphrase"].typeText(password)
-            let consent = app.switches.firstMatch
-            consent.tap()
-            // SwiftUI exposes both the labelled container and its native switch.
-            // On runtimes where tapping the label only scrolls it into view, hit the control.
-            if consent.value as? String != "1" { consent.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap() }
-            XCTAssertEqual(consent.value as? String, "1")
-            XCTAssertTrue(app.buttons["Create vault"].isEnabled)
-            app.buttons["Create vault"].tap()
-        }
+        // The automatic backup and export tests run first and may already have created the vault.
+        app.createOrUnlockVault()
         openSettings(app)
         let biometrics = app.switches["settings.biometrics"].firstMatch
         XCTAssertTrue(biometrics.waitForExistence(timeout: 10), app.debugDescription)

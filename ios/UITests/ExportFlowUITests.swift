@@ -9,13 +9,14 @@ final class ExportFlowUITests: XCTestCase {
     func testExportOffersSaveAndSendAndAWrongPasswordKeepsTheVaultOpen() {
         let app = XCUIApplication()
         app.launch()
-        createOrUnlock(app)
+        app.createOrUnlockVault(password: password)
         let settings = app.buttons["vault.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 30), app.debugDescription)
         settings.tap()
+        XCTAssertTrue(app.buttons["settings.language"].waitForExistence(timeout: 10), app.debugDescription)
+        // Further down the list, so it exists only once scrolled into view.
         let export = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Export encrypted backup")).firstMatch
-        XCTAssertTrue(export.waitForExistence(timeout: 10), app.debugDescription)
-        for _ in 0..<8 where !export.isHittable { app.swipeUp() }
+        XCTAssertTrue(app.scrollUntilHittable(export), app.debugDescription)
         export.tap()
 
         let field = app.secureTextFields["Current app password"]
@@ -43,25 +44,5 @@ final class ExportFlowUITests: XCTestCase {
         XCTAssertTrue(marks.contains(where: \.exists), "the share sheet opens: \(app.debugDescription)")
         if app.buttons["Close"].exists { app.buttons["Close"].tap() } else { app.swipeDown(velocity: .fast) }
         XCTAssertFalse(app.buttons["Unlock vault"].exists)
-    }
-
-    /// The localization and side-pane tests may already have created the vault on this simulator.
-    private func createOrUnlock(_ app: XCUIApplication) {
-        let create = app.buttons["Create vault"]
-        XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 15), app.debugDescription)
-        if create.exists {
-            app.secureTextFields["Master passphrase"].tap()
-            app.secureTextFields["Master passphrase"].typeText(password)
-            app.secureTextFields["Repeat passphrase"].tap()
-            app.secureTextFields["Repeat passphrase"].typeText(password)
-            let consent = app.switches.firstMatch
-            consent.tap()
-            if consent.value as? String != "1" { consent.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap() }
-            create.tap()
-        } else {
-            let field = app.secureTextFields.firstMatch
-            field.tap(); field.typeText(password)
-            app.buttons.matching(NSPredicate(format: "label IN %@", ["Unlock vault", "解锁保险库", "解鎖保險庫"])).firstMatch.tap()
-        }
     }
 }
