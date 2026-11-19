@@ -851,6 +851,13 @@ struct TransferView: View {
                             .onChange(of: settings.autofillShowLogins) { _, on in if on && model.unlocked { AutofillIdentitySync.update(model.records) } }
                             .accessibilityIdentifier("settings.autofillShowLogins")
                         Text("Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault.").font(.footnote).foregroundStyle(Color.aOnSurfaceVariant)
+                        if settings.autofillShowLogins && model.unlocked {
+                            // iOS offers PassVault only on sites it holds a login for: say which logins it does not get, and why.
+                            Text(localizedFormat("%lld logins shown above the keyboard.", AutofillIdentities.entries(model.records).count)).font(.footnote)
+                            ForEach(AutofillIdentities.skipped(model.records), id: \.reason) { skipped in
+                                Text(localizedFormat(skipped.reason.rawValue, skipped.names.joined(separator: ", "))).font(.footnote).foregroundStyle(.orange)
+                            }
+                        }
                     } header: { Text(LocalizedStringKey(autofillOn ? "On" : "Off")) } footer: {
                         Text("PassVault asks for your app password or Face ID / Touch ID before every fill.")
                     }

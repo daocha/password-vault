@@ -47,14 +47,19 @@ func autofillChecks() throws {
     try check(shown.suggested && shown.records.map(\.name) == ["Bank"], "the site's logins are suggested")
     try check(AutofillMatch.shown(logins, sites: AutofillMatch.sites(["https://other.example"]), query: "").records.count == 2, "no match lists every login")
 
-    // "Show logins above the keyboard": site and username only, for logins that can be filled.
+    // "Show logins above the keyboard": site and username (or the entry's name) only, for logins with a website and a password.
     var noUser = VaultRecord(); noUser.name = "No user"; noUser.website = "nouser.example"; noUser.fields[1].value = "pw"
     var noSite = VaultRecord(); noSite.name = "No site"; noSite.fields[0].value = "me"; noSite.fields[1].value = "pw"
     var noPassword = VaultRecord(); noPassword.name = "No password"; noPassword.website = "nopw.example"; noPassword.fields[0].value = "me"
     var suffixOnly = VaultRecord(); suffixOnly.name = "Suffix"; suffixOnly.website = "co.uk"; suffixOnly.fields[0].value = "me"; suffixOnly.fields[1].value = "pw"
-    let entries = AutofillIdentities.entries([bank, mail, card, noUser, noSite, noPassword, suffixOnly])
-    try check(entries == [AutofillIdentities.Entry(domain: "bank.com", user: "me", recordID: bank.id)], "iOS is given each fillable login's registrable domain and username only")
-    try check(!Mirror(reflecting: entries[0]).children.contains { ($0.value as? String) == "secret" }, "no password is given to iOS")
+    let all = [bank, mail, card, noUser, noSite, noPassword, suffixOnly]
+    let entries = AutofillIdentities.entries(all)
+    try check(entries == [AutofillIdentities.Entry(domain: "bank.com", user: "me", recordID: bank.id), AutofillIdentities.Entry(domain: "mail.example", user: "Mail", recordID: mail.id),
+                          AutofillIdentities.Entry(domain: "nouser.example", user: "No user", recordID: noUser.id)],
+              "iOS is given each fillable login's registrable domain and username, or the entry's name without one")
+    try check(!entries.flatMap { Mirror(reflecting: $0).children.compactMap { $0.value as? String } }.contains { ["secret", "other", "pw"].contains($0) }, "no password is given to iOS")
+    try check(AutofillIdentities.skipped(all) == [.init(reason: .noWebsite, names: ["No site"]), .init(reason: .badWebsite, names: ["Suffix"]), .init(reason: .noPassword, names: ["No password"])],
+              "the logins left out are named with the reason")
 
     // The app and AutoFill on one vault: saves and unlocks never interleave, so the vault always opens.
     let password = "A lengthy test passphrase 1!", storage = LockedStorage()
@@ -103,10 +108,13 @@ func autofillChecks() throws {
               "AutoFill removes the logins when it finds or causes an erased vault")
     for language in ["en", "zh-Hans", "zh-Hant"] {
         let strings = try String(contentsOf: ios.appendingPathComponent("PassVault/\(language).lproj/Localizable.strings"), encoding: .utf8)
-        for key in ["On", "Off", "Open AutoFill settings", "Show logins above the keyboard",
+        for key in ["On", "Off", "Open AutoFill settings", "Show logins above the keyboard", "%lld logins shown above the keyboard.",
                     "Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault.", "AutoFill cannot open your vault yet. Close PassVault and open it again.",
                     "PassVault asks for your app password or Face ID / Touch ID before every fill."] {
             try check(strings.contains("\"\(key)\" = "), "AutoFill panel text translated (\(language)): \(key)")
+        }
+        for reason in AutofillIdentities.Skip.allCases {
+            try check(strings.contains("\"\(reason.rawValue)\" = "), "AutoFill panel text translated (\(language)): \(reason.rawValue)")
         }
     }
 }

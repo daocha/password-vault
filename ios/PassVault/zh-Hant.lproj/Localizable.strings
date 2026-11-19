@@ -486,6 +486,10 @@
 "AutoFill" = "自動填入";
 "Open AutoFill settings" = "開啟自動填入設定";
 "Show logins above the keyboard" = "在鍵盤上方顯示登入資料";
+"%lld logins shown above the keyboard." = "鍵盤上方會顯示 %lld 筆登入資料。";
+"Not shown, no website: %@" = "未顯示（沒有網站）：%@";
+"Not shown, website not recognized: %@" = "未顯示（無法辨識網站）：%@";
+"Not shown, no password: %@" = "未顯示（沒有密碼）：%@";
 "Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault." = "iOS 需要此項才會在登入表單中提供 PassVault。開啟後，iOS 會在加密保險庫之外保存每筆登入資料的網站和使用者名稱。密碼仍只保存在保險庫中。";
 "AutoFill cannot open your vault yet. Close PassVault and open it again." = "自動填入暫時無法開啟你的保險庫。請關閉 PassVault 後重新開啟。";
 "PassVault asks for your app password or Face ID / Touch ID before every fill." = "每次填入前，PassVault 都會要求輸入主密碼或使用 Face ID / Touch ID。";

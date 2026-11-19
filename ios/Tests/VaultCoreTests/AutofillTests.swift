@@ -139,10 +139,12 @@ final class AutofillExtensionTests: XCTestCase {
 
     func testIOSIsGivenOnlyTheSiteAndUsernameOfFillableLogins() {
         var bank = VaultRecord(); bank.website = "https://login.bank.co.uk/x"; bank.fields[0].value = "me"; bank.fields[1].value = "secret"
-        var noUser = VaultRecord(); noUser.website = "a.example"; noUser.fields[1].value = "pw"
-        var noSite = VaultRecord(); noSite.fields[0].value = "me"; noSite.fields[1].value = "pw"
+        var noUser = VaultRecord(); noUser.name = "Agoda"; noUser.website = "agoda.com"; noUser.fields[1].value = "pw"
+        var noSite = VaultRecord(); noSite.name = "Booking"; noSite.fields[0].value = "me"; noSite.fields[1].value = "pw"
         var card = VaultRecord(); card.type = "card"; card.website = "bank.com"; card.fields[0].value = "me"; card.fields[1].value = "1234"
-        XCTAssertEqual(AutofillIdentities.entries([bank, noUser, noSite, card]), [AutofillIdentities.Entry(domain: "bank.co.uk", user: "me", recordID: bank.id)])
+        XCTAssertEqual(AutofillIdentities.entries([bank, noUser, noSite, card]), [AutofillIdentities.Entry(domain: "bank.co.uk", user: "me", recordID: bank.id),
+                                                                                  AutofillIdentities.Entry(domain: "agoda.com", user: "Agoda", recordID: noUser.id)])
+        XCTAssertEqual(AutofillIdentities.skipped([bank, noUser, noSite, card]), [.init(reason: .noWebsite, names: ["Booking"])])
     }
 
     func testTheExtensionIsAPasswordProviderSharingOnlyTheAppGroup() throws {

@@ -486,6 +486,10 @@
 "AutoFill" = "AutoFill";
 "Open AutoFill settings" = "Open AutoFill settings";
 "Show logins above the keyboard" = "Show logins above the keyboard";
+"%lld logins shown above the keyboard." = "%lld logins shown above the keyboard.";
+"Not shown, no website: %@" = "Not shown, no website: %@";
+"Not shown, website not recognized: %@" = "Not shown, website not recognized: %@";
+"Not shown, no password: %@" = "Not shown, no password: %@";
 "Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault." = "Needed for iOS to offer PassVault in login forms. iOS then keeps each login's website and username outside the encrypted vault. Passwords stay in the vault.";
 "AutoFill cannot open your vault yet. Close PassVault and open it again." = "AutoFill cannot open your vault yet. Close PassVault and open it again.";
 "PassVault asks for your app password or Face ID / Touch ID before every fill." = "PassVault asks for your app password or Face ID / Touch ID before every fill.";
