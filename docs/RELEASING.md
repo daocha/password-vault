@@ -180,7 +180,8 @@ keys out of Git. The `.p8` key path must exist on the machine running the releas
 ```
 
 The App Store build takes `versionName` and `versionCode` from `android/app/build.gradle.kts` and
-passes them to Xcode as `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. App Store versions must
+passes them to Xcode as `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`, for the app and its AutoFill extension
+alike (other builds use the `1.0` (1) fallback in `ios/project.yml`); the build stops if they differ in the archive. App Store versions must
 have three numeric components without a beta suffix. The current single-component build number
 must be 1–9999, and every new uploaded build needs an unused, increasing number. To rebuild the same
 version after an upload, increase the version code in a branch and merge that metadata through a PR.

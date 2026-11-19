@@ -147,6 +147,13 @@ final class AutofillExtensionTests: XCTestCase {
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER: $(PASSVAULT_APP_ID).autofill"))
         XCTAssertTrue(project.contains("      - target: PassVaultAutoFill"), "the app embeds the extension")
         XCTAssertTrue(project.contains("PASSVAULT_APP_ID: app.passvault.mobile.debug") && project.contains("PASSVAULT_APP_ID: app.passvault.mobile\n"))
+        // iOS refuses to install an app whose extension has no CFBundleVersion. The version is set once for every target, so the
+        // extension always matches the app, and no target sets its own.
+        let header = try XCTUnwrap(project.components(separatedBy: "\ntargets:").first)
+        XCTAssertTrue(header.contains("    MARKETING_VERSION: '") && header.contains("    CURRENT_PROJECT_VERSION: '"), "project-wide version")
+        XCTAssertEqual(project.components(separatedBy: "MARKETING_VERSION:").count, 2, "no target overrides the version")
+        XCTAssertEqual(project.components(separatedBy: "CURRENT_PROJECT_VERSION:").count, 2, "no target overrides the build number")
+        XCTAssertNil(info["CFBundleVersion"]); XCTAssertNil(info["CFBundleShortVersionString"])
     }
 
     /// No usernames or websites go to the QuickType bar (the system's credential store is outside the encrypted vault), nothing goes

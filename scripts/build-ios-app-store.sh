@@ -85,6 +85,13 @@ if props.get('Team') != team:
     sys.exit('Archive signing team does not match DEVELOPMENT_TEAM.')
 if version and (props.get('CFBundleShortVersionString') != version or props.get('CFBundleVersion') != code):
     sys.exit('Archive version/build number does not match release metadata.')
+# App Store Connect rejects an extension whose version or build number differs from the app's.
+app = pathlib.Path(archive) / 'Products' / props.get('ApplicationPath', '')
+for ext in sorted((app / 'PlugIns').glob('*.appex')):
+    with open(ext / 'Info.plist', 'rb') as f:
+        info = plistlib.load(f)
+    if (info.get('CFBundleShortVersionString'), info.get('CFBundleVersion')) != (props.get('CFBundleShortVersionString'), props.get('CFBundleVersion')):
+        sys.exit(f'{ext.name} version/build number does not match the app.')
 PY
 options="$output/ExportOptions.plist"
 python3 - "$options" "$DEVELOPMENT_TEAM" "$destination" <<'PY'

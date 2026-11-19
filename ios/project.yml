@@ -7,6 +7,12 @@ configs:
   Debug: debug
   Release: release
 settings:
+  base:
+    # Every target's version. The App Store build passes the release's own on the command line (scripts/build-ios-app-store.sh),
+    # which replaces these for the app and the AutoFill extension alike; other builds use these. iOS will not install an app
+    # whose extension has no CFBundleVersion, and App Store Connect rejects an extension whose version differs from the app's.
+    MARKETING_VERSION: '1.0'
+    CURRENT_PROJECT_VERSION: '1'
   configs:
     # The app's bundle ID. The AutoFill extension's is this plus ".autofill", and both share the app group group.<this>.
     Debug:

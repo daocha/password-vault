@@ -51,7 +51,10 @@ def value(key): return args[args.index(key) + 1]
 if args[0] == 'archive':
     archive = pathlib.Path(value('-archivePath')); archive.mkdir(parents=True)
     with open(archive / 'Info.plist', 'wb') as f:
-        plistlib.dump({'ApplicationProperties': {'CFBundleIdentifier': 'example.fixture', 'Team': 'TEAM123456', 'CFBundleShortVersionString': '2026.11.1', 'CFBundleVersion': os.environ.get('TEST_ARCHIVE_CODE', '8')}}, f)
+        plistlib.dump({'ApplicationProperties': {'CFBundleIdentifier': 'example.fixture', 'Team': 'TEAM123456', 'CFBundleShortVersionString': '2026.11.1', 'CFBundleVersion': os.environ.get('TEST_ARCHIVE_CODE', '8'), 'ApplicationPath': 'Applications/Fixture.app'}}, f)
+    extension = archive / 'Products/Applications/Fixture.app/PlugIns/FixtureAutoFill.appex'; extension.mkdir(parents=True)
+    with open(extension / 'Info.plist', 'wb') as f:
+        plistlib.dump({'CFBundleShortVersionString': '2026.11.1', 'CFBundleVersion': os.environ.get('TEST_EXTENSION_CODE', os.environ.get('TEST_ARCHIVE_CODE', '8'))}, f)
 else:
     with open(value('-exportOptionsPlist'), 'rb') as f: options = plistlib.load(f)
     if options['destination'] == 'export':
@@ -95,6 +98,13 @@ else:
         result = self.run_script()
         self.assertNotEqual(0, result.returncode)
         self.assertIn('version/build number', result.stderr)
+        self.assertEqual(1, len(self.calls()))
+
+    def test_extension_version_mismatch_prevents_export(self):
+        self.env['TEST_EXTENSION_CODE'] = '1'
+        result = self.run_script()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('FixtureAutoFill.appex version/build number does not match the app', result.stderr)
         self.assertEqual(1, len(self.calls()))
 
     def test_upload_uses_existing_archive_without_building(self):
